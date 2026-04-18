@@ -20,10 +20,22 @@ st.set_page_config(layout="wide", page_title="Hammersmith Tide Monitor")
 # Custom CSS for the "Kiosk" black background look
 st.markdown("""
     <style>
+    /* Force Courier/Monospace globally */
+    html, body, [data-testid="stAppViewContainer"], .main, span, p, h1, h2, h3 {
+        font-family: 'Courier New', Courier, monospace !important;
+    }
+    
     .main { background-color: #000000; color: #ffffff; }
-    div[data-testid="stMetricValue"] { color: #33FF57; }
+    div[data-testid="stMetricValue"] { color: #33FF57; font-family: 'Courier New', monospace !important; }
     [data-testid="stHeader"] { background: rgba(0,0,0,0); }
     h1, h2, h3 { color: white !important; }
+    
+    /* Invert the Calendar colors to get white text on black background */
+    iframe {
+        filter: invert(90%) hue-rotate(180deg) brightness(1.5);
+        border-radius: 10px;
+    }
+
     /* Hide Streamlit menu for a cleaner kiosk look */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
@@ -90,10 +102,10 @@ with col_weather:
 
 with col_cal:
     st.header("TODAY")
-    # 3. Calendar: Embed the Google Public URL for Fulham Reach Boat Club
-    cal_url = "https://calendar.google.com/calendar/embed?src=info%40fulhamreachboatclub.com&ctz=Europe%2FLondon&mode=AGENDA&showTitle=0&showNav=0&showDate=0&showPrint=0&showTabs=0&showCalendars=0"
+    # Calendar: Background set to black via bgcolor, then inverted via CSS above
+    cal_url = "https://calendar.google.com/calendar/embed?src=info%40fulhamreachboatclub.com&ctz=Europe%2FLondon&mode=AGENDA&showTitle=0&showNav=0&showDate=0&showPrint=0&showTabs=0&showCalendars=0&bgcolor=%23000000"
     st.components.v1.iframe(cal_url, height=500, scrolling=True)
-
+    
 # --- Footer ---
 st.divider()
 try:
