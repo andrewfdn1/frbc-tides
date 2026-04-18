@@ -16,28 +16,29 @@ st_autorefresh(interval=600000, key="datarefresh")
 # --- Page Config ---
 st.set_page_config(layout="wide", page_title="Hammersmith Tide Monitor", initial_sidebar_state="collapsed")
 
-# --- Custom CSS: Reverted to high-impact header removal ---
+# --- Custom CSS: Absolute Courier, Black Theme, & Logo Logic ---
 st.markdown("""
     <style>
-    /* Absolute suppression of the Streamlit Header and Toolbar */
-    header, [data-testid="stHeader"], .stAppHeader, .stToolbar {
+    /* REMOVE WHITE BAR: Targets specific Streamlit 2026 header containers */
+    header, [data-testid="stHeader"], .stAppHeader {
         display: none !important;
         visibility: hidden !important;
         height: 0px !important;
         padding: 0px !important;
-        margin: 0px !important;
     }
     
-    /* Pull content up to physically cover the header area */
     .block-container {
-        padding-top: -5rem !important; 
-        margin-top: -3rem !important;
+        padding-top: 0rem !important;
+        padding-bottom: 0rem !important;
         max-width: 95%;
     }
 
-    /* Courier Enforcement */
-    html, body, [data-testid="stAppViewContainer"], .main, div, span, p, td {
+    /* Global Courier Enforcement */
+    * {
         font-family: 'Courier New', Courier, monospace !important;
+    }
+    
+    html, body, [data-testid="stAppViewContainer"], .main {
         background-color: #000000 !important;
         color: #ffffff !important;
     }
@@ -50,16 +51,30 @@ st.markdown("""
         padding-bottom: 20px;
     }
     
-    .logo-container img { height: auto; display: block; }
+    .logo-container img {
+        height: auto;
+        display: block;
+    }
 
-    @media (orientation: portrait) { .logo-container img { width: 100% !important; } }
-    @media (orientation: landscape) { .logo-container img { width: 33% !important; } }
+    /* Portrait / Mobile: Full Width */
+    @media (orientation: portrait) {
+        .logo-container img {
+            width: 100% !important;
+        }
+    }
+
+    /* Landscape / Desktop: 33% Width */
+    @media (orientation: landscape) {
+        .logo-container img {
+            width: 33% !important;
+        }
+    }
 
     .metric-value { color: #33FF57 !important; font-weight: bold; font-size: 2rem; line-height: 1.1; margin-bottom: 15px; }
     .tide-grid { font-size: 1.6rem; line-height: 1.3; white-space: pre; font-weight: bold; }
     
     .weather-table { width: 100%; border-collapse: collapse; font-size: 1.3rem; margin-bottom: 10px; }
-    .weather-label { text-align: left; width: 50%; padding: 2px 0; }
+    .weather-label { text-align: left; width: 50%; padding: 2px 0; color: #ffffff; }
     .weather-data { text-align: left; width: 50%; padding: 2px 0; font-weight: bold; }
 
     .calendar-container { position: relative; width: 100%; height: 600px; border: 1px solid #444; overflow: hidden; }
@@ -68,11 +83,11 @@ st.markdown("""
         width: 100%; 
         height: 100%; 
         border: none; 
-        filter: invert(100%) hue-rotate(180deg) brightness(1.5); 
+        filter: invert(90%) hue-rotate(180deg) contrast(120%); 
     }
     
     hr { border-color: #444; }
-    h3 { border-bottom: 1px solid #333; padding-bottom: 5px; text-transform: uppercase; }
+    h3 { color: #ffffff !important; border-bottom: 1px solid #333; padding-bottom: 5px; text-transform: uppercase; }
     .warning-head { color: #FF4B4B; font-weight: bold; margin-top: 15px; margin-bottom: 5px; font-size: 1.4rem; }
     </style>
     """, unsafe_allow_html=True)
@@ -170,7 +185,7 @@ with col_mid:
 
         html_table = "<table class='weather-table'>"
         for label, val in core_rows:
-            html_table += f"<tr><td class='weather-label'>{label}</td><td class='weather-data'>{val}</td></tr>"
+            html_table += f"<tr><td class='weather-label'>{label}</td><td class='weather-data' style='color:white;'>{val}</td></tr>"
         html_table += "</table>"
         st.markdown(html_table, unsafe_allow_html=True)
 
@@ -183,6 +198,7 @@ with col_mid:
         fog_icon = "⚠️⚠️⚠️⚠️⚠️" if curr['weather_code'] in [45, 48] else "None"
         storm_icon = "⚠️⚠️⚠️⚠️⚠️" if curr['weather_code'] >= 95 else "None"
 
+        # LAUNCHES/BOATS Logic
         launch_msg, launch_color = "None", "white"
         try:
             last_low = [t for t in past if t['EventType'] == 'LowWater'][-1]
