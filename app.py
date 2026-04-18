@@ -128,10 +128,14 @@ def get_pla_flag():
 
 def get_kingston_flow():
     try:
-        url = "https://environment.data.gov.uk/flood-monitoring/id/measures/3400TH-flow-water-i-15_min-m3_s/readings?_limit=1"
+        # Added _sorted to ensure the first item is the latest reading
+        url = "https://environment.data.gov.uk/flood-monitoring/id/measures/3400TH-flow-water-i-15_min-m3_s/readings?_sorted&_limit=1"
         res = requests.get(url, timeout=5).json()
+        
+        # Access the value of the first item in the list
         return res['items'][0]['value']
-    except: return None
+    except (requests.exceptions.RequestException, KeyError, IndexError):
+        return None
 
 # --- UI Execution ---
 def get_image_base64(path):
