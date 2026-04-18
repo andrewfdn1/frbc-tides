@@ -19,21 +19,35 @@ st_autorefresh(interval=600000, key="datarefresh")
 # --- Custom CSS: Absolute Courier, Black Theme, & Logo Logic ---
 st.markdown("""
     <style>
-    /* REMOVE WHITE BAR: Targets specific Streamlit 2026 header containers */
-    header, [data-testid="stHeader"], .stAppHeader {
+    header, [data-testid="stHeader"], .stAppHeader,
+    [data-testid="stDecoration"], [data-testid="stToolbar"],
+    [data-testid="stStatusWidget"] {
         display: none !important;
-        visibility: hidden !important;
         height: 0px !important;
-        padding: 0px !important;
+        min-height: 0px !important;
     }
-    
+
+    .stApp > header {
+        background-color: transparent !important;
+    }
+
     .block-container {
         padding-top: 0rem !important;
+        margin-top: 0rem !important;
         padding-bottom: 0rem !important;
         max-width: 95%;
     }
 
-    /* Global Courier Enforcement */
+    [data-testid="stAppViewContainer"] {
+        padding-top: 0px !important;
+        margin-top: 0px !important;
+    }
+
+    [data-testid="stAppViewBlockContainer"] {
+        padding-top: 0px !important;
+        margin-top: 0px !important;
+    }
+
     * {
         font-family: 'Courier New', Courier, monospace !important;
     }
@@ -43,7 +57,6 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* Responsive Logo Styling */
     .logo-container {
         display: flex;
         justify-content: flex-start;
@@ -56,14 +69,12 @@ st.markdown("""
         display: block;
     }
 
-    /* Portrait / Mobile: Full Width */
     @media (orientation: portrait) {
         .logo-container img {
             width: 100% !important;
         }
     }
 
-    /* Landscape / Desktop: 33% Width */
     @media (orientation: landscape) {
         .logo-container img {
             width: 33% !important;
