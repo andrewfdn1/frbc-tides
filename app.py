@@ -17,28 +17,44 @@ st_autorefresh(interval=600000, key="datarefresh")
 # --- Page Config ---
 st.set_page_config(layout="wide", page_title="Hammersmith Tide Monitor")
 
-# Custom CSS for the "Kiosk" black background look
+# Custom CSS for the "Google Dark" look
 st.markdown("""
     <style>
-    /* Force Courier/Monospace globally */
-    html, body, [data-testid="stAppViewContainer"], .main, span, p, h1, h2, h3 {
-        font-family: 'Courier New', Courier, monospace !important;
+    /* 1. Import Roboto from Google Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
+
+    /* 2. Apply Roboto to the entire app */
+    html, body, [data-testid="stAppViewContainer"], .main, span, p, h1, h2, h3, div {
+        font-family: 'Roboto', sans-serif !important;
     }
     
     .main { background-color: #000000; color: #ffffff; }
-    div[data-testid="stMetricValue"] { color: #33FF57; font-family: 'Courier New', monospace !important; }
-    [data-testid="stHeader"] { background: rgba(0,0,0,0); }
-    h1, h2, h3 { color: white !important; }
     
-    /* Invert the Calendar colors to get white text on black background */
-    iframe {
-        filter: invert(90%) hue-rotate(180deg) brightness(1.5);
-        border-radius: 10px;
+    /* 3. Style Metrics and Headers */
+    div[data-testid="stMetricValue"] { 
+        color: #33FF57; 
+        font-weight: 700;
+        font-size: 2.5rem !important;
+    }
+    
+    h1, h2, h3 { 
+        text-transform: uppercase; 
+        letter-spacing: 1px;
+        color: white !important; 
     }
 
-    /* Hide Streamlit menu for a cleaner kiosk look */
+    /* 4. The Calendar "Dark Mode" Filter */
+    /* This inverts the colors but keeps the hues correct */
+    iframe {
+        filter: invert(92%) hue-rotate(180deg) contrast(110%);
+        border: 1px solid #333;
+        border-radius: 8px;
+    }
+
+    /* Hide Streamlit clutter */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    [data-testid="stHeader"] { background: rgba(0,0,0,0); }
     </style>
     """, unsafe_allow_html=True)
 
@@ -102,8 +118,11 @@ with col_weather:
 
 with col_cal:
     st.header("TODAY")
-    # Calendar: Background set to black via bgcolor, then inverted via CSS above
-    cal_url = "https://calendar.google.com/calendar/embed?src=info%40fulhamreachboatclub.com&ctz=Europe%2FLondon&mode=AGENDA&showTitle=0&showNav=0&showDate=0&showPrint=0&showTabs=0&showCalendars=0&bgcolor=%23000000"
+    # 3. Calendar: Embed with a white background so the CSS filter can flip it to black
+    # Note: bgcolor=%23ffffff is the hex code for white.
+    cal_url = "https://calendar.google.com/calendar/embed?src=info%40fulhamreachboatclub.com&ctz=Europe%2FLondon&mode=AGENDA&showTitle=0&showNav=0&showDate=0&showPrint=0&showTabs=0&showCalendars=0&bgcolor=%23ffffff"
+    
+    # This renders the calendar inside the app
     st.components.v1.iframe(cal_url, height=500, scrolling=True)
     
 # --- Footer ---
