@@ -28,7 +28,7 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     </style>
-    """, unsafe_allow_name_html=True)
+    """, unsafe_allow_html=True)
 
 # 2. Configuration from Streamlit Secrets (Set this up in Streamlit Cloud Dashboard)
 TIDE_API_KEY = st.secrets["TIDE_API_KEY"]
