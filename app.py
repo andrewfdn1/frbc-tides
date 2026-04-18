@@ -15,10 +15,10 @@ st_autorefresh(interval=600000, key="datarefresh")
 # --- Page Config ---
 st.set_page_config(layout="wide", page_title="Hammersmith Tide Monitor", initial_sidebar_state="collapsed")
 
-# --- Custom CSS: Absolute Courier Enforcement ---
+# --- Custom CSS: Absolute Courier & Black Theme Enforcement ---
 st.markdown("""
     <style>
-    /* Global Font Override */
+    /* Global Courier Enforcement */
     * {
         font-family: 'Courier New', Courier, monospace !important;
     }
@@ -35,17 +35,23 @@ st.markdown("""
     .tide-grid { font-size: 1.6rem; line-height: 1.3; white-space: pre; font-weight: bold; }
     
     /* Weather Table Alignment */
-    .weather-table { width: 100%; border-collapse: collapse; font-size: 1.3rem; }
+    .weather-table { width: 100%; border-collapse: collapse; font-size: 1.3rem; margin-bottom: 10px; }
     .weather-label { text-align: left; width: 50%; padding: 2px 0; color: #ffffff; }
     .weather-data { text-align: left; width: 50%; padding: 2px 0; font-weight: bold; }
 
-    /* Calendar Container */
-    .calendar-container { position: relative; width: 100%; height: 600px; border: 1px solid #444; background-color: #ffffff; }
+    /* Calendar Container - White on Black via Filter */
+    .calendar-container { position: relative; width: 100%; height: 600px; border: 1px solid #444; overflow: hidden; }
     .calendar-shield { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; background: transparent; }
-    iframe { width: 100%; height: 100%; border: none; }
+    iframe { 
+        width: 100%; 
+        height: 100%; 
+        border: none; 
+        filter: invert(90%) hue-rotate(180deg) contrast(120%); 
+    }
     
     hr { border-color: #444; }
-    h3 { color: #ffffff !important; border-bottom: 1px solid #333; padding-bottom: 5px; }
+    h3 { color: #ffffff !important; border-bottom: 1px solid #333; padding-bottom: 5px; text-transform: uppercase; }
+    .warning-head { color: #FF4B4B; font-weight: bold; margin-top: 15px; margin-bottom: 5px; font-size: 1.4rem; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -86,7 +92,7 @@ except: st.write("### FULHAM REACH BOAT CLUB")
 col_left, col_mid, col_right = st.columns([1.3, 1.1, 1.3])
 
 with col_left:
-    st.markdown("### TIDES")
+    st.markdown("### Tides")
     try:
         tides, is_bst, now_utc = get_tides()
         future = [t for t in tides if t['dt_utc'] > now_utc]
@@ -104,7 +110,7 @@ with col_left:
     except: st.write("Tide Sync Error")
 
     st.markdown("---")
-    st.markdown("### PLA EBB FLAG")
+    st.markdown("### PLA Ebb Flag")
     flag_url = get_pla_flag()
     if flag_url: st.image(flag_url, width=140)
     
@@ -113,7 +119,7 @@ with col_left:
         st.markdown(f"<div class='metric-value' style='font-size:1.5rem;'>KINGSTON FLOW: {flow:.1f} m³/s</div>", unsafe_allow_html=True)
 
 with col_mid:
-    st.markdown("### WEATHER")
+    st.markdown("### Weather")
     try:
         res = requests.get(f"https://api.open-meteo.com/v1/forecast?latitude=51.488&longitude=-0.224&current=temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code&daily=sunrise,sunset,precipitation_probability_max&timezone=Europe/London&forecast_days=1", timeout=5).json()
         curr, daily = res['current'], res['daily']
@@ -122,7 +128,26 @@ with col_mid:
         w_gusts = curr['wind_gusts_10m']
         w_dir_str = get_cardinal_direction(curr['wind_direction_10m'])
         
-        # Hazard Logic
+        # Weather Core Data
+        core_rows = [
+            ("Temp:", f"{curr['temperature_2m']}°C"),
+            ("Wind:", f"{w_speed} km/h"),
+            ("Gusts:", f"{w_gusts} km/h"),
+            ("Dir:", w_dir_str),
+            ("Rain:", f"{daily['precipitation_probability_max'][0]}%"),
+            ("Sunrise:", daily['sunrise'][0][-5:]),
+            ("Sunset:", daily['sunset'][0][-5:])
+        ]
+
+        html_table = "<table class='weather-table'>"
+        for label, val in core_rows:
+            html_table += f"<tr><td class='weather-label'>{label}</td><td class='weather-data' style='color:white;'>{val}</td></tr>"
+        html_table += "</table>"
+        st.markdown(html_table, unsafe_allow_html=True)
+
+        # Warnings Section
+        st.markdown("<div class='warning-head'>WARNINGS</div>", unsafe_allow_html=True)
+        
         wat_icon, wat_color = "None", "white"
         if (w_speed > 15 or w_gusts > 15) and ((current_direction_str == "Ebb tide" and w_dir_str in ["S", "SE", "SW"]) or (current_direction_str == "Flood tide" and w_dir_str in ["N", "NE", "NW"])):
             wat_icon, wat_color = "⚠️⚠️⚠️⚠️⚠️", "#FFFF00"
@@ -130,30 +155,22 @@ with col_mid:
         fog_icon = "⚠️⚠️⚠️⚠️⚠️" if curr['weather_code'] in [45, 48] else "None"
         storm_icon = "⚠️⚠️⚠️⚠️⚠️" if curr['weather_code'] >= 95 else "None"
 
-        weather_rows = [
-            ("Temp:", f"{curr['temperature_2m']}°C", "white"),
-            ("Wind:", f"{w_speed} km/h", "white"),
-            ("Gusts:", f"{w_gusts} km/h", "white"),
-            ("Dir:", w_dir_str, "white"),
-            ("Rain:", f"{daily['precipitation_probability_max'][0]}%", "white"),
-            ("Sunrise:", daily['sunrise'][0][-5:], "white"),
-            ("Sunset:", daily['sunset'][0][-5:], "white"),
+        warning_rows = [
             ("Fog:", fog_icon, "#FFFF00" if fog_icon != "None" else "white"),
             ("Storm:", storm_icon, "#FFFF00" if storm_icon != "None" else "white"),
             ("Wind v Tide:", wat_icon, wat_color)
         ]
 
-        # Two-Column Table Layout
-        html_table = "<table class='weather-table'>"
-        for label, val, color in weather_rows:
-            html_table += f"<tr><td class='weather-label'>{label}</td><td class='weather-data' style='color:{color};'>{val}</td></tr>"
-        html_table += "</table>"
-        st.markdown(html_table, unsafe_allow_html=True)
+        warn_table = "<table class='weather-table'>"
+        for label, val, color in warning_rows:
+            warn_table += f"<tr><td class='weather-label'>{label}</td><td class='weather-data' style='color:{color};'>{val}</td></tr>"
+        warn_table += "</table>"
+        st.markdown(warn_table, unsafe_allow_html=True)
 
     except: st.write("Weather Sync Error")
 
 with col_right:
-    st.markdown("### CLUB CALENDAR")
+    st.markdown("### Calendar")
     cal_id = "info@fulhamreachboatclub.com"
     cal_url = f"https://calendar.google.com/calendar/embed?src={cal_id.replace('@', '%40')}&ctz=Europe%2FLondon&mode=AGENDA&showTitle=0&showNav=0&showDate=0&showPrint=0&showTabs=0&showCalendars=0"
     
