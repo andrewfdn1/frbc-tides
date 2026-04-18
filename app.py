@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 import urllib3
 from zoneinfo import ZoneInfo
 from streamlit_autorefresh import st_autorefresh
+import base64
 
 # Disable warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -15,13 +16,15 @@ st_autorefresh(interval=600000, key="datarefresh")
 # --- Page Config ---
 st.set_page_config(layout="wide", page_title="Hammersmith Tide Monitor", initial_sidebar_state="collapsed")
 
-# --- Custom CSS: Responsive Logo & White Bar Elimination ---
+# --- Custom CSS: Absolute Courier, Black Theme, & Logo Logic ---
 st.markdown("""
     <style>
-    /* Force-hide the white header bar and adjust spacing */
-    header, [data-testid="stHeader"] {
+    /* REMOVE WHITE BAR: Targets specific Streamlit 2026 header containers */
+    header, [data-testid="stHeader"], .stAppHeader {
         display: none !important;
+        visibility: hidden !important;
         height: 0px !important;
+        padding: 0px !important;
     }
     
     .block-container {
@@ -44,12 +47,13 @@ st.markdown("""
     .logo-container {
         display: flex;
         justify-content: flex-start;
-        padding-top: 10px;
+        padding-top: 0px;
         padding-bottom: 20px;
     }
     
     .logo-container img {
         height: auto;
+        display: block;
     }
 
     /* Portrait / Mobile: Full Width */
@@ -119,12 +123,10 @@ def get_kingston_flow():
     except: return None
 
 # --- UI Execution ---
-import base64
 def get_image_base64(path):
     with open(path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode()
 
-# Render Responsive Logo
 try:
     img_b64 = get_image_base64("FRBC logo White on black.png")
     st.markdown(f'<div class="logo-container"><img src="data:image/png;base64,{img_b64}"></div>', unsafe_allow_html=True)
@@ -138,6 +140,7 @@ with col_left:
     try:
         tides, is_bst, now_utc = get_tides()
         future = [t for t in tides if t['dt_utc'] > now_utc]
+        past = [t for t in tides if t['dt_utc'] <= now_utc]
         off = (timedelta(hours=1) if is_bst else timedelta(0))
         
         current_direction_str = ""
@@ -195,10 +198,19 @@ with col_mid:
         fog_icon = "⚠️⚠️⚠️⚠️⚠️" if curr['weather_code'] in [45, 48] else "None"
         storm_icon = "⚠️⚠️⚠️⚠️⚠️" if curr['weather_code'] >= 95 else "None"
 
+        # LAUNCHES/BOATS Logic
+        launch_msg, launch_color = "None", "white"
+        try:
+            last_low = [t for t in past if t['EventType'] == 'LowWater'][-1]
+            if (now_utc - last_low['dt_utc']).total_seconds() <= 3600:
+                launch_msg, launch_color = "CHECK PONTOON, FLOODING TIDE", "#FFFF00"
+        except: pass
+
         warning_rows = [
             ("Fog:", fog_icon, "#FFFF00" if fog_icon != "None" else "white"),
             ("Storm:", storm_icon, "#FFFF00" if storm_icon != "None" else "white"),
-            ("Wind v Tide:", wat_icon, wat_color)
+            ("Wind v Tide:", wat_icon, wat_color),
+            ("Launches/Boats:", launch_msg, launch_color)
         ]
 
         warn_table = "<table class='weather-table'>"
