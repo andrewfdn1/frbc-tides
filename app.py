@@ -15,9 +15,21 @@ st_autorefresh(interval=600000, key="datarefresh")
 # --- Page Config ---
 st.set_page_config(layout="wide", page_title="Hammersmith Tide Monitor", initial_sidebar_state="collapsed")
 
-# --- Custom CSS: Absolute Courier & Black Theme Enforcement ---
+# --- Custom CSS: Responsive Logo & White Bar Elimination ---
 st.markdown("""
     <style>
+    /* Force-hide the white header bar and adjust spacing */
+    header, [data-testid="stHeader"] {
+        display: none !important;
+        height: 0px !important;
+    }
+    
+    .block-container {
+        padding-top: 0rem !important;
+        padding-bottom: 0rem !important;
+        max-width: 95%;
+    }
+
     /* Global Courier Enforcement */
     * {
         font-family: 'Courier New', Courier, monospace !important;
@@ -28,18 +40,39 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    [data-testid="stHeader"] { visibility: hidden; height: 0px; }
-    .block-container { padding-top: 1rem; padding-bottom: 0rem; max-width: 95%; }
+    /* Responsive Logo Styling */
+    .logo-container {
+        display: flex;
+        justify-content: flex-start;
+        padding-top: 10px;
+        padding-bottom: 20px;
+    }
     
+    .logo-container img {
+        height: auto;
+    }
+
+    /* Portrait / Mobile: Full Width */
+    @media (orientation: portrait) {
+        .logo-container img {
+            width: 100% !important;
+        }
+    }
+
+    /* Landscape / Desktop: 33% Width */
+    @media (orientation: landscape) {
+        .logo-container img {
+            width: 33% !important;
+        }
+    }
+
     .metric-value { color: #33FF57 !important; font-weight: bold; font-size: 2rem; line-height: 1.1; margin-bottom: 15px; }
     .tide-grid { font-size: 1.6rem; line-height: 1.3; white-space: pre; font-weight: bold; }
     
-    /* Weather Table Alignment */
     .weather-table { width: 100%; border-collapse: collapse; font-size: 1.3rem; margin-bottom: 10px; }
     .weather-label { text-align: left; width: 50%; padding: 2px 0; color: #ffffff; }
     .weather-data { text-align: left; width: 50%; padding: 2px 0; font-weight: bold; }
 
-    /* Calendar Container - White on Black via Filter */
     .calendar-container { position: relative; width: 100%; height: 600px; border: 1px solid #444; overflow: hidden; }
     .calendar-shield { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; background: transparent; }
     iframe { 
@@ -85,9 +118,18 @@ def get_kingston_flow():
         return res['items'][0]['value']
     except: return None
 
-# --- UI Layout ---
-try: st.image("FRBC logo White on black.png", width=250)
-except: st.write("### FULHAM REACH BOAT CLUB")
+# --- UI Execution ---
+import base64
+def get_image_base64(path):
+    with open(path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode()
+
+# Render Responsive Logo
+try:
+    img_b64 = get_image_base64("FRBC logo White on black.png")
+    st.markdown(f'<div class="logo-container"><img src="data:image/png;base64,{img_b64}"></div>', unsafe_allow_html=True)
+except:
+    st.write("### FULHAM REACH BOAT CLUB")
 
 col_left, col_mid, col_right = st.columns([1.3, 1.1, 1.3])
 
@@ -128,7 +170,6 @@ with col_mid:
         w_gusts = curr['wind_gusts_10m']
         w_dir_str = get_cardinal_direction(curr['wind_direction_10m'])
         
-        # Weather Core Data
         core_rows = [
             ("Temp:", f"{curr['temperature_2m']}°C"),
             ("Wind:", f"{w_speed} km/h"),
@@ -145,7 +186,6 @@ with col_mid:
         html_table += "</table>"
         st.markdown(html_table, unsafe_allow_html=True)
 
-        # Warnings Section
         st.markdown("<div class='warning-head'>WARNINGS</div>", unsafe_allow_html=True)
         
         wat_icon, wat_color = "None", "white"
