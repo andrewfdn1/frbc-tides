@@ -1,9 +1,6 @@
 import streamlit as st
 import requests
 from datetime import datetime, timezone, timedelta
-from bs4 import BeautifulSoup
-from PIL import Image
-from io import BytesIO
 import urllib3
 from zoneinfo import ZoneInfo
 from streamlit_autorefresh import st_autorefresh
@@ -34,7 +31,7 @@ st.markdown("""
     div[data-testid="stMetricValue"] { 
         color: #33FF57; 
         font-weight: 700;
-        font-size: 2.5rem !important;
+        font-size: 2.2rem !important;
     }
     
     h1, h2, h3 { 
@@ -44,7 +41,6 @@ st.markdown("""
     }
 
     /* 4. The Calendar "Dark Mode" Filter */
-    /* This inverts the colors but keeps the hues correct */
     iframe {
         filter: invert(92%) hue-rotate(180deg) contrast(110%);
         border: 1px solid #333;
@@ -58,11 +54,11 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. Configuration from Streamlit Secrets (Set this up in Streamlit Cloud Dashboard)
+# --- Configuration & Data Functions ---
 TIDE_API_KEY = st.secrets["TIDE_API_KEY"]
 STATION_ID = "0115"
-KINGSTON_STATION_ID = "3400TH"
-LAT, LON = 51.488, -0.224
+# Hammersmith Bridge Coordinates
+LAT, LON = 51.4875, -0.2301
 
 def get_tides():
     now_utc = datetime.now(timezone.utc)
@@ -81,6 +77,15 @@ def get_tides():
     ], key=lambda x: x['dt_utc'])
     
     return processed, is_bst, now_utc
+
+def get_kingston_flow():
+    try:
+        # EA Hydrology API for Kingston (Station 3400TH)
+        url = "https://environment.data.gov.uk/hydrology/id/stations/3400TH/measures/flow-m3s-instantaneous-15min-quals/readings?_limit=1"
+        res = requests.get(url, timeout=5).json()
+        return res['items'][0]['value']
+    except:
+        return None
 
 # --- UI Layout ---
 col_tide, col_weather, col_cal = st.columns([1, 1, 1])
@@ -101,36 +106,68 @@ with col_tide:
             offset = timedelta(hours=1) if is_bst else timedelta(0)
             time_str = (t['dt_utc'] + offset).strftime('%a %H:%M')
             color = "#FFD700" if t['EventType'] == "HighWater" else "#00CED1"
-            st.markdown(f"<span style='color:{color}; font-family:monospace; font-size:22px; font-weight:bold;'>{time_str} {'HI' if t['EventType'] == 'HighWater' else 'LO'} {t['Height']:.1f}m</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color:{color}; font-weight:bold; font-size:18px;'>{time_str} {'HI' if t['EventType'] == 'HighWater' else 'LO'} {t['Height']:.1f}m</span>", unsafe_allow_html=True)
     except:
         st.error("Tide data unavailable")
+
+    st.markdown("---")
+    st.header("PLA Ebb Tide Flag")
+    # Pulling the flag image from PLA
+    st.image("https://www.pla.co.uk/sites/default/files/ebb_tide_flag.png", width=180)
+    
+    flow = get_kingston_flow()
+    if flow:
+        st.metric("Kingston Flow", f"{flow:.2f} m³/s")
+    else:
+        st.write("Flow data unavailable")
 
 with col_weather:
     st.header("WEATHER")
     try:
-        res = requests.get(f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m&daily=sunrise,sunset&timezone=Europe%2FLondon&forecast_days=1", timeout=5).json()
+        # Open-Meteo API for Hammersmith Bridge
+        weather_url = (
+            f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}"
+            f"&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation_probability"
+            f"&daily=sunrise,sunset&timezone=Europe/London&forecast_days=1"
+        )
+        res = requests.get(weather_url, timeout=5).json()
         curr = res['current']
+        daily = res['daily']
+        code = curr['weather_code']
+
         st.metric("Temperature", f"{curr['temperature_2m']}°C")
-        st.metric("Wind Speed", f"{curr['wind_speed_10m']} km/h")
-        st.metric("Wind Gusts", f"{curr['wind_gusts_10m']} km/h")
+        st.metric("Rain Chance", f"{curr['precipitation_probability']}%")
+        
+        # Wind Logic
+        dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+        wind_dir = dirs[int((curr['wind_direction_10m'] + 22.5) / 45) % 8]
+        st.write(f"**Wind:** {curr['wind_speed_10m']} km/h {wind_dir}")
+        st.write(f"**Gusts:** {curr['wind_gusts_10m']} km/h")
+
+        # Warning Logic
+        fog_warn = "⚠️ Fog Warning" if code in [45, 48] else "None"
+        storm_warn = "⛈️ Storm Warning" if code in [95, 96, 99] else "None"
+        st.write(f"**Fog:** {fog_warn}")
+        st.write(f"**Storm:** {storm_warn}")
+
+        # Sun Times
+        sunrise = datetime.fromisoformat(daily['sunrise'][0]).strftime('%H:%M')
+        sunset = datetime.fromisoformat(daily['sunset'][0]).strftime('%H:%M')
+        st.write(f"**Sunrise:** {sunrise} | **Sunset:** {sunset}")
     except:
         st.write("Weather update failed")
 
 with col_cal:
     st.header("TODAY")
-    # 3. Calendar: Embed with a white background so the CSS filter can flip it to black
-    # Note: bgcolor=%23ffffff is the hex code for white.
+    # Use white background for the iframe so the CSS filter can invert it to black
     cal_url = "https://calendar.google.com/calendar/embed?src=info%40fulhamreachboatclub.com&ctz=Europe%2FLondon&mode=AGENDA&showTitle=0&showNav=0&showDate=0&showPrint=0&showTabs=0&showCalendars=0&bgcolor=%23ffffff"
-    
-    # This renders the calendar inside the app
-    st.components.v1.iframe(cal_url, height=500, scrolling=True)
-    
+    st.components.v1.iframe(cal_url, height=520, scrolling=True)
+
 # --- Footer ---
 st.divider()
 try:
-    # 4. Ensure your logo filename matches exactly what is on GitHub
-    st.image("FRBC logo White on black.png", width=250)
+    st.image("FRBC logo White on black.png", width=200)
 except:
-    st.warning("Logo file not found on GitHub")
+    pass
 
-st.caption(f"Last Update: {datetime.now(ZoneInfo('Europe/London')).strftime('%H:%M:%S')} BST | Secure View")
+st.caption(f"Last Update: {datetime.now(ZoneInfo('Europe/London')).strftime('%H:%M:%S')} | Hammersmith Bridge Data")
