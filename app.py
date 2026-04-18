@@ -10,11 +10,11 @@ import base64
 # Disable warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Refresh every 10 minutes
-st_autorefresh(interval=600000, key="datarefresh")
-
-# --- Page Config ---
+# --- Page Config FIRST ---
 st.set_page_config(layout="wide", page_title="Hammersmith Tide Monitor", initial_sidebar_state="collapsed")
+
+# Refresh every 10 minutes (AFTER set_page_config)
+st_autorefresh(interval=600000, key="datarefresh")
 
 # --- Custom CSS: Absolute Courier, Black Theme, & Logo Logic ---
 st.markdown("""
