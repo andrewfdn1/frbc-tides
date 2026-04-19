@@ -146,8 +146,11 @@ def build_dashboard_data():
             "wind_vs_tide": wat_warn,
         }
 
-    except:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         weather_data["error"] = True
+        weather_data["error_msg"] = str(e)
 
     return {
         "tides": tides_data,
@@ -167,7 +170,6 @@ def index():
 
 @app.route("/data")
 def data_endpoint():
-    """JSON endpoint — lets the browser poll for updates without a full page reload."""
     return jsonify(build_dashboard_data())
 
 
