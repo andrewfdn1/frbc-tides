@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hammersmith Tide Monitor</title>
+    <title>TIDES AT HAMMERSMITH</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
         html, body { background-color: #000; color: #fff; min-height: 100vh; }
@@ -74,9 +74,9 @@
     <div>
         <h3>Weather <span class="updated" id="weather-updated">{% if d.weather.updated %}Updated {{ d.weather.updated }}{% endif %}</span></h3>
         {% if d.weather.error %}
-            <p>Weather Sync Error: {{ d.weather.error_msg }}</p>
+            <p id="weather-status">Weather Sync Error</p>
         {% else %}
-            <table class="weather-table">
+            <table class="weather-table" id="weather-table">
                 <tr><td class="weather-label">Temp:</td><td class="weather-data" id="w-temp">{{ d.weather.temp }}</td></tr>
                 <tr><td class="weather-label">Wind:</td><td class="weather-data" id="w-wind">{{ d.weather.wind }}</td></tr>
                 <tr><td class="weather-label">Gusts:</td><td class="weather-data" id="w-gusts">{{ d.weather.gusts }}</td></tr>
@@ -106,7 +106,7 @@
 </div>
 
 <footer>
-    <span>SYSTEM STATUS: CONNECTED</span>
+    <span id="system-status">SYSTEM STATUS: CONNECTED ({{ d.tz_label }})</span>
     <span id="last-updated">{{ d.last_updated }}</span>
 </footer>
 
@@ -120,7 +120,7 @@
 
     function applyWarnClass(id, isActive) {
         const el = document.getElementById(id);
-        if (el) el.className = isActive ? 'warn-active' : '';
+        if (el) el.className = isActive ? 'warn-active' : 'weather-data';
     }
 
     async function refresh() {
@@ -135,10 +135,9 @@
             ).join(''));
             if (d.tides.launch_warning) {
                 set('w-launches', `⚠️ ${d.tides.launch_warning}`);
-                applyWarnClass('w-launches', true);
+                document.getElementById('w-launches').className = 'warn-active';
             } else {
                 set('w-launches', '');
-                applyWarnClass('w-launches', false);
             }
 
             // PLA
@@ -152,6 +151,7 @@
             // Weather
             set('weather-updated', d.weather.updated ? `Updated ${d.weather.updated}` : '');
             if (!d.weather.error) {
+                // If error was showing, you might need to restore the table visibility
                 set('w-temp', d.weather.temp);
                 set('w-wind', d.weather.wind);
                 set('w-gusts', d.weather.gusts);
@@ -169,13 +169,17 @@
                 applyWarnClass('w-wat', d.weather.warnings.wind_vs_tide);
             }
 
+            // Footer updates
+            set('system-status', `SYSTEM STATUS: CONNECTED (${d.tz_label})`);
             set('last-updated', d.last_updated);
+            
         } catch (e) {
             console.warn('Refresh failed:', e);
         }
         setTimeout(refresh, REFRESH_MS);
     }
 
+    // Initialize the auto-refresh cycle
     setTimeout(refresh, REFRESH_MS);
 </script>
 
