@@ -3,5 +3,4 @@ services:
     name: hammersmith-tide-monitor
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
-    plan: free
+    startCommand: gunicorn app:app --timeout 60 --bind 0.0.0.0:$PORT
