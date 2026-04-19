@@ -2,34 +2,169 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TIDES AT HAMMERSMITH</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HAMMERSMITH TIDES</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
-        body { background-color: #000; color: #fff; min-height: 100vh; overflow: hidden; }
-        .logo-container { padding: 12px 16px 8px; }
-        .logo-container img { height: 60px; width: auto; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; padding: 0 16px; }
-        h3 { border-bottom: 1px solid #333; padding-bottom: 5px; text-transform: uppercase; font-size: 1rem; margin-bottom: 10px; display: flex; justify-content: space-between; }
-        
-        /* Updated timestamps to be white */
-        .updated { font-size: 0.7rem; color: #fff; font-weight: normal; text-transform: none; }
-        
-        .metric { color: #33FF57; font-weight: bold; font-size: 1.8rem; margin-bottom: 10px; }
-        .tide-row { font-size: 1.5rem; line-height: 1.2; white-space: pre; font-weight: bold; }
-        .tide-hi { color: #FFD700; } 
+
+        body {
+            background-color: #000;
+            color: #fff;
+            min-height: 100vh;
+        }
+
+        /* Logo */
+        .logo-container {
+            padding: 12px 16px 8px;
+        }
+
+        @media (orientation: portrait) {
+            .logo-container img {
+                width: 100%;
+                height: auto;
+            }
+        }
+
+        @media (orientation: landscape) {
+            .logo-container img {
+                width: 33%;
+                height: auto;
+            }
+        }
+
+        /* Layout grid */
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: clamp(12px, 2vw, 28px);
+            padding: 0 clamp(10px, 2vw, 20px);
+        }
+
+        @media (orientation: portrait) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Fluid font sizes */
+        :root {
+            --fs-base:   clamp(13px, 1.4vw, 18px);
+            --fs-label:  clamp(11px, 1.1vw, 15px);
+            --fs-metric: clamp(20px, 2.8vw, 38px);
+            --fs-tide:   clamp(17px, 2.2vw, 30px);
+            --fs-header: clamp(13px, 1.3vw, 17px);
+            --fs-footer: clamp(10px, 0.9vw, 13px);
+        }
+
+        h3 {
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+            text-transform: uppercase;
+            font-size: var(--fs-header);
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+
+        .updated {
+            font-size: var(--fs-label);
+            color: #fff;
+            font-weight: normal;
+            text-transform: none;
+        }
+
+        .metric {
+            color: #33FF57;
+            font-weight: bold;
+            font-size: var(--fs-metric);
+            margin-bottom: 10px;
+        }
+
+        .tide-row {
+            font-size: var(--fs-tide);
+            line-height: 1.3;
+            white-space: pre;
+            font-weight: bold;
+        }
+
+        .tide-hi { color: #FFD700; }
         .tide-lo { color: #00CED1; }
-        
-        .warn-active { color: #FFFF00; font-weight: bold; margin-top: 10px; animation: blink 2s infinite; }
-        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-        
-        .pla-flag img { height: 100px; margin: 10px 0; border: 1px solid #333; }
-        .weather-table { width: 100%; font-size: 1.2rem; border-collapse: collapse; }
-        .weather-table td { padding: 4px 0; }
-        
-        /* Calendar Styling */
-        .cal-event { margin-bottom: 12px; font-size: 1.1rem; border-left: 3px solid #33FF57; padding-left: 8px; }
-        
-        footer { position: fixed; bottom: 0; width: 100%; border-top: 1px solid #333; padding: 8px 16px; font-size: 0.8rem; color: #666; display: flex; justify-content: space-between; background: #000; }
+
+        .warn-active {
+            color: #FFFF00;
+            font-weight: bold;
+            margin-top: 10px;
+            font-size: var(--fs-base);
+            animation: blink 2s infinite;
+        }
+
+        @keyframes blink {
+            0%   { opacity: 1; }
+            50%  { opacity: 0.3; }
+            100% { opacity: 1; }
+        }
+
+        .pla-flag img {
+            height: clamp(60px, 8vw, 120px);
+            margin: 10px 0;
+            border: 1px solid #333;
+        }
+
+        .weather-table {
+            width: 100%;
+            font-size: var(--fs-base);
+            border-collapse: collapse;
+        }
+
+        .weather-table td {
+            padding: clamp(3px, 0.4vw, 6px) 0;
+        }
+
+        .flow-value {
+            font-size: var(--fs-metric);
+            font-weight: bold;
+            color: #00CED1;
+            margin: 6px 0 2px;
+        }
+
+        .flow-label {
+            font-size: var(--fs-label);
+            color: #888;
+        }
+
+        .cal-event {
+            margin-bottom: clamp(8px, 1vw, 14px);
+            font-size: var(--fs-base);
+            border-left: 3px solid #33FF57;
+            padding-left: 8px;
+            line-height: 1.4;
+        }
+
+        .cal-time {
+            color: #33FF57;
+            font-size: var(--fs-base);
+        }
+
+        .hazard-line {
+            font-size: var(--fs-base);
+            margin-bottom: 4px;
+        }
+
+        footer {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            border-top: 1px solid #333;
+            padding: 6px 16px;
+            font-size: var(--fs-footer);
+            color: #666;
+            display: flex;
+            justify-content: space-between;
+            background: #000;
+        }
+
+        body { padding-bottom: 32px; }
     </style>
 </head>
 <body>
@@ -39,55 +174,63 @@
 </div>
 
 <div class="grid">
+
     <!-- COLUMN 1: TIDES & FLAG -->
     <div>
-        <h3>TIDES <span class="updated">Updated {{ d.tides.updated }}</span></h3>
+        <h3>HAMMERSMITH TIDES <span class="updated">Updated {{ d.tides.updated }}</span></h3>
         <div class="metric" id="tide-main">
             {% if d.tides.direction %}{{ d.tides.direction }} UNTIL {{ d.tides.until }}{% else %}DATA UNAVAILABLE{% endif %}
         </div>
         <div id="tide-list">
             {% for t in d.tides.upcoming %}
-                <!-- Fixed: Using Python string formatting instead of JS padEnd -->
                 <div class="tide-row {{ 'tide-hi' if t.type == 'HighWater' else 'tide-lo' }}">{{ "%-3s"|format(t.label) }} {{ "%-12s"|format(t.time) }} {{ t.height }}</div>
             {% endfor %}
         </div>
         {% if d.tides.launch_warning %}
-            <div class="warn-active">⚠️ {{ d.tides.launch_warning }}</div>
+            <div class="warn-active">&#9888; {{ d.tides.launch_warning }}</div>
         {% endif %}
-        
+
         <h3 style="margin-top:20px;">PLA EBB FLAG <span class="updated">Updated {{ d.pla_updated }}</span></h3>
         <div class="pla-flag">
             {% if d.pla_flag %}
                 <img src="{{ d.pla_flag }}" alt="PLA Flag">
             {% else %}
-                <p style="color:#444; font-size:0.8rem;">Flag status unavailable</p>
+                <p style="color:#444; font-size: var(--fs-label);">Flag status unavailable</p>
             {% endif %}
         </div>
+
+        <h3 style="margin-top:20px;">KINGSTON FLOW <span class="updated">Updated {{ d.flow_updated }}</span></h3>
+        {% if d.kingston_flow %}
+            <div class="flow-value">{{ d.kingston_flow.flow }} <span style="font-size: var(--fs-base); color:#888;">{{ d.kingston_flow.unit }}</span></div>
+            <div class="flow-label">Mean river flow at Kingston</div>
+        {% else %}
+            <p style="color:#444; font-size: var(--fs-label);">Flow data unavailable</p>
+        {% endif %}
     </div>
 
-    <!-- COLUMN 2: WEATHER -->
+    <!-- COLUMN 2: WEATHER & HAZARDS -->
     <div>
         <h3>WEATHER <span class="updated">Updated {{ d.weather.updated }}</span></h3>
         {% if d.weather.error %}
-            <p style="color: #FF4B4B;">Weather Currently Unavailable</p>
+            <p style="color: #FF4B4B; font-size: var(--fs-base);">Weather Currently Unavailable</p>
         {% else %}
             <table class="weather-table">
                 <tr><td>Temp:</td><td style="color:#33FF57">{{ d.weather.temp }}</td></tr>
                 <tr><td>Wind/Gust:</td><td>{{ d.weather.wind }} / {{ d.weather.gusts }}</td></tr>
                 <tr><td>Direction:</td><td>{{ d.weather.direction }}</td></tr>
                 <tr><td>Rain:</td><td>{{ d.weather.rain }}</td></tr>
-                <tr><td>Sun:</td><td>↑{{ d.weather.sunrise }} ↓{{ d.weather.sunset }}</td></tr>
+                <tr><td>Sun:</td><td>&#8593;{{ d.weather.sunrise }} &#8595;{{ d.weather.sunset }}</td></tr>
             </table>
         {% endif %}
 
         <h3 style="margin-top:20px; color:#FF4B4B;">HAZARDS</h3>
-        <div style="font-size: 1.1rem;">
+        <div>
             {% if not d.weather.error %}
-                <p style="color: {{ '#FFFF00' if d.weather.warnings.fog else '#444' }}">FOG: {{ '⚠️ ACTIVE' if d.weather.warnings.fog else 'Clear' }}</p>
-                <p style="color: {{ '#FFFF00' if d.weather.warnings.storm else '#444' }}">STORM: {{ '⚠️ ACTIVE' if d.weather.warnings.storm else 'Clear' }}</p>
-                <p style="color: {{ '#FFFF00' if d.weather.warnings.wind_vs_tide else '#444' }}">WIND v TIDE: {{ '⚠️ ROUGH' if d.weather.warnings.wind_vs_tide else 'Normal' }}</p>
+                <p class="hazard-line" style="color: {{ '#FFFF00' if d.weather.warnings.fog else '#444' }}">FOG: {{ '&#9888; ACTIVE' if d.weather.warnings.fog else 'Clear' }}</p>
+                <p class="hazard-line" style="color: {{ '#FFFF00' if d.weather.warnings.storm else '#444' }}">STORM: {{ '&#9888; ACTIVE' if d.weather.warnings.storm else 'Clear' }}</p>
+                <p class="hazard-line" style="color: {{ '#FFFF00' if d.weather.warnings.wind_vs_tide else '#444' }}">WIND v TIDE: {{ '&#9888; ROUGH' if d.weather.warnings.wind_vs_tide else 'Normal' }}</p>
             {% else %}
-                <p style="color:#444;">Hazards check unavailable</p>
+                <p class="hazard-line" style="color:#444;">Hazards check unavailable</p>
             {% endif %}
         </div>
     </div>
@@ -99,14 +242,15 @@
             {% if d.cal.list %}
                 {% for e in d.cal.list %}
                     <div class="cal-event">
-                        <span style="color:#33FF57">{{ e.time }}</span><br>{{ e.summary }}
+                        <span class="cal-time">{{ e.time }}</span><br>{{ e.summary }}
                     </div>
                 {% endfor %}
             {% else %}
-                <p style="color:#666">No sessions scheduled for {{ d.cal.day_label.lower() }}.</p>
+                <p style="color:#666; font-size: var(--fs-base);">No sessions scheduled for {{ d.cal.day_label.lower() }}.</p>
             {% endif %}
         </div>
     </div>
+
 </div>
 
 <footer>
@@ -115,18 +259,13 @@
 </footer>
 
 <script>
-    // Refresh the whole page every 10 minutes to sync with the backend
     function autoRefresh() {
         fetch('/data')
-            .then(response => {
-                if (response.ok) {
-                    location.reload();
-                }
-            })
+            .then(response => { if (response.ok) location.reload(); })
             .catch(err => console.log("Refresh failed, will try again."));
     }
-    
-    setInterval(autoRefresh, 600000); // 10 minutes
+    setInterval(autoRefresh, 600000);
 </script>
+
 </body>
 </html>
