@@ -1,6 +1,5 @@
-streamlit
+flask
 requests
 beautifulsoup4
-Pillow
 urllib3
-streamlit-autorefresh
+gunicorn
