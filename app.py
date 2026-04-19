@@ -115,16 +115,50 @@ def get_kingston_flow():
     except:
         return None, ''
 
+import openmeteo_requests
+import requests_cache
+from retry_requests import retry
+
+# Setup the Open-Meteo API client with a cache and retry mechanism
+# This 'weather_cache' file will stay on your Render disk to prevent over-calling
+cache_session = requests_cache.CachedSession('.cache', expire_after=3600)
+retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
+openmeteo = openmeteo_requests.Client(session=retry_session)
+
 def get_weather():
-    def fetch():
-        url = "https://api.open-meteo.com/v1/forecast?latitude=51.488&longitude=-0.224&current=temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code&daily=sunrise,sunset,precipitation_probability_max&timezone=Europe/London&forecast_days=1"
-        res = requests.get(url, timeout=10).json()
-        if "current" not in res:
-            raise ValueError(f"Unexpected API response: {res}")
-        return res['current'], res['daily']
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": 51.488,
+        "longitude": -0.224,
+        "current": ["temperature_2m", "wind_speed_10m", "wind_direction_10m", "weather_code"],
+        "daily": ["sunrise", "sunset", "precipitation_probability_max"],
+        "timezone": "Europe/London",
+        "forecast_days": 1
+    }
+
     try:
-        return get_cached('weather', fetch, ttl_seconds=3600)
-    except:
+        responses = openmeteo.weather_api(url, params=params)
+        response = responses[0]
+        
+        # Current data
+        current = response.Current()
+        
+        # Format the data to match what your frontend expects
+        weather_data = {
+            "temperature_2m": current.Variables(0).Value(),
+            "wind_speed_10m": current.Variables(1).Value(),
+            "wind_direction_10m": current.Variables(2).Value(),
+            "weather_code": current.Variables(3).Value()
+        }
+        
+        fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
+        return weather_data, fetched_at
+
+    except Exception as e:
+        print(f"Weather Fetch Error: {e}")
+        # FALLBACK: If the API is still blocking you, return the last known good data
+        if 'weather' in _cache:
+            return _cache['weather']['data'], _cache['weather']['fetched_at']
         return None, ''
 
 def build_dashboard_data():
