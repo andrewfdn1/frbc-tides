@@ -6,3 +6,4 @@ gunicorn
 icalevents
 python-dateutil
 pytz
+tzdata
