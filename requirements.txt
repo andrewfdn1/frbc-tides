@@ -6,3 +6,4 @@ gunicorn
 openmeteo-requests
 requests-cache
 retry-requests
+icalevents
