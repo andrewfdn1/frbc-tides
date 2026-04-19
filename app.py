@@ -61,16 +61,21 @@ def get_tides():
 def get_calendar_events():
     def fetch():
         now = datetime.now(LONDON_TZ)
-        # Shift to tomorrow's events if it's past 10:00 PM
         display_date = now + timedelta(days=1) if now.hour >= 22 else now
         
-        start = display_date.replace(hour=0, minute=0, second=0)
-        end = display_date.replace(hour=23, minute=59, second=59)
+        start = display_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = display_date.replace(hour=23, minute=59, second=59, microsecond=0)
         
         url = f"https://calendar.google.com/calendar/ical/{CAL_ID.replace('@', '%40')}/public/basic.ics"
         
-        # icalevents handles the fetching and parsing
-        evs = events(url=url, start=start, end=end)
+        # Fetch with an explicit timeout so we never block Gunicorn
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        ics_content = r.text
+        
+        # Pass raw string content, not a URL
+        from icalevents.icalevents import events as ical_events
+        evs = ical_events(string_content=ics_content, start=start, end=end)
         evs.sort(key=lambda x: x.start)
         
         return {
@@ -82,7 +87,6 @@ def get_calendar_events():
         }
     
     return get_cached('calendar', fetch, ttl_seconds=1800)
-
 def get_pla_flag():
     def fetch():
         r = requests.get("https://pla.co.uk/pla-api-integration/ebb-tide-widget-embed", timeout=5)
