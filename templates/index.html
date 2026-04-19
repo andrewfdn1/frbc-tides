@@ -2,186 +2,98 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TIDES AT HAMMERSMITH</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
-        html, body { background-color: #000; color: #fff; min-height: 100vh; }
+        body { background-color: #000; color: #fff; min-height: 100vh; overflow: hidden; }
         .logo-container { padding: 12px 16px 8px; }
-        .logo-container img { display: block; height: auto; }
-        @media (orientation: portrait) { .logo-container img { width: 100%; } }
-        @media (orientation: landscape) { .logo-container img { width: 33%; } }
-        .grid { display: grid; grid-template-columns: 1.3fr 1.1fr 1.3fr; gap: 0 24px; padding: 0 16px 16px; }
-        @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
-        h3 { color: #fff; border-bottom: 1px solid #333; padding-bottom: 5px; text-transform: uppercase; font-size: 1rem; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: baseline; }
-        .updated { font-size: 0.7rem; color: #666; text-transform: none; font-weight: normal; }
-        .metric-value { color: #33FF57; font-weight: bold; font-size: 2rem; line-height: 1.1; margin-bottom: 15px; }
-        .tide-row { font-size: 1.6rem; line-height: 1.3; white-space: pre; font-weight: bold; margin-bottom: 2px; }
-        .tide-hi { color: #FFD700; }
-        .tide-lo { color: #00CED1; }
-        hr { border-color: #444; margin: 14px 0; }
-        .pla-flag img { width: 140px; display: block; margin-bottom: 8px; }
-        .weather-table { width: 100%; border-collapse: collapse; font-size: 1.3rem; margin-bottom: 10px; }
-        .weather-table td { padding: 2px 0; }
-        .weather-label { width: 50%; color: #fff; }
-        .weather-data { width: 50%; font-weight: bold; color: #fff; }
-        .warning-head { color: #FF4B4B; font-weight: bold; margin: 15px 0 5px; font-size: 1.4rem; }
-        .warn-active { color: #FFFF00; }
-        .warn-none { color: #fff; }
-        .calendar-container { position: relative; width: 100%; height: 600px; border: 1px solid #444; overflow: hidden; }
-        .calendar-shield { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; background: transparent; }
-        iframe { width: 100%; height: 100%; border: none; filter: invert(90%) hue-rotate(180deg) contrast(120%); }
-        footer { border-top: 1px solid #444; padding: 8px 16px; font-size: 0.8rem; color: #666; display: flex; justify-content: space-between; }
+        .logo-container img { height: 60px; width: auto; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; padding: 0 16px; }
+        h3 { border-bottom: 1px solid #333; padding-bottom: 5px; text-transform: uppercase; font-size: 1rem; margin-bottom: 10px; display: flex; justify-content: space-between; }
+        .updated { font-size: 0.7rem; color: #fff; font-weight: normal; text-transform: none; }
+        .metric { color: #33FF57; font-weight: bold; font-size: 1.8rem; margin-bottom: 10px; }
+        .tide-row { font-size: 1.5rem; line-height: 1.2; white-space: pre; font-weight: bold; }
+        .tide-hi { color: #FFD700; } .tide-lo { color: #00CED1; }
+        .warn-active { color: #FFFF00; font-weight: bold; margin-top: 10px; animation: blink 2s infinite; }
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        .pla-flag img { height: 100px; margin: 10px 0; }
+        .weather-table { width: 100%; font-size: 1.2rem; border-collapse: collapse; }
+        .weather-table td { padding: 4px 0; }
+        .cal-event { margin-bottom: 12px; font-size: 1.1rem; border-left: 3px solid #33FF57; padding-left: 8px; }
+        footer { position: fixed; bottom: 0; width: 100%; border-top: 1px solid #333; padding: 8px 16px; font-size: 0.8rem; color: #666; display: flex; justify-content: space-between; }
     </style>
 </head>
 <body>
 
 <div class="logo-container">
-    <img src="/static/FRBC logo White on black.png" alt="Fulham Reach Boat Club"
-         onerror="this.parentElement.innerHTML='<h2>FULHAM REACH BOAT CLUB</h2>'">
+    <img src="/static/FRBC logo White on black.png" alt="FRBC">
 </div>
 
 <div class="grid">
-
+    <!-- COLUMN 1: TIDES & FLAG -->
     <div>
-        <h3>Tides <span class="updated" id="tides-updated">{% if d.tides.updated %}Updated {{ d.tides.updated }}{% endif %}</span></h3>
-        {% if d.tides.error %}
-            <p>Tide Sync Error</p>
-        {% else %}
-            <div class="metric-value" id="tide-direction">{% if d.tides.direction %}{{ d.tides.direction }} UNTIL {{ d.tides.until }}{% endif %}</div>
-            <div id="tide-rows">
-                {% for t in d.tides.upcoming %}
-                    <div class="tide-row {{ 'tide-hi' if t.type == 'HighWater' else 'tide-lo' }}">{{ "%-3s"|format(t.label) }} {{ "%-12s"|format(t.time) }} {{ t.height }}</div>
+        <h3>TIDES <span class="updated">Updated {{ d.tides.updated }}</span></h3>
+        <div class="metric" id="tide-main">{{ d.tides.direction }} UNTIL {{ d.tides.until }}</div>
+        <div id="tide-list">
+            {% for t in d.tides.upcoming %}
+                <div class="tide-row {{ 'tide-hi' if t.type == 'HighWater' else 'tide-lo' }}">{{ t.label.padEnd(3) }} {{ t.time.padEnd(12) }} {{ t.height }}</div>
+            {% endfor %}
+        </div>
+        {% if d.tides.launch_warning %}<div class="warn-active">⚠️ {{ d.tides.launch_warning }}</div>{% endif %}
+        
+        <h3 style="margin-top:20px;">PLA EBB FLAG <span class="updated">Updated {{ d.pla_updated }}</span></h3>
+        <div class="pla-flag">{% if d.pla_flag %}<img src="{{ d.pla_flag }}">{% endif %}</div>
+    </div>
+
+    <!-- COLUMN 2: WEATHER -->
+    <div>
+        <h3>WEATHER <span class="updated">Updated {{ d.weather.updated }}</span></h3>
+        <table class="weather-table">
+            <tr><td>Temp:</td><td style="color:#33FF57">{{ d.weather.temp }}</td></tr>
+            <tr><td>Wind/Gust:</td><td>{{ d.weather.wind }} / {{ d.weather.gusts }}</td></tr>
+            <tr><td>Direction:</td><td>{{ d.weather.direction }}</td></tr>
+            <tr><td>Rain:</td><td>{{ d.weather.rain }}</td></tr>
+            <tr><td>Sun:</td><td>↑{{ d.weather.sunrise }} ↓{{ d.weather.sunset }}</td></tr>
+        </table>
+        <h3 style="margin-top:20px; color:#FF4B4B;">HAZARDS</h3>
+        <div style="font-size: 1.1rem;">
+            <p style="color: {{ '#FFFF00' if d.weather.warnings.fog else '#444' }}">FOG: {{ '⚠️ ACTIVE' if d.weather.warnings.fog else 'Clear' }}</p>
+            <p style="color: {{ '#FFFF00' if d.weather.warnings.storm else '#444' }}">STORM: {{ '⚠️ ACTIVE' if d.weather.warnings.storm else 'Clear' }}</p>
+            <p style="color: {{ '#FFFF00' if d.weather.warnings.wind_vs_tide else '#444' }}">WIND v TIDE: {{ '⚠️ ROUGH' if d.weather.warnings.wind_vs_tide else 'Normal' }}</p>
+        </div>
+    </div>
+
+    <!-- COLUMN 3: CALENDAR -->
+    <div>
+        <h3>{{ d.cal.day_label }} <span class="updated">Updated {{ d.cal_updated }}</span></h3>
+        <div id="cal-list">
+            {% if d.cal.list %}
+                {% for e in d.cal.list %}
+                    <div class="cal-event">
+                        <span style="color:#33FF57">{{ e.time }}</span><br>{{ e.summary }}
+                    </div>
                 {% endfor %}
-            </div>
-            {% if d.tides.launch_warning %}
-                <div class="warn-active" id="w-launches" style="font-size:1.3rem; font-weight:bold; margin-top:10px;">⚠️ {{ d.tides.launch_warning }}</div>
             {% else %}
-                <div id="w-launches"></div>
+                <p style="color:#666">No events scheduled.</p>
             {% endif %}
-        {% endif %}
-
-        <hr>
-        <h3>PLA Ebb Flag <span class="updated" id="pla-updated">{% if d.pla_updated %}Updated {{ d.pla_updated }}{% endif %}</span></h3>
-        <div class="pla-flag" id="pla-img">{% if d.pla_flag %}<img src="{{ d.pla_flag }}" alt="PLA Ebb Flag">{% endif %}</div>
-
-        <h3>Kingston Flow <span class="updated" id="kingston-updated">{% if d.kingston_updated %}Updated {{ d.kingston_updated }}{% endif %}</span></h3>
-        <div class="metric-value" style="font-size:1.5rem;" id="kingston-value">
-            {% if d.kingston %}{{ d.kingston.value }} m³/s <span style="font-size:0.9rem;color:#aaa;">at {{ d.kingston.time }}</span>{% endif %}
         </div>
     </div>
-
-    <div>
-        <h3>Weather <span class="updated" id="weather-updated">{% if d.weather.updated %}Updated {{ d.weather.updated }}{% endif %}</span></h3>
-        {% if d.weather.error %}
-            <p id="weather-status">Weather Sync Error</p>
-        {% else %}
-            <table class="weather-table" id="weather-table">
-                <tr><td class="weather-label">Temp:</td><td class="weather-data" id="w-temp">{{ d.weather.temp }}</td></tr>
-                <tr><td class="weather-label">Wind:</td><td class="weather-data" id="w-wind">{{ d.weather.wind }}</td></tr>
-                <tr><td class="weather-label">Gusts:</td><td class="weather-data" id="w-gusts">{{ d.weather.gusts }}</td></tr>
-                <tr><td class="weather-label">Dir:</td><td class="weather-data" id="w-dir">{{ d.weather.direction }}</td></tr>
-                <tr><td class="weather-label">Rain:</td><td class="weather-data" id="w-rain">{{ d.weather.rain }}</td></tr>
-                <tr><td class="weather-label">Sunrise:</td><td class="weather-data" id="w-sunrise">{{ d.weather.sunrise }}</td></tr>
-                <tr><td class="weather-label">Sunset:</td><td class="weather-data" id="w-sunset">{{ d.weather.sunset }}</td></tr>
-            </table>
-
-            <div class="warning-head">WARNINGS</div>
-            <table class="weather-table">
-                <tr><td class="weather-label">Fog:</td><td class="weather-data warn-none" id="w-fog">{{ "⚠️⚠️⚠️⚠️⚠️" if d.weather.warnings.fog else "None" }}</td></tr>
-                <tr><td class="weather-label">Storm:</td><td class="weather-data warn-none" id="w-storm">{{ "⚠️⚠️⚠️⚠️⚠️" if d.weather.warnings.storm else "None" }}</td></tr>
-                <tr><td class="weather-label">Wind v Tide:</td><td class="weather-data warn-none" id="w-wat">{{ "⚠️⚠️⚠️⚠️⚠️" if d.weather.warnings.wind_vs_tide else "None" }}</td></tr>
-            </table>
-        {% endif %}
-    </div>
-
-    <div>
-        <h3>Calendar</h3>
-        <div class="calendar-container">
-            <div class="calendar-shield"></div>
-            <iframe src="https://calendar.google.com/calendar/embed?src={{ d.cal_id | replace('@', '%40') }}&ctz=Europe%2FLondon&mode=AGENDA&showTitle=0&showNav=0&showDate=0&showPrint=0&showTabs=0&showCalendars=0"></iframe>
-        </div>
-    </div>
-
 </div>
 
 <footer>
-    <span id="system-status">SYSTEM STATUS: CONNECTED ({{ d.tz_label }})</span>
-    <span id="last-updated">{{ d.last_updated }}</span>
+    <span>SYSTEM STATUS: CONNECTED ({{ d.tz_label }})</span>
+    <span id="clock">{{ d.last_updated }}</span>
 </footer>
 
 <script>
-    const REFRESH_MS = 10 * 60 * 1000;
-
-    function set(id, val) {
-        const el = document.getElementById(id);
-        if (el && val !== undefined && val !== null) el.innerHTML = val;
-    }
-
-    function applyWarnClass(id, isActive) {
-        const el = document.getElementById(id);
-        if (el) el.className = isActive ? 'warn-active' : 'weather-data';
-    }
-
     async function refresh() {
         try {
-            const d = await fetch('/data').then(r => r.json());
-
-            // Tides
-            set('tides-updated', d.tides.updated ? `Updated ${d.tides.updated}` : '');
-            set('tide-direction', d.tides.direction ? `${d.tides.direction} UNTIL ${d.tides.until}` : '');
-            set('tide-rows', d.tides.upcoming.map(t =>
-                `<div class="tide-row ${t.type === 'HighWater' ? 'tide-hi' : 'tide-lo'}">${t.label.padEnd(3)} ${t.time.padEnd(12)} ${t.height}</div>`
-            ).join(''));
-            if (d.tides.launch_warning) {
-                set('w-launches', `⚠️ ${d.tides.launch_warning}`);
-                document.getElementById('w-launches').className = 'warn-active';
-            } else {
-                set('w-launches', '');
-            }
-
-            // PLA
-            set('pla-updated', d.pla_updated ? `Updated ${d.pla_updated}` : '');
-            if (d.pla_flag) set('pla-img', `<img src="${d.pla_flag}" alt="PLA Ebb Flag">`);
-
-            // Kingston
-            set('kingston-updated', d.kingston_updated ? `Updated ${d.kingston_updated}` : '');
-            if (d.kingston) set('kingston-value', `${d.kingston.value} m³/s <span style="font-size:0.9rem;color:#aaa;">at ${d.kingston.time}</span>`);
-
-            // Weather
-            set('weather-updated', d.weather.updated ? `Updated ${d.weather.updated}` : '');
-            if (!d.weather.error) {
-                // If error was showing, you might need to restore the table visibility
-                set('w-temp', d.weather.temp);
-                set('w-wind', d.weather.wind);
-                set('w-gusts', d.weather.gusts);
-                set('w-dir', d.weather.direction);
-                set('w-rain', d.weather.rain);
-                set('w-sunrise', d.weather.sunrise);
-                set('w-sunset', d.weather.sunset);
-
-                set('w-fog', d.weather.warnings.fog ? '⚠️⚠️⚠️⚠️⚠️' : 'None');
-                set('w-storm', d.weather.warnings.storm ? '⚠️⚠️⚠️⚠️⚠️' : 'None');
-                set('w-wat', d.weather.warnings.wind_vs_tide ? '⚠️⚠️⚠️⚠️⚠️' : 'None');
-
-                applyWarnClass('w-fog', d.weather.warnings.fog);
-                applyWarnClass('w-storm', d.weather.warnings.storm);
-                applyWarnClass('w-wat', d.weather.warnings.wind_vs_tide);
-            }
-
-            // Footer updates
-            set('system-status', `SYSTEM STATUS: CONNECTED (${d.tz_label})`);
-            set('last-updated', d.last_updated);
-            
-        } catch (e) {
-            console.warn('Refresh failed:', e);
-        }
-        setTimeout(refresh, REFRESH_MS);
+            const r = await fetch('/data');
+            const d = await r.json();
+            location.reload(); // Simplest way to re-render all complex logic correctly
+        } catch(e) {}
     }
-
-    // Initialize the auto-refresh cycle
-    setTimeout(refresh, REFRESH_MS);
+    setInterval(refresh, 600000); // 10 minutes
 </script>
-
 </body>
 </html>
