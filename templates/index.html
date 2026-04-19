@@ -54,6 +54,11 @@
                     <div class="tide-row {{ 'tide-hi' if t.type == 'HighWater' else 'tide-lo' }}">{{ "%-3s"|format(t.label) }} {{ "%-12s"|format(t.time) }} {{ t.height }}</div>
                 {% endfor %}
             </div>
+            {% if d.tides.launch_warning %}
+                <div class="warn-active" id="w-launches" style="font-size:1.3rem; font-weight:bold; margin-top:10px;">⚠️ {{ d.tides.launch_warning }}</div>
+            {% else %}
+                <div id="w-launches"></div>
+            {% endif %}
         {% endif %}
 
         <hr>
@@ -86,7 +91,6 @@
                 <tr><td class="weather-label">Fog:</td><td class="weather-data warn-none" id="w-fog">{{ "⚠️⚠️⚠️⚠️⚠️" if d.weather.warnings.fog else "None" }}</td></tr>
                 <tr><td class="weather-label">Storm:</td><td class="weather-data warn-none" id="w-storm">{{ "⚠️⚠️⚠️⚠️⚠️" if d.weather.warnings.storm else "None" }}</td></tr>
                 <tr><td class="weather-label">Wind v Tide:</td><td class="weather-data warn-none" id="w-wat">{{ "⚠️⚠️⚠️⚠️⚠️" if d.weather.warnings.wind_vs_tide else "None" }}</td></tr>
-                <tr><td class="weather-label">Launches/Boats:</td><td class="weather-data warn-none" id="w-launches">{{ d.tides.launch_warning if d.tides.launch_warning else "None" }}</td></tr>
             </table>
         {% endif %}
     </div>
@@ -116,7 +120,7 @@
 
     function applyWarnClass(id, isActive) {
         const el = document.getElementById(id);
-        if (el) el.className = 'weather-data ' + (isActive ? 'warn-active' : 'warn-none');
+        if (el) el.className = isActive ? 'warn-active' : '';
     }
 
     async function refresh() {
@@ -129,6 +133,13 @@
             set('tide-rows', d.tides.upcoming.map(t =>
                 `<div class="tide-row ${t.type === 'HighWater' ? 'tide-hi' : 'tide-lo'}">${t.label.padEnd(3)} ${t.time.padEnd(12)} ${t.height}</div>`
             ).join(''));
+            if (d.tides.launch_warning) {
+                set('w-launches', `⚠️ ${d.tides.launch_warning}`);
+                applyWarnClass('w-launches', true);
+            } else {
+                set('w-launches', '');
+                applyWarnClass('w-launches', false);
+            }
 
             // PLA
             set('pla-updated', d.pla_updated ? `Updated ${d.pla_updated}` : '');
@@ -152,12 +163,10 @@
                 set('w-fog', d.weather.warnings.fog ? '⚠️⚠️⚠️⚠️⚠️' : 'None');
                 set('w-storm', d.weather.warnings.storm ? '⚠️⚠️⚠️⚠️⚠️' : 'None');
                 set('w-wat', d.weather.warnings.wind_vs_tide ? '⚠️⚠️⚠️⚠️⚠️' : 'None');
-                set('w-launches', d.tides.launch_warning || 'None');
 
                 applyWarnClass('w-fog', d.weather.warnings.fog);
                 applyWarnClass('w-storm', d.weather.warnings.storm);
                 applyWarnClass('w-wat', d.weather.warnings.wind_vs_tide);
-                applyWarnClass('w-launches', !!d.tides.launch_warning);
             }
 
             set('last-updated', d.last_updated);
