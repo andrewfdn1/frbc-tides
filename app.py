@@ -97,7 +97,10 @@ def get_weather():
         if "current" not in res:
             raise ValueError(f"Unexpected API response: {res}")
         return res['current'], res['daily']
-    return get_cached('weather', fetch, ttl_seconds=3600)
+    try:
+        return get_cached('weather', fetch, ttl_seconds=3600)
+    except:
+        return None, ''
 
 def build_dashboard_data():
     now_utc = datetime.now(timezone.utc)
@@ -149,7 +152,10 @@ def build_dashboard_data():
     # --- Weather ---
     weather_data = {"error": False, "updated": ""}
     try:
-        (curr, daily), weather_updated = get_weather()
+        weather_result, weather_updated = get_weather()
+        if weather_result is None:
+            raise ValueError("Weather unavailable")
+        curr, daily = weather_result
         w_speed = curr['wind_speed_10m']
         w_gusts = curr['wind_gusts_10m']
         w_dir_str = get_cardinal_direction(curr['wind_direction_10m'])
