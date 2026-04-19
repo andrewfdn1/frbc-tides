@@ -10,56 +10,85 @@
         .logo-container img { height: 60px; width: auto; }
         .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; padding: 0 16px; }
         h3 { border-bottom: 1px solid #333; padding-bottom: 5px; text-transform: uppercase; font-size: 1rem; margin-bottom: 10px; display: flex; justify-content: space-between; }
+        
+        /* Updated timestamps to be white */
         .updated { font-size: 0.7rem; color: #fff; font-weight: normal; text-transform: none; }
+        
         .metric { color: #33FF57; font-weight: bold; font-size: 1.8rem; margin-bottom: 10px; }
         .tide-row { font-size: 1.5rem; line-height: 1.2; white-space: pre; font-weight: bold; }
-        .tide-hi { color: #FFD700; } .tide-lo { color: #00CED1; }
+        .tide-hi { color: #FFD700; } 
+        .tide-lo { color: #00CED1; }
+        
         .warn-active { color: #FFFF00; font-weight: bold; margin-top: 10px; animation: blink 2s infinite; }
         @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-        .pla-flag img { height: 100px; margin: 10px 0; }
+        
+        .pla-flag img { height: 100px; margin: 10px 0; border: 1px solid #333; }
         .weather-table { width: 100%; font-size: 1.2rem; border-collapse: collapse; }
         .weather-table td { padding: 4px 0; }
+        
+        /* Calendar Styling */
         .cal-event { margin-bottom: 12px; font-size: 1.1rem; border-left: 3px solid #33FF57; padding-left: 8px; }
-        footer { position: fixed; bottom: 0; width: 100%; border-top: 1px solid #333; padding: 8px 16px; font-size: 0.8rem; color: #666; display: flex; justify-content: space-between; }
+        
+        footer { position: fixed; bottom: 0; width: 100%; border-top: 1px solid #333; padding: 8px 16px; font-size: 0.8rem; color: #666; display: flex; justify-content: space-between; background: #000; }
     </style>
 </head>
 <body>
 
 <div class="logo-container">
-    <img src="/static/FRBC logo White on black.png" alt="FRBC">
+    <img src="/static/FRBC logo White on black.png" alt="FRBC" onerror="this.style.display='none'">
 </div>
 
 <div class="grid">
     <!-- COLUMN 1: TIDES & FLAG -->
     <div>
         <h3>TIDES <span class="updated">Updated {{ d.tides.updated }}</span></h3>
-        <div class="metric" id="tide-main">{{ d.tides.direction }} UNTIL {{ d.tides.until }}</div>
+        <div class="metric" id="tide-main">
+            {% if d.tides.direction %}{{ d.tides.direction }} UNTIL {{ d.tides.until }}{% else %}DATA UNAVAILABLE{% endif %}
+        </div>
         <div id="tide-list">
             {% for t in d.tides.upcoming %}
-                <div class="tide-row {{ 'tide-hi' if t.type == 'HighWater' else 'tide-lo' }}">{{ t.label.padEnd(3) }} {{ t.time.padEnd(12) }} {{ t.height }}</div>
+                <!-- Fixed: Using Python string formatting instead of JS padEnd -->
+                <div class="tide-row {{ 'tide-hi' if t.type == 'HighWater' else 'tide-lo' }}">{{ "%-3s"|format(t.label) }} {{ "%-12s"|format(t.time) }} {{ t.height }}</div>
             {% endfor %}
         </div>
-        {% if d.tides.launch_warning %}<div class="warn-active">⚠️ {{ d.tides.launch_warning }}</div>{% endif %}
+        {% if d.tides.launch_warning %}
+            <div class="warn-active">⚠️ {{ d.tides.launch_warning }}</div>
+        {% endif %}
         
         <h3 style="margin-top:20px;">PLA EBB FLAG <span class="updated">Updated {{ d.pla_updated }}</span></h3>
-        <div class="pla-flag">{% if d.pla_flag %}<img src="{{ d.pla_flag }}">{% endif %}</div>
+        <div class="pla-flag">
+            {% if d.pla_flag %}
+                <img src="{{ d.pla_flag }}" alt="PLA Flag">
+            {% else %}
+                <p style="color:#444; font-size:0.8rem;">Flag status unavailable</p>
+            {% endif %}
+        </div>
     </div>
 
     <!-- COLUMN 2: WEATHER -->
     <div>
         <h3>WEATHER <span class="updated">Updated {{ d.weather.updated }}</span></h3>
-        <table class="weather-table">
-            <tr><td>Temp:</td><td style="color:#33FF57">{{ d.weather.temp }}</td></tr>
-            <tr><td>Wind/Gust:</td><td>{{ d.weather.wind }} / {{ d.weather.gusts }}</td></tr>
-            <tr><td>Direction:</td><td>{{ d.weather.direction }}</td></tr>
-            <tr><td>Rain:</td><td>{{ d.weather.rain }}</td></tr>
-            <tr><td>Sun:</td><td>↑{{ d.weather.sunrise }} ↓{{ d.weather.sunset }}</td></tr>
-        </table>
+        {% if d.weather.error %}
+            <p style="color: #FF4B4B;">Weather Currently Unavailable</p>
+        {% else %}
+            <table class="weather-table">
+                <tr><td>Temp:</td><td style="color:#33FF57">{{ d.weather.temp }}</td></tr>
+                <tr><td>Wind/Gust:</td><td>{{ d.weather.wind }} / {{ d.weather.gusts }}</td></tr>
+                <tr><td>Direction:</td><td>{{ d.weather.direction }}</td></tr>
+                <tr><td>Rain:</td><td>{{ d.weather.rain }}</td></tr>
+                <tr><td>Sun:</td><td>↑{{ d.weather.sunrise }} ↓{{ d.weather.sunset }}</td></tr>
+            </table>
+        {% endif %}
+
         <h3 style="margin-top:20px; color:#FF4B4B;">HAZARDS</h3>
         <div style="font-size: 1.1rem;">
-            <p style="color: {{ '#FFFF00' if d.weather.warnings.fog else '#444' }}">FOG: {{ '⚠️ ACTIVE' if d.weather.warnings.fog else 'Clear' }}</p>
-            <p style="color: {{ '#FFFF00' if d.weather.warnings.storm else '#444' }}">STORM: {{ '⚠️ ACTIVE' if d.weather.warnings.storm else 'Clear' }}</p>
-            <p style="color: {{ '#FFFF00' if d.weather.warnings.wind_vs_tide else '#444' }}">WIND v TIDE: {{ '⚠️ ROUGH' if d.weather.warnings.wind_vs_tide else 'Normal' }}</p>
+            {% if not d.weather.error %}
+                <p style="color: {{ '#FFFF00' if d.weather.warnings.fog else '#444' }}">FOG: {{ '⚠️ ACTIVE' if d.weather.warnings.fog else 'Clear' }}</p>
+                <p style="color: {{ '#FFFF00' if d.weather.warnings.storm else '#444' }}">STORM: {{ '⚠️ ACTIVE' if d.weather.warnings.storm else 'Clear' }}</p>
+                <p style="color: {{ '#FFFF00' if d.weather.warnings.wind_vs_tide else '#444' }}">WIND v TIDE: {{ '⚠️ ROUGH' if d.weather.warnings.wind_vs_tide else 'Normal' }}</p>
+            {% else %}
+                <p style="color:#444;">Hazards check unavailable</p>
+            {% endif %}
         </div>
     </div>
 
@@ -74,7 +103,7 @@
                     </div>
                 {% endfor %}
             {% else %}
-                <p style="color:#666">No events scheduled.</p>
+                <p style="color:#666">No sessions scheduled for {{ d.cal.day_label.lower() }}.</p>
             {% endif %}
         </div>
     </div>
@@ -86,14 +115,18 @@
 </footer>
 
 <script>
-    async function refresh() {
-        try {
-            const r = await fetch('/data');
-            const d = await r.json();
-            location.reload(); // Simplest way to re-render all complex logic correctly
-        } catch(e) {}
+    // Refresh the whole page every 10 minutes to sync with the backend
+    function autoRefresh() {
+        fetch('/data')
+            .then(response => {
+                if (response.ok) {
+                    location.reload();
+                }
+            })
+            .catch(err => console.log("Refresh failed, will try again."));
     }
-    setInterval(refresh, 600000); // 10 minutes
+    
+    setInterval(autoRefresh, 600000); // 10 minutes
 </script>
 </body>
 </html>
