@@ -57,4 +57,118 @@
         {% endif %}
 
         <hr>
-        <h3>PLA Ebb Flag <span class="updated" id="pla-updated
+        <h3>PLA Ebb Flag <span class="updated" id="pla-updated">{% if d.pla_updated %}Updated {{ d.pla_updated }}{% endif %}</span></h3>
+        <div class="pla-flag" id="pla-img">{% if d.pla_flag %}<img src="{{ d.pla_flag }}" alt="PLA Ebb Flag">{% endif %}</div>
+
+        <h3>Kingston Flow <span class="updated" id="kingston-updated">{% if d.kingston_updated %}Updated {{ d.kingston_updated }}{% endif %}</span></h3>
+        <div class="metric-value" style="font-size:1.5rem;" id="kingston-value">
+            {% if d.kingston %}{{ d.kingston.value }} m³/s <span style="font-size:0.9rem;color:#aaa;">at {{ d.kingston.time }}</span>{% endif %}
+        </div>
+    </div>
+
+    <div>
+        <h3>Weather <span class="updated" id="weather-updated">{% if d.weather.updated %}Updated {{ d.weather.updated }}{% endif %}</span></h3>
+        {% if d.weather.error %}
+            <p>Weather Sync Error: {{ d.weather.error_msg }}</p>
+        {% else %}
+            <table class="weather-table">
+                <tr><td class="weather-label">Temp:</td><td class="weather-data" id="w-temp">{{ d.weather.temp }}</td></tr>
+                <tr><td class="weather-label">Wind:</td><td class="weather-data" id="w-wind">{{ d.weather.wind }}</td></tr>
+                <tr><td class="weather-label">Gusts:</td><td class="weather-data" id="w-gusts">{{ d.weather.gusts }}</td></tr>
+                <tr><td class="weather-label">Dir:</td><td class="weather-data" id="w-dir">{{ d.weather.direction }}</td></tr>
+                <tr><td class="weather-label">Rain:</td><td class="weather-data" id="w-rain">{{ d.weather.rain }}</td></tr>
+                <tr><td class="weather-label">Sunrise:</td><td class="weather-data" id="w-sunrise">{{ d.weather.sunrise }}</td></tr>
+                <tr><td class="weather-label">Sunset:</td><td class="weather-data" id="w-sunset">{{ d.weather.sunset }}</td></tr>
+            </table>
+
+            <div class="warning-head">WARNINGS</div>
+            <table class="weather-table">
+                <tr><td class="weather-label">Fog:</td><td class="weather-data warn-none" id="w-fog">{{ "⚠️⚠️⚠️⚠️⚠️" if d.weather.warnings.fog else "None" }}</td></tr>
+                <tr><td class="weather-label">Storm:</td><td class="weather-data warn-none" id="w-storm">{{ "⚠️⚠️⚠️⚠️⚠️" if d.weather.warnings.storm else "None" }}</td></tr>
+                <tr><td class="weather-label">Wind v Tide:</td><td class="weather-data warn-none" id="w-wat">{{ "⚠️⚠️⚠️⚠️⚠️" if d.weather.warnings.wind_vs_tide else "None" }}</td></tr>
+                <tr><td class="weather-label">Launches/Boats:</td><td class="weather-data warn-none" id="w-launches">{{ d.tides.launch_warning if d.tides.launch_warning else "None" }}</td></tr>
+            </table>
+        {% endif %}
+    </div>
+
+    <div>
+        <h3>Calendar</h3>
+        <div class="calendar-container">
+            <div class="calendar-shield"></div>
+            <iframe src="https://calendar.google.com/calendar/embed?src={{ d.cal_id | replace('@', '%40') }}&ctz=Europe%2FLondon&mode=AGENDA&showTitle=0&showNav=0&showDate=0&showPrint=0&showTabs=0&showCalendars=0"></iframe>
+        </div>
+    </div>
+
+</div>
+
+<footer>
+    <span>SYSTEM STATUS: CONNECTED</span>
+    <span id="last-updated">{{ d.last_updated }}</span>
+</footer>
+
+<script>
+    const REFRESH_MS = 10 * 60 * 1000;
+
+    function set(id, val) {
+        const el = document.getElementById(id);
+        if (el && val !== undefined && val !== null) el.innerHTML = val;
+    }
+
+    function applyWarnClass(id, isActive) {
+        const el = document.getElementById(id);
+        if (el) el.className = 'weather-data ' + (isActive ? 'warn-active' : 'warn-none');
+    }
+
+    async function refresh() {
+        try {
+            const d = await fetch('/data').then(r => r.json());
+
+            // Tides
+            set('tides-updated', d.tides.updated ? `Updated ${d.tides.updated}` : '');
+            set('tide-direction', d.tides.direction ? `${d.tides.direction} UNTIL ${d.tides.until}` : '');
+            set('tide-rows', d.tides.upcoming.map(t =>
+                `<div class="tide-row ${t.type === 'HighWater' ? 'tide-hi' : 'tide-lo'}">${t.label.padEnd(3)} ${t.time.padEnd(12)} ${t.height}</div>`
+            ).join(''));
+
+            // PLA
+            set('pla-updated', d.pla_updated ? `Updated ${d.pla_updated}` : '');
+            if (d.pla_flag) set('pla-img', `<img src="${d.pla_flag}" alt="PLA Ebb Flag">`);
+
+            // Kingston
+            set('kingston-updated', d.kingston_updated ? `Updated ${d.kingston_updated}` : '');
+            if (d.kingston) set('kingston-value', `${d.kingston.value} m³/s <span style="font-size:0.9rem;color:#aaa;">at ${d.kingston.time}</span>`);
+
+            // Weather
+            set('weather-updated', d.weather.updated ? `Updated ${d.weather.updated}` : '');
+            if (!d.weather.error) {
+                set('w-temp', d.weather.temp);
+                set('w-wind', d.weather.wind);
+                set('w-gusts', d.weather.gusts);
+                set('w-dir', d.weather.direction);
+                set('w-rain', d.weather.rain);
+                set('w-sunrise', d.weather.sunrise);
+                set('w-sunset', d.weather.sunset);
+
+                set('w-fog', d.weather.warnings.fog ? '⚠️⚠️⚠️⚠️⚠️' : 'None');
+                set('w-storm', d.weather.warnings.storm ? '⚠️⚠️⚠️⚠️⚠️' : 'None');
+                set('w-wat', d.weather.warnings.wind_vs_tide ? '⚠️⚠️⚠️⚠️⚠️' : 'None');
+                set('w-launches', d.tides.launch_warning || 'None');
+
+                applyWarnClass('w-fog', d.weather.warnings.fog);
+                applyWarnClass('w-storm', d.weather.warnings.storm);
+                applyWarnClass('w-wat', d.weather.warnings.wind_vs_tide);
+                applyWarnClass('w-launches', !!d.tides.launch_warning);
+            }
+
+            set('last-updated', d.last_updated);
+        } catch (e) {
+            console.warn('Refresh failed:', e);
+        }
+        setTimeout(refresh, REFRESH_MS);
+    }
+
+    setTimeout(refresh, REFRESH_MS);
+</script>
+
+</body>
+</html>
