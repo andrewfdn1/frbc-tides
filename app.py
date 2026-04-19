@@ -25,9 +25,12 @@ def get_cached(key, fetch_fn, ttl_seconds):
 
 def should_fetch_pla():
     now = datetime.now(LONDON_TZ)
-    for wh, wm in [(6, 0), (6, 5), (19, 0), (19, 5)]:
-        target = now.replace(hour=wh, minute=wm, second=0, microsecond=0)
-        if abs((now - target).total_seconds()) < 300:
+    # Check for specific minutes
+    targets = [(6, 1), (6, 5), (19, 1), (19, 5)]
+    for hour, minute in targets:
+        if now.hour == hour and now.minute == minute:
+            # We use a small buffer or check for the exact minute 
+            # to ensure we don't trigger multiple times in one second
             return True
     return False
 
@@ -64,15 +67,37 @@ def get_pla_flag():
             src = img_tag['src']
             return src if src.startswith('http') else "https://pla.co.uk" + src
         return None
+
     try:
+        # Check if we are in one of the 4 update windows
+        if should_fetch_pla():
+            # Perform the fetch and update the cache
+            data = fetch()
+            fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
+            _cache['pla_flag'] = {
+                'ts': datetime.now(timezone.utc).timestamp(), 
+                'data': data, 
+                'fetched_at': fetched_at
+            }
+            return data, fetched_at
+        
+        # If not in a window, return the last known cached data
         if 'pla_flag' in _cache:
-            if should_fetch_pla():
-                return get_cached('pla_flag', fetch, ttl_seconds=0)
             return _cache['pla_flag']['data'], _cache['pla_flag']['fetched_at']
-        return get_cached('pla_flag', fetch, ttl_seconds=0)
+        
+        # Initial boot fallback: if cache is empty and not in window, fetch once to populate
+        data = fetch()
+        fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
+        _cache['pla_flag'] = {
+            'ts': datetime.now(timezone.utc).timestamp(), 
+            'data': data, 
+            'fetched_at': fetched_at
+        }
+        return data, fetched_at
+
     except:
         return _cache.get('pla_flag', {}).get('data'), _cache.get('pla_flag', {}).get('fetched_at', '')
-
+        
 def get_kingston_flow():
     def fetch():
         url = "https://environment.data.gov.uk/flood-monitoring/id/measures/3400TH-flow-water-i-15_min-m3_s/readings?_sorted&_limit=1"
