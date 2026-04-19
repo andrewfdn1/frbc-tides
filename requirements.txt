@@ -3,7 +3,6 @@ requests
 beautifulsoup4
 urllib3
 gunicorn
-openmeteo-requests
-requests-cache
-retry-requests
 icalevents
+python-dateutil
+pytz
