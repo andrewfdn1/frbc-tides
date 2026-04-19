@@ -57,14 +57,10 @@ def get_kingston_flow():
 
 
 def get_weather():
-    res = requests.get(
-        "https://api.open-meteo.com/v1/forecast"
-        "?latitude=51.488&longitude=-0.224"
-        "&current=temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code"
-        "&daily=sunrise,sunset,precipitation_probability_max"
-        "&timezone=Europe/London&forecast_days=1",
-        timeout=5
-    ).json()
+    url = "https://api.open-meteo.com/v1/forecast?latitude=51.488&longitude=-0.224&current=temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code&daily=sunrise,sunset,precipitation_probability_max&timezone=Europe/London&forecast_days=1"
+    res = requests.get(url, timeout=10).json()
+    if "current" not in res:
+        raise ValueError(f"Unexpected API response: {res}")
     return res['current'], res['daily']
 
 
