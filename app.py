@@ -12,25 +12,26 @@ app = Flask(__name__)
 TIDE_API_KEY = "26ba56f9ff62427aa82cb2df17180da9"
 LONDON_TZ = ZoneInfo("Europe/London")
 
+# Global cache to store data between requests
 _cache = {}
 
 def get_cached(key, fetch_fn, ttl_seconds):
     now = datetime.now(timezone.utc).timestamp()
     if key in _cache and now - _cache[key]['ts'] < ttl_seconds:
         return _cache[key]['data'], _cache[key]['fetched_at']
+    
     data = fetch_fn()
     fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
     _cache[key] = {'ts': now, 'data': data, 'fetched_at': fetched_at}
     return data, fetched_at
 
 def should_fetch_pla():
+    """Returns True only during the specified update minutes."""
     now = datetime.now(LONDON_TZ)
-    # Check for specific minutes
+    # Target updates: 06:01, 06:05, 19:01, 19:05
     targets = [(6, 1), (6, 5), (19, 1), (19, 5)]
-    for hour, minute in targets:
-        if now.hour == hour and now.minute == minute:
-            # We use a small buffer or check for the exact minute 
-            # to ensure we don't trigger multiple times in one second
+    for h, m in targets:
+        if now.hour == h and now.minute == m:
             return True
     return False
 
@@ -46,6 +47,7 @@ def get_tides():
             headers={"Ocp-Apim-Subscription-Key": TIDE_API_KEY},
             timeout=10
         )
+        r.raise_for_status()
         events = r.json()
         return sorted([
             {
@@ -56,7 +58,10 @@ def get_tides():
         ], key=lambda x: x['dt_utc'])
     try:
         return get_cached('tides', fetch, ttl_seconds=7200)
-    except:
+    except Exception as e:
+        print(f"Tide Fetch Error: {e}")
+        if 'tides' in _cache:
+            return _cache['tides']['data'], _cache['tides']['fetched_at']
         return [], ''
 
 def get_pla_flag():
@@ -68,10 +73,9 @@ def get_pla_flag():
             return src if src.startswith('http') else "https://pla.co.uk" + src
         return None
 
-    try:
-        # Check if we are in one of the 4 update windows
-        if should_fetch_pla():
-            # Perform the fetch and update the cache
+    # Update logic: only fetch during specific windows, otherwise use cache
+    if should_fetch_pla() or 'pla_flag' not in _cache:
+        try:
             data = fetch()
             fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
             _cache['pla_flag'] = {
@@ -80,24 +84,13 @@ def get_pla_flag():
                 'fetched_at': fetched_at
             }
             return data, fetched_at
-        
-        # If not in a window, return the last known cached data
-        if 'pla_flag' in _cache:
-            return _cache['pla_flag']['data'], _cache['pla_flag']['fetched_at']
-        
-        # Initial boot fallback: if cache is empty and not in window, fetch once to populate
-        data = fetch()
-        fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
-        _cache['pla_flag'] = {
-            'ts': datetime.now(timezone.utc).timestamp(), 
-            'data': data, 
-            'fetched_at': fetched_at
-        }
-        return data, fetched_at
+        except Exception as e:
+            print(f"PLA Fetch Error: {e}")
+            
+    if 'pla_flag' in _cache:
+        return _cache['pla_flag']['data'], _cache['pla_flag']['fetched_at']
+    return None, ''
 
-    except:
-        return _cache.get('pla_flag', {}).get('data'), _cache.get('pla_flag', {}).get('fetched_at', '')
-        
 def get_kingston_flow():
     def fetch():
         url = "https://environment.data.gov.uk/flood-monitoring/id/measures/3400TH-flow-water-i-15_min-m3_s/readings?_sorted&_limit=1"
@@ -112,51 +105,24 @@ def get_kingston_flow():
         return {'value': value, 'time': label}
     try:
         return get_cached('kingston', fetch, ttl_seconds=3600)
-    except:
+    except Exception as e:
+        print(f"Kingston Fetch Error: {e}")
+        if 'kingston' in _cache:
+            return _cache['kingston']['data'], _cache['kingston']['fetched_at']
         return None, ''
 
-import openmeteo_requests
-import requests_cache
-from retry_requests import retry
-
-# Setup the Open-Meteo API client with a cache and retry mechanism
-# This 'weather_cache' file will stay on your Render disk to prevent over-calling
-cache_session = requests_cache.CachedSession('.cache', expire_after=3600)
-retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
-openmeteo = openmeteo_requests.Client(session=retry_session)
-
 def get_weather():
-    url = "https://api.open-meteo.com/v1/forecast"
-    params = {
-        "latitude": 51.488,
-        "longitude": -0.224,
-        "current": ["temperature_2m", "wind_speed_10m", "wind_direction_10m", "weather_code"],
-        "daily": ["sunrise", "sunset", "precipitation_probability_max"],
-        "timezone": "Europe/London",
-        "forecast_days": 1
-    }
-
+    def fetch():
+        url = "https://api.open-meteo.com/v1/forecast?latitude=51.488&longitude=-0.224&current=temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code&daily=sunrise,sunset,precipitation_probability_max&timezone=Europe/London&forecast_days=1"
+        res = requests.get(url, timeout=10)
+        res.raise_for_status()
+        data = res.json()
+        return data['current'], data['daily']
     try:
-        responses = openmeteo.weather_api(url, params=params)
-        response = responses[0]
-        
-        # Current data
-        current = response.Current()
-        
-        # Format the data to match what your frontend expects
-        weather_data = {
-            "temperature_2m": current.Variables(0).Value(),
-            "wind_speed_10m": current.Variables(1).Value(),
-            "wind_direction_10m": current.Variables(2).Value(),
-            "weather_code": current.Variables(3).Value()
-        }
-        
-        fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
-        return weather_data, fetched_at
-
+        return get_cached('weather', fetch, ttl_seconds=3600)
     except Exception as e:
-        print(f"Weather Fetch Error: {e}")
-        # FALLBACK: If the API is still blocking you, return the last known good data
+        print(f"Weather API Fetch Error (likely rate-limit): {e}")
+        # Return Last Known Good from cache if API fails
         if 'weather' in _cache:
             return _cache['weather']['data'], _cache['weather']['fetched_at']
         return None, ''
@@ -165,13 +131,17 @@ def build_dashboard_data():
     now_utc = datetime.now(timezone.utc)
     now_london = datetime.now(LONDON_TZ)
     is_bst = now_london.dst() != timedelta(0)
+    tz_label = "BST" if is_bst else "GMT"
     off = timedelta(hours=1) if is_bst else timedelta(0)
 
     # --- Tides ---
     tides_data = {"error": False, "direction": "", "until": "", "upcoming": [], "launch_warning": "", "updated": ""}
     current_direction_str = ""
-    try:
-        tides, tides_updated = get_tides()
+    tides, tides_updated = get_tides()
+    
+    if not tides:
+        tides_data["error"] = True
+    else:
         tides_data["updated"] = tides_updated
         future = [t for t in tides if t['dt_utc'] > now_utc]
         past = [t for t in tides if t['dt_utc'] <= now_utc]
@@ -199,9 +169,6 @@ def build_dashboard_data():
             pass
         tides_data["launch_warning"] = launch_msg
 
-    except Exception as e:
-        tides_data["error"] = True
-
     # --- PLA Flag ---
     pla_flag, pla_updated = get_pla_flag()
 
@@ -210,10 +177,11 @@ def build_dashboard_data():
 
     # --- Weather ---
     weather_data = {"error": False, "updated": ""}
-    try:
-        weather_result, weather_updated = get_weather()
-        if weather_result is None:
-            raise ValueError("Weather unavailable")
+    weather_result, weather_updated = get_weather()
+    
+    if weather_result is None:
+        weather_data["error"] = True
+    else:
         curr, daily = weather_result
         w_speed = curr['wind_speed_10m']
         w_gusts = curr['wind_gusts_10m']
@@ -244,12 +212,6 @@ def build_dashboard_data():
             "wind_vs_tide": wat_warn,
         }
 
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        weather_data["error"] = True
-        weather_data["error_msg"] = str(e)
-
     return {
         "tides": tides_data,
         "pla_flag": pla_flag,
@@ -258,6 +220,7 @@ def build_dashboard_data():
         "kingston_updated": kingston_updated or '',
         "weather": weather_data,
         "last_updated": now_london.strftime('%H:%M:%S'),
+        "tz_label": tz_label,
         "cal_id": "info@fulhamreachboatclub.com",
     }
 
