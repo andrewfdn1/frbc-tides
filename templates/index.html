@@ -29,6 +29,8 @@
         }
         @media (orientation: landscape) {
             .logo-container img { width: 33%; height: auto; }
+            /* Reduced font size for calendar events in landscape */
+            .cal-event { font-size: clamp(12px, 1.4vw, 20px) !important; }
         }
 
         .grid {
@@ -102,8 +104,6 @@
             font-weight: bold;
             margin: 6px 0 2px;
         }
-
-        .flow-label { font-size: var(--fs-data); }
 
         .wx-table {
             width: 100%;
@@ -205,7 +205,7 @@
         <div class="flow-value" style="color:{{ fcol }};">
             {{ d.kingston_flow.flow }} <span style="font-size:var(--fs-data); color:{{ fcol }};">{{ d.kingston_flow.unit }}</span>
         </div>
-        <div class="flow-label" style="color:{{ fcol }};">Mean river flow at Kingston</div>
+        {# Removed flow-label "Mean river flow at Kingston" #}
     {% else %}
         <p class="c-dim" style="font-size:var(--fs-data);">Flow data unavailable</p>
     {% endif %}
@@ -230,45 +230,47 @@
             </thead>
             <tbody>
                 <tr>
-                    <td>Sun</td>
+                    <td>Sunrise/set</td>
                     <td>&#8593;{{ d.weather.sunrise }}</td>
                     <td>&#8595;{{ d.weather.sunset }}</td>
                 </tr>
                 <tr>
-                    <td>Temp (&deg;C)</td>
+                    <td>Temp</td>
                     <td>
-                        {% if m %}
-                            {% set tlo = m.temp_min %}{% set thi = m.temp_max %}
-                            {% if tlo is not none and (tlo < 5 or tlo > 25) %}<span class="c-red">{{ tlo }}</span>{% else %}{{ tlo if tlo is not none else '&mdash;' }}{% endif %}
-                            /
-                            {% if thi is not none and (thi < 5 or thi > 25) %}<span class="c-red">{{ thi }}</span>{% else %}{{ thi if thi is not none else '&mdash;' }}{% endif %}
+                        {% if m and m.temp_min is not none and m.temp_max is not none %}
+                            {{ m.temp_min }}-{{ m.temp_max }}c
                         {% else %}&mdash;{% endif %}
                     </td>
                     <td>
-                        {% if a %}
-                            {% set tlo = a.temp_min %}{% set thi = a.temp_max %}
-                            {% if tlo is not none and (tlo < 5 or tlo > 25) %}<span class="c-red">{{ tlo }}</span>{% else %}{{ tlo if tlo is not none else '&mdash;' }}{% endif %}
-                            /
-                            {% if thi is not none and (thi < 5 or thi > 25) %}<span class="c-red">{{ thi }}</span>{% else %}{{ thi if thi is not none else '&mdash;' }}{% endif %}
+                        {% if a and a.temp_min is not none and a.temp_max is not none %}
+                            {{ a.temp_min }}-{{ a.temp_max }}c
                         {% else %}&mdash;{% endif %}
                     </td>
                 </tr>
                 <tr>
-                    <td>Wind (km/h)</td>
+                    <td>Wind</td>
                     <td>
-                        {% if m %}{% set whi = m.wind_max %}{% if whi is not none and whi > 15 %}<span class="c-red">{{ m.wind_min }}/{{ whi }}</span>{% else %}{{ m.wind_min if m.wind_min is not none else '&mdash;' }}/{{ whi if whi is not none else '&mdash;' }}{% endif %}{% else %}&mdash;{% endif %}
+                        {% if m and m.wind_min is not none and m.wind_max is not none %}
+                            {{ m.wind_min }}-{{ m.wind_max }} km/h
+                        {% else %}&mdash;{% endif %}
                     </td>
                     <td>
-                        {% if a %}{% set whi = a.wind_max %}{% if whi is not none and whi > 15 %}<span class="c-red">{{ a.wind_min }}/{{ whi }}</span>{% else %}{{ a.wind_min if a.wind_min is not none else '&mdash;' }}/{{ whi if whi is not none else '&mdash;' }}{% endif %}{% else %}&mdash;{% endif %}
+                        {% if a and a.wind_min is not none and a.wind_max is not none %}
+                            {{ a.wind_min }}-{{ a.wind_max }} km/h
+                        {% else %}&mdash;{% endif %}
                     </td>
                 </tr>
                 <tr>
-                    <td>Gusts (km/h)</td>
+                    <td>Gusts</td>
                     <td>
-                        {% if m %}{% set ghi = m.gust_max %}{% if ghi is not none and ghi > 25 %}<span class="c-red">{{ m.gust_min }}/{{ ghi }}</span>{% else %}{{ m.gust_min if m.gust_min is not none else '&mdash;' }}/{{ ghi if ghi is not none else '&mdash;' }}{% endif %}{% else %}&mdash;{% endif %}
+                        {% if m and m.gust_min is not none and m.gust_max is not none %}
+                            {{ m.gust_min }}-{{ m.gust_max }} km/h
+                        {% else %}&mdash;{% endif %}
                     </td>
                     <td>
-                        {% if a %}{% set ghi = a.gust_max %}{% if ghi is not none and ghi > 25 %}<span class="c-red">{{ a.gust_min }}/{{ ghi }}</span>{% else %}{{ a.gust_min if a.gust_min is not none else '&mdash;' }}/{{ ghi if ghi is not none else '&mdash;' }}{% endif %}{% else %}&mdash;{% endif %}
+                        {% if a and a.gust_min is not none and a.gust_max is not none %}
+                            {{ a.gust_min }}-{{ a.gust_max }} km/h
+                        {% else %}&mdash;{% endif %}
                     </td>
                 </tr>
                 <tr>
@@ -277,23 +279,41 @@
                     <td>{{ a.direction if a else '&mdash;' }}</td>
                 </tr>
                 <tr>
-                    <td>Rain (%)</td>
+                    <td>Rain</td>
                     <td>
-                        {% if m %}{% set rhi = m.rain_max %}{% if rhi is not none and rhi > 50 %}<span class="c-red">{{ m.rain_min }}/{{ rhi }}</span>{% else %}{{ m.rain_min if m.rain_min is not none else '&mdash;' }}/{{ rhi if rhi is not none else '&mdash;' }}{% endif %}{% else %}&mdash;{% endif %}
+                        {% if m and m.rain_min is not none and m.rain_max is not none %}
+                            {{ m.rain_min }}-{{ m.rain_max }}%
+                        {% else %}&mdash;{% endif %}
                     </td>
                     <td>
-                        {% if a %}{% set rhi = a.rain_max %}{% if rhi is not none and rhi > 50 %}<span class="c-red">{{ a.rain_min }}/{{ rhi }}</span>{% else %}{{ a.rain_min if a.rain_min is not none else '&mdash;' }}/{{ rhi if rhi is not none else '&mdash;' }}{% endif %}{% else %}&mdash;{% endif %}
+                        {% if a and a.rain_min is not none and a.rain_max is not none %}
+                            {{ a.rain_min }}-{{ a.rain_max }}%
+                        {% else %}&mdash;{% endif %}
                     </td>
                 </tr>
                 <tr>
                     <td>UV</td>
-                    <td>{{ m.uv_min if m and m.uv_min is not none else '&mdash;' }}/{{ m.uv_max if m and m.uv_max is not none else '&mdash;' }}</td>
-                    <td>{{ a.uv_min if a and a.uv_min is not none else '&mdash;' }}/{{ a.uv_max if a and a.uv_max is not none else '&mdash;' }}</td>
+                    <td>
+                        {% if m and m.uv_max is not none %}
+                            {% if m.uv_max < 3 %}Low
+                            {% elif m.uv_max < 6 %}<span class="c-yellow">Medium</span>
+                            {% else %}<span class="c-red">High</span>
+                            {% endif %}
+                        {% else %}&mdash;{% endif %}
+                    </td>
+                    <td>
+                        {% if a and a.uv_max is not none %}
+                            {% if a.uv_max < 3 %}Low
+                            {% elif a.uv_max < 6 %}<span class="c-yellow">Medium</span>
+                            {% else %}<span class="c-red">High</span>
+                            {% endif %}
+                        {% else %}&mdash;{% endif %}
+                    </td>
                 </tr>
                 <tr>
                     <td>Pollen</td>
-                    <td class="c-dim">N/A</td>
-                    <td class="c-dim">N/A</td>
+                    <td>&mdash;</td>
+                    <td>&mdash;</td>
                 </tr>
             </tbody>
         </table>
