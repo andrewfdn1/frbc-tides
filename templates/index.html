@@ -22,26 +22,35 @@
             --fs-footer:  clamp(10px, 0.9vw, 13px);
         }
 
-        .logo-container { padding: 12px 16px 8px; }
-
-        @media (orientation: portrait) {
-            .logo-container img { width: 100%; height: auto; }
-        }
-        @media (orientation: landscape) {
-            .logo-container img { width: 33%; height: auto; }
-            /* Reduced font size for calendar events in landscape */
-            .cal-event { font-size: clamp(12px, 1.4vw, 20px) !important; }
-        }
-
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: clamp(12px, 2vw, 28px);
-            padding: 0 clamp(10px, 2vw, 20px);
+        /* Logo Styling */
+        .logo-img { 
+            width: 33%; 
+            height: auto; 
+            margin-top: 20px;
+            display: block;
         }
 
         @media (orientation: portrait) {
             .grid { grid-template-columns: 1fr; }
+            .logo-landscape { display: none; }
+            .logo-portrait { display: block; }
+        }
+
+        @media (orientation: landscape) {
+            .grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr 1fr;
+                gap: clamp(12px, 2vw, 28px);
+                padding: 0 clamp(10px, 2vw, 20px);
+            }
+            /* Reduced font size for calendar events in landscape */
+            .cal-event { font-size: clamp(12px, 1.4vw, 20px) !important; }
+            
+            .logo-landscape { display: block; }
+            .logo-portrait { display: none; }
+            /* In landscape, since the column is already ~33% width, 
+               setting the img to 100% makes it 33% of the total screen width */
+            .logo-landscape .logo-img { width: 100%; } 
         }
 
         h3 {
@@ -160,12 +169,9 @@
 </head>
 <body>
 
-<div class="logo-container">
-    <img src="/static/FRBC logo White on black.png" alt="FRBC" onerror="this.style.display='none'">
-</div>
-
 <div class="grid">
 
+<!-- COLUMN 1 -->
 <div>
     <h3>HAMMERSMITH TIDES <span class="updated">Updated {{ d.tides.updated }}</span></h3>
 
@@ -205,12 +211,17 @@
         <div class="flow-value" style="color:{{ fcol }};">
             {{ d.kingston_flow.flow }} <span style="font-size:var(--fs-data); color:{{ fcol }};">{{ d.kingston_flow.unit }}</span>
         </div>
-        {# Removed flow-label "Mean river flow at Kingston" #}
     {% else %}
         <p class="c-dim" style="font-size:var(--fs-data);">Flow data unavailable</p>
     {% endif %}
+
+    <!-- Landscape Logo: Bottom of Column 1 -->
+    <div class="logo-landscape">
+        <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
+    </div>
 </div>
 
+<!-- COLUMN 2 -->
 <div>
     <h3>WEATHER <span class="updated">Updated {{ d.weather.updated }}</span></h3>
 
@@ -354,6 +365,7 @@
     {% endif %}
 </div>
 
+<!-- COLUMN 3 -->
 <div>
     <h3>{{ d.cal.day_label }} <span class="updated">Updated {{ d.cal_updated }}</span></h3>
     <div>
@@ -366,6 +378,11 @@
         {% else %}
             <p class="c-dim" style="font-size:var(--fs-data);">No sessions scheduled for {{ d.cal.day_label.lower() }}.</p>
         {% endif %}
+    </div>
+
+    <!-- Portrait Logo: After Calendar -->
+    <div class="logo-portrait">
+        <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
     </div>
 </div>
 
