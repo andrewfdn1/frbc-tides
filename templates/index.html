@@ -11,28 +11,26 @@
             background-color: #000;
             color: #fff;
             min-height: 100vh;
+            padding-bottom: 36px;
         }
 
-        /* Logo */
-        .logo-container {
-            padding: 12px 16px 8px;
+        :root {
+            --fs-header:  clamp(13px, 1.3vw, 17px);
+            --fs-updated: clamp(11px, 1.1vw, 15px);
+            --fs-data:    clamp(15px, 1.9vw, 26px);
+            --fs-metric:  clamp(20px, 2.8vw, 38px);
+            --fs-footer:  clamp(10px, 0.9vw, 13px);
         }
+
+        .logo-container { padding: 12px 16px 8px; }
 
         @media (orientation: portrait) {
-            .logo-container img {
-                width: 100%;
-                height: auto;
-            }
+            .logo-container img { width: 100%; height: auto; }
         }
-
         @media (orientation: landscape) {
-            .logo-container img {
-                width: 33%;
-                height: auto;
-            }
+            .logo-container img { width: 33%; height: auto; }
         }
 
-        /* Layout grid */
         .grid {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
@@ -41,19 +39,7 @@
         }
 
         @media (orientation: portrait) {
-            .grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        /* Fluid font sizes */
-        :root {
-            --fs-base:   clamp(13px, 1.4vw, 18px);
-            --fs-label:  clamp(11px, 1.1vw, 15px);
-            --fs-metric: clamp(20px, 2.8vw, 38px);
-            --fs-tide:   clamp(17px, 2.2vw, 30px);
-            --fs-header: clamp(13px, 1.3vw, 17px);
-            --fs-footer: clamp(10px, 0.9vw, 13px);
+            .grid { grid-template-columns: 1fr; }
         }
 
         h3 {
@@ -68,7 +54,7 @@
         }
 
         .updated {
-            font-size: var(--fs-label);
+            font-size: var(--fs-updated);
             color: #fff;
             font-weight: normal;
             text-transform: none;
@@ -82,8 +68,8 @@
         }
 
         .tide-row {
-            font-size: var(--fs-tide);
-            line-height: 1.3;
+            font-size: var(--fs-data);
+            line-height: 1.4;
             white-space: pre;
             font-weight: bold;
         }
@@ -95,7 +81,7 @@
             color: #FFFF00;
             font-weight: bold;
             margin-top: 10px;
-            font-size: var(--fs-base);
+            font-size: var(--fs-data);
             animation: blink 2s infinite;
         }
 
@@ -106,50 +92,51 @@
         }
 
         .pla-flag img {
-            height: clamp(60px, 8vw, 120px);
+            height: clamp(120px, 16vw, 240px);
             margin: 10px 0;
             border: 1px solid #333;
-        }
-
-        .weather-table {
-            width: 100%;
-            font-size: var(--fs-base);
-            border-collapse: collapse;
-        }
-
-        .weather-table td {
-            padding: clamp(3px, 0.4vw, 6px) 0;
         }
 
         .flow-value {
             font-size: var(--fs-metric);
             font-weight: bold;
-            color: #00CED1;
             margin: 6px 0 2px;
         }
 
-        .flow-label {
-            font-size: var(--fs-label);
-            color: #888;
+        .flow-label { font-size: var(--fs-data); }
+
+        .wx-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: var(--fs-data);
+        }
+
+        .wx-table th {
+            font-size: var(--fs-data);
+            font-weight: bold;
+            text-align: left;
+            padding: clamp(2px, 0.4vw, 5px) clamp(4px, 0.5vw, 8px) clamp(2px, 0.4vw, 5px) 0;
+            border-bottom: 1px solid #333;
+            color: #aaa;
+        }
+
+        .wx-table th:first-child { min-width: 5em; }
+
+        .wx-table td {
+            text-align: left;
+            padding: clamp(2px, 0.4vw, 5px) clamp(4px, 0.5vw, 8px) clamp(2px, 0.4vw, 5px) 0;
+            vertical-align: top;
         }
 
         .cal-event {
             margin-bottom: clamp(8px, 1vw, 14px);
-            font-size: var(--fs-base);
+            font-size: var(--fs-data);
             border-left: 3px solid #33FF57;
             padding-left: 8px;
             line-height: 1.4;
         }
 
-        .cal-time {
-            color: #33FF57;
-            font-size: var(--fs-base);
-        }
-
-        .hazard-line {
-            font-size: var(--fs-base);
-            margin-bottom: 4px;
-        }
+        .cal-time { color: #33FF57; }
 
         footer {
             position: fixed;
@@ -164,7 +151,11 @@
             background: #000;
         }
 
-        body { padding-bottom: 32px; }
+        .c-red    { color: #FF4B4B; }
+        .c-yellow { color: #FFFF00; }
+        .c-green  { color: #33FF57; }
+        .c-dim    { color: #555; }
+        .c-white  { color: #fff; }
     </style>
 </head>
 <body>
@@ -175,94 +166,201 @@
 
 <div class="grid">
 
-    <!-- COLUMN 1: TIDES & FLAG -->
+<div>
+    <h3>HAMMERSMITH TIDES <span class="updated">Updated {{ d.tides.updated }}</span></h3>
+
+    <div class="metric">
+        {% if d.tides.direction %}{{ d.tides.direction }} UNTIL {{ d.tides.until }}{% else %}DATA UNAVAILABLE{% endif %}
+    </div>
+
     <div>
-        <h3>HAMMERSMITH TIDES <span class="updated">Updated {{ d.tides.updated }}</span></h3>
-        <div class="metric" id="tide-main">
-            {% if d.tides.direction %}{{ d.tides.direction }} UNTIL {{ d.tides.until }}{% else %}DATA UNAVAILABLE{% endif %}
+        {% for t in d.tides.upcoming %}
+            <div class="tide-row {{ 'tide-hi' if t.type == 'HighWater' else 'tide-lo' }}">{{ "%-3s"|format(t.label) }} {{ "%-12s"|format(t.time) }} {{ t.height }}</div>
+        {% endfor %}
+    </div>
+
+    {% if d.tides.launch_warning %}
+        <div class="warn-active">&#9888; {{ d.tides.launch_warning }}</div>
+    {% endif %}
+
+    <h3 style="margin-top:20px;">PLA EBB FLAG <span class="updated">Updated {{ d.pla_updated }}</span></h3>
+    <div class="pla-flag">
+        {% if d.pla_flag %}
+            <img src="{{ d.pla_flag }}" alt="PLA Flag">
+        {% else %}
+            <p class="c-dim" style="font-size:var(--fs-data);">Flag status unavailable</p>
+        {% endif %}
+    </div>
+
+    <h3 style="margin-top:20px;">KINGSTON FLOW <span class="updated">Updated {{ d.flow_updated }}</span></h3>
+    {% if d.kingston_flow %}
+        {% set fraw = d.kingston_flow.raw %}
+        {% if fraw > 120 %}
+            {% set fcol = '#FF4B4B' %}
+        {% elif fraw >= 80 %}
+            {% set fcol = '#FFFF00' %}
+        {% else %}
+            {% set fcol = '#ffffff' %}
+        {% endif %}
+        <div class="flow-value" style="color:{{ fcol }};">
+            {{ d.kingston_flow.flow }} <span style="font-size:var(--fs-data); color:{{ fcol }};">{{ d.kingston_flow.unit }}</span>
         </div>
-        <div id="tide-list">
-            {% for t in d.tides.upcoming %}
-                <div class="tide-row {{ 'tide-hi' if t.type == 'HighWater' else 'tide-lo' }}">{{ "%-3s"|format(t.label) }} {{ "%-12s"|format(t.time) }} {{ t.height }}</div>
+        <div class="flow-label" style="color:{{ fcol }};">Mean river flow at Kingston</div>
+    {% else %}
+        <p class="c-dim" style="font-size:var(--fs-data);">Flow data unavailable</p>
+    {% endif %}
+</div>
+
+<div>
+    <h3>WEATHER <span class="updated">Updated {{ d.weather.updated }}</span></h3>
+
+    {% if d.weather.error %}
+        <p class="c-red" style="font-size:var(--fs-data);">Weather Currently Unavailable</p>
+    {% else %}
+        {% set m = d.weather.morning %}
+        {% set a = d.weather.afternoon %}
+
+        <table class="wx-table">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>0600&ndash;1200</th>
+                    <th>1200&ndash;2100</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Sun</td>
+                    <td>&#8593;{{ d.weather.sunrise }}</td>
+                    <td>&#8595;{{ d.weather.sunset }}</td>
+                </tr>
+                <tr>
+                    <td>Temp (&deg;C)</td>
+                    <td>
+                        {% if m %}
+                            {% set tlo = m.temp_min %}{% set thi = m.temp_max %}
+                            {% if tlo is not none and (tlo < 5 or tlo > 25) %}<span class="c-red">{{ tlo }}</span>{% else %}{{ tlo if tlo is not none else '&mdash;' }}{% endif %}
+                            /
+                            {% if thi is not none and (thi < 5 or thi > 25) %}<span class="c-red">{{ thi }}</span>{% else %}{{ thi if thi is not none else '&mdash;' }}{% endif %}
+                        {% else %}&mdash;{% endif %}
+                    </td>
+                    <td>
+                        {% if a %}
+                            {% set tlo = a.temp_min %}{% set thi = a.temp_max %}
+                            {% if tlo is not none and (tlo < 5 or tlo > 25) %}<span class="c-red">{{ tlo }}</span>{% else %}{{ tlo if tlo is not none else '&mdash;' }}{% endif %}
+                            /
+                            {% if thi is not none and (thi < 5 or thi > 25) %}<span class="c-red">{{ thi }}</span>{% else %}{{ thi if thi is not none else '&mdash;' }}{% endif %}
+                        {% else %}&mdash;{% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <td>Wind (km/h)</td>
+                    <td>
+                        {% if m %}{% set whi = m.wind_max %}{% if whi is not none and whi > 15 %}<span class="c-red">{{ m.wind_min }}/{{ whi }}</span>{% else %}{{ m.wind_min if m.wind_min is not none else '&mdash;' }}/{{ whi if whi is not none else '&mdash;' }}{% endif %}{% else %}&mdash;{% endif %}
+                    </td>
+                    <td>
+                        {% if a %}{% set whi = a.wind_max %}{% if whi is not none and whi > 15 %}<span class="c-red">{{ a.wind_min }}/{{ whi }}</span>{% else %}{{ a.wind_min if a.wind_min is not none else '&mdash;' }}/{{ whi if whi is not none else '&mdash;' }}{% endif %}{% else %}&mdash;{% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <td>Gusts (km/h)</td>
+                    <td>
+                        {% if m %}{% set ghi = m.gust_max %}{% if ghi is not none and ghi > 25 %}<span class="c-red">{{ m.gust_min }}/{{ ghi }}</span>{% else %}{{ m.gust_min if m.gust_min is not none else '&mdash;' }}/{{ ghi if ghi is not none else '&mdash;' }}{% endif %}{% else %}&mdash;{% endif %}
+                    </td>
+                    <td>
+                        {% if a %}{% set ghi = a.gust_max %}{% if ghi is not none and ghi > 25 %}<span class="c-red">{{ a.gust_min }}/{{ ghi }}</span>{% else %}{{ a.gust_min if a.gust_min is not none else '&mdash;' }}/{{ ghi if ghi is not none else '&mdash;' }}{% endif %}{% else %}&mdash;{% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <td>Wind Dir</td>
+                    <td>{{ m.direction if m else '&mdash;' }}</td>
+                    <td>{{ a.direction if a else '&mdash;' }}</td>
+                </tr>
+                <tr>
+                    <td>Rain (%)</td>
+                    <td>
+                        {% if m %}{% set rhi = m.rain_max %}{% if rhi is not none and rhi > 50 %}<span class="c-red">{{ m.rain_min }}/{{ rhi }}</span>{% else %}{{ m.rain_min if m.rain_min is not none else '&mdash;' }}/{{ rhi if rhi is not none else '&mdash;' }}{% endif %}{% else %}&mdash;{% endif %}
+                    </td>
+                    <td>
+                        {% if a %}{% set rhi = a.rain_max %}{% if rhi is not none and rhi > 50 %}<span class="c-red">{{ a.rain_min }}/{{ rhi }}</span>{% else %}{{ a.rain_min if a.rain_min is not none else '&mdash;' }}/{{ rhi if rhi is not none else '&mdash;' }}{% endif %}{% else %}&mdash;{% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <td>UV</td>
+                    <td>{{ m.uv_min if m and m.uv_min is not none else '&mdash;' }}/{{ m.uv_max if m and m.uv_max is not none else '&mdash;' }}</td>
+                    <td>{{ a.uv_min if a and a.uv_min is not none else '&mdash;' }}/{{ a.uv_max if a and a.uv_max is not none else '&mdash;' }}</td>
+                </tr>
+                <tr>
+                    <td>Pollen</td>
+                    <td class="c-dim">N/A</td>
+                    <td class="c-dim">N/A</td>
+                </tr>
+            </tbody>
+        </table>
+    {% endif %}
+
+    <h3 style="margin-top:20px; color:#FF4B4B;">HAZARDS</h3>
+
+    {% if d.weather.error %}
+        <p class="c-dim" style="font-size:var(--fs-data);">Hazards check unavailable</p>
+    {% else %}
+        {% set w = d.weather.warnings %}
+        <table class="wx-table">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>0600&ndash;1200</th>
+                    <th>1200&ndash;2100</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Fog</td>
+                    <td>{% if w.fog_morning %}<span class="c-red">Fog warning</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
+                    <td>{% if w.fog_afternoon %}<span class="c-red">Fog warning</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
+                </tr>
+                <tr>
+                    <td>Storm</td>
+                    <td>{% if w.storm_morning %}<span class="c-red">Storm warning</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
+                    <td>{% if w.storm_afternoon %}<span class="c-red">Storm warning</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
+                </tr>
+                <tr>
+                    <td>Wind v Tide</td>
+                    <td>{% if w.wvt_morning %}<span class="c-red">Check for white horses</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
+                    <td>{% if w.wvt_afternoon %}<span class="c-red">Check for white horses</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
+                </tr>
+            </tbody>
+        </table>
+    {% endif %}
+</div>
+
+<div>
+    <h3>{{ d.cal.day_label }} <span class="updated">Updated {{ d.cal_updated }}</span></h3>
+    <div>
+        {% if d.cal.list %}
+            {% for e in d.cal.list %}
+                <div class="cal-event">
+                    <span class="cal-time">{{ e.time }}</span><br>{{ e.summary }}
+                </div>
             {% endfor %}
-        </div>
-        {% if d.tides.launch_warning %}
-            <div class="warn-active">&#9888; {{ d.tides.launch_warning }}</div>
-        {% endif %}
-
-        <h3 style="margin-top:20px;">PLA EBB FLAG <span class="updated">Updated {{ d.pla_updated }}</span></h3>
-        <div class="pla-flag">
-            {% if d.pla_flag %}
-                <img src="{{ d.pla_flag }}" alt="PLA Flag">
-            {% else %}
-                <p style="color:#444; font-size: var(--fs-label);">Flag status unavailable</p>
-            {% endif %}
-        </div>
-
-        <h3 style="margin-top:20px;">KINGSTON FLOW <span class="updated">Updated {{ d.flow_updated }}</span></h3>
-        {% if d.kingston_flow %}
-            <div class="flow-value">{{ d.kingston_flow.flow }} <span style="font-size: var(--fs-base); color:#888;">{{ d.kingston_flow.unit }}</span></div>
-            <div class="flow-label">Mean river flow at Kingston</div>
         {% else %}
-            <p style="color:#444; font-size: var(--fs-label);">Flow data unavailable</p>
+            <p class="c-dim" style="font-size:var(--fs-data);">No sessions scheduled for {{ d.cal.day_label.lower() }}.</p>
         {% endif %}
     </div>
-
-    <!-- COLUMN 2: WEATHER & HAZARDS -->
-    <div>
-        <h3>WEATHER <span class="updated">Updated {{ d.weather.updated }}</span></h3>
-        {% if d.weather.error %}
-            <p style="color: #FF4B4B; font-size: var(--fs-base);">Weather Currently Unavailable</p>
-        {% else %}
-            <table class="weather-table">
-                <tr><td>Temp:</td><td style="color:#33FF57">{{ d.weather.temp }}</td></tr>
-                <tr><td>Wind/Gust:</td><td>{{ d.weather.wind }} / {{ d.weather.gusts }}</td></tr>
-                <tr><td>Direction:</td><td>{{ d.weather.direction }}</td></tr>
-                <tr><td>Rain:</td><td>{{ d.weather.rain }}</td></tr>
-                <tr><td>Sun:</td><td>&#8593;{{ d.weather.sunrise }} &#8595;{{ d.weather.sunset }}</td></tr>
-            </table>
-        {% endif %}
-
-        <h3 style="margin-top:20px; color:#FF4B4B;">HAZARDS</h3>
-        <div>
-            {% if not d.weather.error %}
-                <p class="hazard-line" style="color: {{ '#FFFF00' if d.weather.warnings.fog else '#444' }}">FOG: {{ '&#9888; ACTIVE' if d.weather.warnings.fog else 'Clear' }}</p>
-                <p class="hazard-line" style="color: {{ '#FFFF00' if d.weather.warnings.storm else '#444' }}">STORM: {{ '&#9888; ACTIVE' if d.weather.warnings.storm else 'Clear' }}</p>
-                <p class="hazard-line" style="color: {{ '#FFFF00' if d.weather.warnings.wind_vs_tide else '#444' }}">WIND v TIDE: {{ '&#9888; ROUGH' if d.weather.warnings.wind_vs_tide else 'Normal' }}</p>
-            {% else %}
-                <p class="hazard-line" style="color:#444;">Hazards check unavailable</p>
-            {% endif %}
-        </div>
-    </div>
-
-    <!-- COLUMN 3: CALENDAR -->
-    <div>
-        <h3>{{ d.cal.day_label }} <span class="updated">Updated {{ d.cal_updated }}</span></h3>
-        <div id="cal-list">
-            {% if d.cal.list %}
-                {% for e in d.cal.list %}
-                    <div class="cal-event">
-                        <span class="cal-time">{{ e.time }}</span><br>{{ e.summary }}
-                    </div>
-                {% endfor %}
-            {% else %}
-                <p style="color:#666; font-size: var(--fs-base);">No sessions scheduled for {{ d.cal.day_label.lower() }}.</p>
-            {% endif %}
-        </div>
-    </div>
+</div>
 
 </div>
 
 <footer>
     <span>SYSTEM STATUS: CONNECTED ({{ d.tz_label }})</span>
-    <span id="clock">{{ d.last_updated }}</span>
+    <span>{{ d.last_updated }}</span>
 </footer>
 
 <script>
     function autoRefresh() {
         fetch('/data')
-            .then(response => { if (response.ok) location.reload(); })
-            .catch(err => console.log("Refresh failed, will try again."));
+            .then(r => { if (r.ok) location.reload(); })
+            .catch(() => {});
     }
     setInterval(autoRefresh, 600000);
 </script>
