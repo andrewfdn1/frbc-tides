@@ -3,7 +3,6 @@ requests
 beautifulsoup4
 urllib3
 gunicorn
-icalevents
 python-dateutil
 pytz
 tzdata
