@@ -5,17 +5,19 @@ from bs4 import BeautifulSoup
 import requests
 import urllib3
 import threading
-from icalevents.icalevents import events as ical_events
+import os
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
 
-TIDE_API_KEY = "26ba56f9ff62427aa82cb2df17180da9"
-LONDON_TZ = ZoneInfo("Europe/London")
-CAL_ID = "info@fulhamreachboatclub.com"
+TIDE_API_KEY    = os.environ.get("TIDE_API_KEY", "")
+GOOGLE_API_KEY  = os.environ.get("GOOGLE_CALENDAR_API_KEY", "")
+LONDON_TZ       = ZoneInfo("Europe/London")
+CAL_ID          = "info@fulhamreachboatclub.com"
 
-_cache = {}
+_cache          = {}
+_cal_fail_until = 0   # unix timestamp — don't retry calendar before this
 
 
 def get_cached(key, fetch_fn, ttl_seconds):
@@ -54,43 +56,65 @@ def get_tides():
 
 
 def get_calendar_events():
+    global _cal_fail_until
+    now_ts = datetime.now(timezone.utc).timestamp()
+
+    # If calendar has been failing, serve cache or empty until backoff expires
+    if now_ts < _cal_fail_until:
+        if 'calendar' in _cache:
+            return _cache['calendar']['data'], _cache['calendar']['fetched_at']
+        return {"day_label": "TODAY", "list": []}, ''
+
     def fetch():
+        global _cal_fail_until
         now = datetime.now(LONDON_TZ)
         display_date = now + timedelta(days=1) if now.hour >= 22 else now
-        target_date = display_date.date()
+        target_date  = display_date.date()
 
-        fetch_start = display_date.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
-        fetch_end   = display_date.replace(hour=23, minute=59, second=59, microsecond=0) + timedelta(days=1)
+        day_start = display_date.replace(hour=0,  minute=0,  second=0,  microsecond=0)
+        day_end   = display_date.replace(hour=23, minute=59, second=59, microsecond=0)
 
-        url = f"https://calendar.google.com/calendar/ical/{CAL_ID.replace('@', '%40')}/public/basic.ics"
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        ics_content = r.text
+        time_min = day_start.isoformat()
+        time_max = day_end.isoformat()
 
-        evs = ical_events(string_content=ics_content, start=fetch_start, end=fetch_end)
+        url = (
+            f"https://www.googleapis.com/calendar/v3/calendars/"
+            f"{requests.utils.quote(CAL_ID, safe='')}/events"
+            f"?key={GOOGLE_API_KEY}"
+            f"&timeMin={requests.utils.quote(time_min)}"
+            f"&timeMax={requests.utils.quote(time_max)}"
+            f"&singleEvents=true"
+            f"&orderBy=startTime"
+            f"&maxResults=20"
+        )
 
-        day_events = []
-        for e in evs:
-            try:
-                if e.all_day:
-                    from datetime import date as date_type
-                    ev_date = e.start if isinstance(e.start, date_type) else e.start.date()
-                else:
-                    ev_date = e.start.astimezone(LONDON_TZ).date()
+        try:
+            r = requests.get(url, timeout=10)
+            r.raise_for_status()
+        except Exception as e:
+            _cal_fail_until = datetime.now(timezone.utc).timestamp() + 600
+            raise
+
+        data = r.json()
+        events_list = []
+
+        for e in data.get('items', []):
+            start = e.get('start', {})
+            summary = e.get('summary', '(no title)')
+            if 'dateTime' in start:
+                dt = datetime.fromisoformat(start['dateTime']).astimezone(LONDON_TZ)
+                if dt.date() == target_date:
+                    events_list.append({"summary": summary, "time": dt.strftime('%H:%M')})
+            elif 'date' in start:
+                ev_date = datetime.strptime(start['date'], '%Y-%m-%d').date()
                 if ev_date == target_date:
-                    day_events.append(e)
-            except Exception:
-                pass
-
-        day_events.sort(key=lambda x: x.start)
+                    events_list.append({"summary": summary, "time": "All Day"})
 
         return {
             "day_label": "TOMORROW" if now.hour >= 22 else "TODAY",
-            "list": [{
-                "summary": e.summary or "(no title)",
-                "time": "All Day" if e.all_day else e.start.astimezone(LONDON_TZ).strftime('%H:%M')
-            } for e in day_events]
+            "list": events_list
         }
+
     return get_cached('calendar', fetch, ttl_seconds=1800)
 
 
@@ -236,6 +260,7 @@ def build_dashboard_data():
     for t in threads:
         t.join(timeout=15)
 
+    # Tides
     tides, t_up = results.get('tides', (None, ''))
     t_data = {"upcoming": [], "direction": "", "until": "", "launch_warning": "", "updated": t_up}
 
@@ -259,8 +284,10 @@ def build_dashboard_data():
         except Exception:
             pass
 
+    # Calendar
     cal_data, cal_up = results.get('calendar', (None, ''))
 
+    # Weather
     w_res, w_up = results.get('weather', (None, ''))
     weather = {"error": True, "updated": w_up}
 
@@ -297,7 +324,10 @@ def build_dashboard_data():
             }
         })
 
+    # PLA Flag
     pla_f, pla_u = results.get('pla_flag', (None, ''))
+
+    # Kingston Flow
     flow_data, flow_up = results.get('kingston_flow', (None, ''))
 
     return {
