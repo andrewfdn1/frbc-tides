@@ -19,6 +19,18 @@ CAL_ID          = "info@fulhamreachboatclub.com"
 _cache          = {}
 _cal_fail_until = 0   # unix timestamp — don't retry calendar before this
 
+# Add this near your other constants at the top
+RADIO_STATIONS = {
+    "Capital FM":      "https://media-ice.musicradio.com/CapitalMP3",
+    "Capital Anthems": "https://media-ice.musicradio.com/CapitalAnthemsMP3",
+    "Capital Dance":   "https://media-ice.musicradio.com/CapitalDanceMP3",
+    "Capital XTRA":    "https://media-ice.musicradio.com/CapitalXTRALondonMP3",
+    "Heart FM":        "https://media-ice.musicradio.com/HeartLondonMP3",
+    "Heart 80s":       "https://media-ice.musicradio.com/Heart80sMP3",
+    "Heart 90s":       "https://media-ice.musicradio.com/Heart90sMP3",
+    "Heart Dance":     "https://media-ice.musicradio.com/HeartDanceMP3",
+}
+
 
 def get_cached(key, fetch_fn, ttl_seconds):
     now = datetime.now(timezone.utc).timestamp()
@@ -374,6 +386,10 @@ def index():
 def data_endpoint():
     return jsonify(build_dashboard_data())
 
+# Add this route at the bottom before if __name__ == "__main__":
+@app.route("/music")
+def music():
+    return render_template("music.html", stations=RADIO_STATIONS)
 
 if __name__ == "__main__":
     app.run(debug=True)
