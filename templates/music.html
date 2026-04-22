@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FRBC RADIO</title>
+    <title>FRBC RADIO CONTROL</title>
     <style>
         body {
             background-color: #000;
@@ -49,7 +49,16 @@
         }
         .off-btn:hover { background: #FF4B4B; color: #000; }
 
-        .status { margin-top: 20px; color: #555; font-size: 14px; }
+        .status { margin-top: 20px; color: #555; font-size: 14px; text-transform: uppercase; }
+        
+        .nav-link {
+            margin-top: 50px;
+            color: #33FF57;
+            text-decoration: none;
+            font-size: 14px;
+            border: 1px solid #333;
+            padding: 10px;
+        }
     </style>
 </head>
 <body>
@@ -58,7 +67,7 @@
 
     <div class="station-grid">
         {% for name, url in stations.items() %}
-            <button class="btn" onclick="playStation('{{ url }}', this)">{{ name }}</button>
+            <button class="btn" onclick="playStation('{{ name }}', this)">{{ name }}</button>
         {% endfor %}
     </div>
 
@@ -66,32 +75,47 @@
 
     <div class="status" id="status-text">SYSTEM IDLE</div>
 
-    <audio id="radio-player"></audio>
+    <a href="/" class="nav-link">RETURN TO DASHBOARD</a>
 
     <script>
-        const player = document.getElementById('radio-player');
         const status = document.getElementById('status-text');
 
-        function playStation(url, btn) {
-            // Remove active class from all buttons
+        function playStation(name, btn) {
+            // 1. UI Feedback: Highlight selected button
             document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
-            
-            // Set new source and play
-            player.src = url;
-            player.play();
-            
-            // UI Updates
             btn.classList.add('active');
-            status.innerText = "PLAYING: " + btn.innerText;
-            status.style.color = "#33FF57";
+            
+            // 2. Immediate status update
+            status.innerText = "COMMANDING PI TO PLAY: " + name;
+            status.style.color = "#fff";
+
+            // 3. Request the Flask backend to start VLC hardware playback
+            fetch('/play/' + encodeURIComponent(name))
+                .then(response => {
+                    if (!response.ok) throw new Error("Backend Error");
+                    return response.json();
+                })
+                .then(data => {
+                    status.innerText = "PI PLAYING: " + name;
+                    status.style.color = "#33FF57";
+                })
+                .catch(error => {
+                    status.innerText = "ERROR: COULD NOT START RADIO";
+                    status.style.color = "#FF4B4B";
+                });
         }
 
         function stopRadio() {
-            player.pause();
-            player.src = "";
-            document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
-            status.innerText = "SYSTEM IDLE";
-            status.style.color = "#555";
+            // Request the Flask backend to kill the VLC process
+            fetch('/stop')
+                .then(() => {
+                    document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+                    status.innerText = "SYSTEM IDLE";
+                    status.style.color = "#555";
+                })
+                .catch(() => {
+                    status.innerText = "ERROR STOPPING RADIO";
+                });
         }
     </script>
 </body>
