@@ -31,6 +31,25 @@ RADIO_STATIONS = {
     "Heart Dance":     "https://media-ice.musicradio.com/HeartDanceMP3",
 }
 
+@app.route("/play/<station_name>")
+def play_radio(station_name):
+    # Stop any existing radio first
+    os.system("pkill vlc") 
+    
+    # Get the URL from your RADIO_STATIONS dictionary
+    url = RADIO_STATIONS.get(station_name)
+    if url:
+        # Launch VLC in "dummy" mode (no window) and play in background
+        os.system(f"cvlc {url} &")
+        return jsonify(status="playing", station=station_name)
+    return jsonify(status="error"), 404
+
+@app.route("/stop")
+def stop_radio_service():
+    os.system("pkill vlc")
+    return jsonify(status="stopped")
+
+
 
 def get_cached(key, fetch_fn, ttl_seconds):
     now = datetime.now(timezone.utc).timestamp()
