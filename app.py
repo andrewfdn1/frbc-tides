@@ -55,11 +55,11 @@ def get_tides():
     return get_cached('tides', fetch, ttl_seconds=7200)
 
 
+# UPDATE: get_calendar_events to include end times
 def get_calendar_events():
     global _cal_fail_until
     now_ts = datetime.now(timezone.utc).timestamp()
 
-    # If calendar has been failing, serve cache or empty until backoff expires
     if now_ts < _cal_fail_until:
         if 'calendar' in _cache:
             return _cache['calendar']['data'], _cache['calendar']['fetched_at']
@@ -91,7 +91,7 @@ def get_calendar_events():
         try:
             r = requests.get(url, timeout=10)
             r.raise_for_status()
-        except Exception as e:
+        except Exception:
             _cal_fail_until = datetime.now(timezone.utc).timestamp() + 600
             raise
 
@@ -100,11 +100,18 @@ def get_calendar_events():
 
         for e in data.get('items', []):
             start = e.get('start', {})
+            end = e.get('end', {})
             summary = e.get('summary', '(no title)')
+            
             if 'dateTime' in start:
-                dt = datetime.fromisoformat(start['dateTime']).astimezone(LONDON_TZ)
-                if dt.date() == target_date:
-                    events_list.append({"summary": summary, "time": dt.strftime('%H:%M')})
+                dt_s = datetime.fromisoformat(start['dateTime']).astimezone(LONDON_TZ)
+                if dt_s.date() == target_date:
+                    # NEW: Add end time if available
+                    time_str = dt_s.strftime('%H:%M')
+                    if 'dateTime' in end:
+                        dt_e = datetime.fromisoformat(end['dateTime']).astimezone(LONDON_TZ)
+                        time_str = f"{time_str}-{dt_e.strftime('%H:%M')}"
+                    events_list.append({"summary": summary, "time": time_str})
             elif 'date' in start:
                 ev_date = datetime.strptime(start['date'], '%Y-%m-%d').date()
                 if ev_date == target_date:
@@ -149,9 +156,11 @@ def prevailing_direction(degrees_list):
     return max(set(cardinals), key=cardinals.count)
 
 
+# UPDATE: get_weather to include Pollen logic
 def get_weather():
     def fetch():
-        url = (
+        # Weather data
+        wx_url = (
             "https://api.open-meteo.com/v1/forecast"
             "?latitude=51.488&longitude=-0.224"
             "&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,"
@@ -160,44 +169,56 @@ def get_weather():
             "&timezone=Europe%2FLondon"
             "&forecast_days=1"
         )
-        res = requests.get(url, timeout=10)
-        res.raise_for_status()
-        d = res.json()
+        # Pollen data (Using Grass Pollen as primary indicator for London)
+        pollen_url = (
+            "https://air-quality-api.open-meteo.com/v1/air-quality"
+            "?latitude=51.488&longitude=-0.224"
+            "&hourly=grass_pollen,birch_pollen"
+            "&timezone=Europe%2FLondon"
+            "&forecast_days=1"
+        )
+        
+        wx_res = requests.get(wx_url, timeout=10)
+        wx_res.raise_for_status()
+        d = wx_res.json()
+        
+        pol_res = requests.get(pollen_url, timeout=10)
+        p_data = pol_res.json() if pol_res.ok else {}
+        
         hourly = d['hourly']
         daily  = d['daily']
         times  = hourly['time']
 
         def window(start_h, end_h):
-            indices = [i for i, t in enumerate(times)
-                       if start_h <= int(t[11:13]) < end_h]
-            if not indices:
-                return None
+            indices = [i for i, t in enumerate(times) if start_h <= int(t[11:13]) < end_h]
+            if not indices: return None
 
-            def vals(key):
-                return [hourly[key][i] for i in indices if hourly[key][i] is not None]
+            def vals(key): return [hourly[key][i] for i in indices if hourly[key][i] is not None]
 
-            temps = vals('temperature_2m')
-            winds = vals('wind_speed_10m')
-            gusts = vals('wind_gusts_10m')
-            dirs  = vals('wind_direction_10m')
-            rain  = vals('precipitation_probability')
-            uv    = vals('uv_index')
-            codes = vals('weather_code')
+            # Pollen Mapping Logic
+            p_val = 0
+            if 'hourly' in p_data:
+                p_indices = [p_data['hourly']['grass_pollen'][i] for i in indices if p_data['hourly']['grass_pollen'][i] is not None]
+                p_val = max(p_indices) if p_indices else 0
+            
+            p_label = "Low"
+            if p_val > 50: p_label = "High"
+            elif p_val > 10: p_label = "Medium"
 
             return {
-                'temp_min':  round(min(temps)) if temps else None,
-                'temp_max':  round(max(temps)) if temps else None,
-                'wind_min':  round(min(winds)) if winds else None,
-                'wind_max':  round(max(winds)) if winds else None,
-                'gust_min':  round(min(gusts)) if gusts else None,
-                'gust_max':  round(max(gusts)) if gusts else None,
-                'direction': prevailing_direction(dirs),
-                'rain_min':  round(min(rain))  if rain  else None,
-                'rain_max':  round(max(rain))  if rain  else None,
-                'uv_min':    round(min(uv), 1) if uv    else None,
-                'uv_max':    round(max(uv), 1) if uv    else None,
-                'fog':       any(c in [45, 48] for c in codes),
-                'storm':     any(c >= 95 for c in codes),
+                'temp_min':  round(min(vals('temperature_2m'))) if vals('temperature_2m') else None,
+                'temp_max':  round(max(vals('temperature_2m'))) if vals('temperature_2m') else None,
+                'wind_min':  round(min(vals('wind_speed_10m'))) if vals('wind_speed_10m') else None,
+                'wind_max':  round(max(vals('wind_speed_10m'))) if vals('wind_speed_10m') else None,
+                'gust_min':  round(min(vals('wind_gusts_10m'))) if vals('wind_gusts_10m') else None,
+                'gust_max':  round(max(vals('wind_gusts_10m'))) if vals('wind_gusts_10m') else None,
+                'direction': prevailing_direction(vals('wind_direction_10m')),
+                'rain_min':  round(min(vals('precipitation_probability'))) if vals('precipitation_probability') else None,
+                'rain_max':  round(max(vals('precipitation_probability'))) if vals('precipitation_probability') else None,
+                'uv_max':    round(max(vals('uv_index')), 1) if vals('uv_index') else None,
+                'fog':       any(c in [45, 48] for c in vals('weather_code')),
+                'storm':     any(c >= 95 for c in vals('weather_code')),
+                'pollen':    p_label
             }
 
         return {
@@ -302,7 +323,7 @@ def build_dashboard_data():
             dirn  = tide_direction_at(tides, check)
             wd    = window_data['direction']
             spd   = window_data['wind_max'] or 0
-            return spd > 15 and (
+            return spd > 10 and (
                 (dirn == "EBB TIDE"   and wd in ["S", "SE", "SW"]) or
                 (dirn == "FLOOD TIDE" and wd in ["N", "NE", "NW"])
             )
