@@ -22,7 +22,6 @@
             --fs-footer:  clamp(10px, 0.9vw, 13px);
         }
 
-        /* Logo Styling */
         .logo-img { 
             width: 33%; 
             height: auto; 
@@ -43,13 +42,9 @@
                 gap: clamp(12px, 2vw, 28px);
                 padding: 0 clamp(10px, 2vw, 20px);
             }
-            /* Reduced font size for calendar events in landscape */
             .cal-event { font-size: clamp(12px, 1.4vw, 20px) !important; }
-            
             .logo-landscape { display: block; }
             .logo-portrait { display: none; }
-            /* In landscape, since the column is already ~33% width, 
-               setting the img to 100% makes it 33% of the total screen width */
             .logo-landscape .logo-img { width: 100%; } 
         }
 
@@ -216,7 +211,6 @@
         <p class="c-dim" style="font-size:var(--fs-data);">Flow data unavailable</p>
     {% endif %}
 
-    <!-- Landscape Logo: Bottom of Column 1 -->
     <div class="logo-landscape">
         <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
     </div>
@@ -243,8 +237,8 @@
             <tbody>
                 <tr>
                     <td>Sunrise/set</td>
-                    <td>&#8593;{{ d.weather.sunrise }}</td>
-                    <td>&#8595;{{ d.weather.sunset }}</td>
+                    <td>{{ d.weather.sunrise }}</td>
+                    <td>{{ d.weather.sunset }}</td>
                 </tr>
                 <tr>
                     <td>Temp</td>
@@ -262,26 +256,34 @@
                 <tr>
                     <td>Wind</td>
                     <td>
-                        {% if m and m.wind_min is not none and m.wind_max is not none %}
-                            {{ m.wind_min }}-{{ m.wind_max }} km/h
+                        {% if m and m.wind_min is not none %}
+                            <span class="{{ 'c-red' if m.wind_min > 20 else 'c-yellow' if m.wind_min > 10 else 'c-white' }}">
+                                {{ m.wind_min }}-{{ m.wind_max }} km/h
+                            </span>
                         {% else %}&mdash;{% endif %}
                     </td>
                     <td>
-                        {% if a and a.wind_min is not none and a.wind_max is not none %}
-                            {{ a.wind_min }}-{{ a.wind_max }} km/h
+                        {% if a and a.wind_min is not none %}
+                            <span class="{{ 'c-red' if a.wind_min > 20 else 'c-yellow' if a.wind_min > 10 else 'c-white' }}">
+                                {{ a.wind_min }}-{{ a.wind_max }} km/h
+                            </span>
                         {% else %}&mdash;{% endif %}
                     </td>
                 </tr>
                 <tr>
                     <td>Gusts</td>
                     <td>
-                        {% if m and m.gust_min is not none and m.gust_max is not none %}
-                            {{ m.gust_min }}-{{ m.gust_max }} km/h
+                        {% if m and m.gust_min is not none %}
+                            <span class="{{ 'c-red' if m.gust_min > 20 else 'c-yellow' if m.gust_min > 10 else 'c-white' }}">
+                                {{ m.gust_min }}-{{ m.gust_max }} km/h
+                            </span>
                         {% else %}&mdash;{% endif %}
                     </td>
                     <td>
-                        {% if a and a.gust_min is not none and a.gust_max is not none %}
-                            {{ a.gust_min }}-{{ a.gust_max }} km/h
+                        {% if a and a.gust_min is not none %}
+                            <span class="{{ 'c-red' if a.gust_min > 20 else 'c-yellow' if a.gust_min > 10 else 'c-white' }}">
+                                {{ a.gust_min }}-{{ a.gust_max }} km/h
+                            </span>
                         {% else %}&mdash;{% endif %}
                     </td>
                 </tr>
@@ -293,13 +295,13 @@
                 <tr>
                     <td>Rain</td>
                     <td>
-                        {% if m and m.rain_min is not none and m.rain_max is not none %}
-                            {{ m.rain_min }}-{{ m.rain_max }}%
+                        {% if m and m.rain_min is not none %}
+                            {% if m.rain_min == 0 and m.rain_max == 0 %}0%{% else %}{{ m.rain_min }}-{{ m.rain_max }}%{% endif %}
                         {% else %}&mdash;{% endif %}
                     </td>
                     <td>
-                        {% if a and a.rain_min is not none and a.rain_max is not none %}
-                            {{ a.rain_min }}-{{ a.rain_max }}%
+                        {% if a and a.rain_min is not none %}
+                            {% if a.rain_min == 0 and a.rain_max == 0 %}0%{% else %}{{ a.rain_min }}-{{ a.rain_max }}%{% endif %}
                         {% else %}&mdash;{% endif %}
                     </td>
                 </tr>
@@ -324,8 +326,12 @@
                 </tr>
                 <tr>
                     <td>Pollen</td>
-                    <td>&mdash;</td>
-                    <td>&mdash;</td>
+                    <td>
+                        {% if m and m.pollen %}{{ m.pollen }}{% else %}&mdash;{% endif %}
+                    </td>
+                    <td>
+                        {% if a and a.pollen %}{{ a.pollen }}{% else %}&mdash;{% endif %}
+                    </td>
                 </tr>
             </tbody>
         </table>
@@ -381,7 +387,6 @@
         {% endif %}
     </div>
 
-    <!-- Portrait Logo: After Calendar -->
     <div class="logo-portrait">
         <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
     </div>
