@@ -167,11 +167,29 @@ def get_pla_flag():
         return None
 
     now = datetime.now(LONDON_TZ)
-    should_refresh = (now.hour in [6, 19] and now.minute in [1, 5])
-    if should_refresh or 'pla_flag' not in _cache:
-        data, t = get_cached('pla_flag', fetch, ttl_seconds=0)
-        return data, t
-    return _cache.get('pla_flag', {}).get('data'), _cache.get('pla_flag', {}).get('fetched_at', '')
+    # Determine which 12-hour slot we're in: 0 = midnight–06:00, 1 = 06:00–18:00, 2 = 18:00–midnight
+    if now.hour < 6:
+        current_slot = (now.date(), 0)
+    elif now.hour < 18:
+        current_slot = (now.date(), 1)
+    else:
+        current_slot = (now.date(), 2)
+
+    cached = _cache.get('pla_flag')
+    if cached and cached.get('slot') == current_slot:
+        return cached['data'], cached['fetched_at']
+
+    # Cache is missing or from a previous slot — refresh
+    try:
+        data = fetch()
+        fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
+        _cache['pla_flag'] = {'ts': now.timestamp(), 'data': data, 'fetched_at': fetched_at, 'slot': current_slot}
+        return data, fetched_at
+    except Exception as e:
+        print(f"Error fetching pla_flag: {e}")
+        if cached:
+            return cached['data'], cached['fetched_at']
+        return None, ''
 
 
 def get_cardinal_direction(degree):
