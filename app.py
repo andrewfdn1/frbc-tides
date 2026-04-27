@@ -17,7 +17,16 @@ LONDON_TZ       = ZoneInfo("Europe/London")
 CAL_ID          = "info@fulhamreachboatclub.com"
 
 _cache          = {}
-_cal_fail_until = 0   # unix timestamp — don't retry calendar before this
+_cache_locks    = {}
+_cache_locks_mu = threading.Lock()
+_cal_fail_until = 0
+
+
+def _get_lock(key):
+    with _cache_locks_mu:
+        if key not in _cache_locks:
+            _cache_locks[key] = threading.Lock()
+        return _cache_locks[key]
 
 # Add this near your other constants at the top
 RADIO_STATIONS = {
@@ -55,16 +64,20 @@ def get_cached(key, fetch_fn, ttl_seconds):
     now = datetime.now(timezone.utc).timestamp()
     if key in _cache and now - _cache[key]['ts'] < ttl_seconds:
         return _cache[key]['data'], _cache[key]['fetched_at']
-    try:
-        data = fetch_fn()
-        fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
-        _cache[key] = {'ts': now, 'data': data, 'fetched_at': fetched_at}
-        return data, fetched_at
-    except Exception as e:
-        print(f"Error fetching {key}: {e}")
-        if key in _cache:
+    with _get_lock(key):
+        now = datetime.now(timezone.utc).timestamp()
+        if key in _cache and now - _cache[key]['ts'] < ttl_seconds:
             return _cache[key]['data'], _cache[key]['fetched_at']
-        return None, ''
+        try:
+            data = fetch_fn()
+            fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
+            _cache[key] = {'ts': now, 'data': data, 'fetched_at': fetched_at}
+            return data, fetched_at
+        except Exception as e:
+            print(f"Error fetching {key}: {e}")
+            if key in _cache:
+                return _cache[key]['data'], _cache[key]['fetched_at']
+            return None, ''
 
 
 def get_tides():
