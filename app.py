@@ -221,7 +221,6 @@ def prevailing_direction(degrees_list):
 # UPDATE: get_weather to include Pollen logic
 def get_weather():
     def fetch():
-        # Weather data
         wx_url = (
             "https://api.open-meteo.com/v1/forecast"
             "?latitude=51.488&longitude=-0.224"
@@ -231,40 +230,46 @@ def get_weather():
             "&timezone=Europe%2FLondon"
             "&forecast_days=1"
         )
-        # Pollen data (Using Grass Pollen as primary indicator for London)
         pollen_url = (
             "https://air-quality-api.open-meteo.com/v1/air-quality"
             "?latitude=51.488&longitude=-0.224"
-            "&hourly=grass_pollen,birch_pollen"
+            "&hourly=grass_pollen"
             "&timezone=Europe%2FLondon"
             "&forecast_days=1"
         )
-        
+
         wx_res = requests.get(wx_url, timeout=10)
         wx_res.raise_for_status()
         d = wx_res.json()
-        
-        pol_res = requests.get(pollen_url, timeout=10)
-        p_data = pol_res.json() if pol_res.ok else {}
-        
+
+        # Fetch pollen separately but don't let it fail the whole weather fetch
+        try:
+            pol_res = requests.get(pollen_url, timeout=10)
+            p_data = pol_res.json() if pol_res.ok else {}
+        except Exception:
+            p_data = {}
+
         hourly = d['hourly']
         daily  = d['daily']
         times  = hourly['time']
 
         def window(start_h, end_h):
             indices = [i for i, t in enumerate(times) if start_h <= int(t[11:13]) < end_h]
-            if not indices: return None
+            if not indices:
+                return None
 
-            def vals(key): return [hourly[key][i] for i in indices if hourly[key][i] is not None]
+            def vals(key):
+                return [hourly[key][i] for i in indices if hourly[key][i] is not None]
 
-            # Pollen Mapping Logic
             p_val = 0
-            if 'hourly' in p_data:
-                p_indices = [p_data['hourly']['grass_pollen'][i] for i in indices if p_data['hourly']['grass_pollen'][i] is not None]
+            if 'hourly' in p_data and 'grass_pollen' in p_data['hourly']:
+                p_indices = [p_data['hourly']['grass_pollen'][i] for i in indices
+                             if i < len(p_data['hourly']['grass_pollen'])
+                             and p_data['hourly']['grass_pollen'][i] is not None]
                 p_val = max(p_indices) if p_indices else 0
-            
+
             p_label = "Low"
-            if p_val > 50: p_label = "High"
+            if p_val > 50:   p_label = "High"
             elif p_val > 10: p_label = "Medium"
 
             return {
@@ -289,6 +294,7 @@ def get_weather():
             'sunrise':   daily['sunrise'][0][-5:],
             'sunset':    daily['sunset'][0][-5:],
         }
+            
 
     return get_cached('weather', fetch, ttl_seconds=3600)
 
