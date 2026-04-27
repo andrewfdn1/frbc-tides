@@ -16,10 +16,12 @@ GOOGLE_API_KEY  = os.environ.get("GOOGLE_CALENDAR_API_KEY", "")
 LONDON_TZ       = ZoneInfo("Europe/London")
 CAL_ID          = "info@fulhamreachboatclub.com"
 
-_cache          = {}
-_cache_locks    = {}
-_cache_locks_mu = threading.Lock()
-_cal_fail_until = 0
+_cache            = {}
+_cache_locks      = {}
+_cache_locks_mu   = threading.Lock()
+_cal_fail_until   = 0
+_weather_fail_until = 0   # NEW: backoff for Open-Meteo weather
+_pollen_fail_until  = 0   # NEW: backoff for Open-Meteo pollen
 
 
 def _get_lock(key):
@@ -220,7 +222,18 @@ def prevailing_direction(degrees_list):
 
 # UPDATE: get_weather to include Pollen logic
 def get_weather():
+    global _weather_fail_until, _pollen_fail_until  # NEW
+
+    # NEW: skip entirely if weather API is in backoff
+    now_ts = datetime.now(timezone.utc).timestamp()
+    if now_ts < _weather_fail_until:
+        if 'weather' in _cache:
+            return _cache['weather']['data'], _cache['weather']['fetched_at']
+        return None, ''
+
     def fetch():
+        global _weather_fail_until, _pollen_fail_until  # NEW
+
         wx_url = (
             "https://api.open-meteo.com/v1/forecast"
             "?latitude=51.488&longitude=-0.224"
@@ -238,16 +251,29 @@ def get_weather():
             "&forecast_days=1"
         )
 
+        # NEW: check for 429 on weather and honour Retry-After
         wx_res = requests.get(wx_url, timeout=10)
+        if wx_res.status_code == 429:
+            retry_after = int(wx_res.headers.get("Retry-After", 3600))
+            _weather_fail_until = datetime.now(timezone.utc).timestamp() + retry_after
+            print(f"Open-Meteo weather 429 — backing off for {retry_after}s")
+            raise Exception(f"Open-Meteo weather rate limited, retry after {retry_after}s")
         wx_res.raise_for_status()
         d = wx_res.json()
 
-        # Fetch pollen separately but don't let it fail the whole weather fetch
-        try:
-            pol_res = requests.get(pollen_url, timeout=10)
-            p_data = pol_res.json() if pol_res.ok else {}
-        except Exception:
-            p_data = {}
+        # NEW: skip pollen if in backoff, otherwise check for 429 and honour Retry-After
+        p_data = {}
+        if datetime.now(timezone.utc).timestamp() >= _pollen_fail_until:
+            try:
+                pol_res = requests.get(pollen_url, timeout=10)
+                if pol_res.status_code == 429:
+                    retry_after = int(pol_res.headers.get("Retry-After", 3600))
+                    _pollen_fail_until = datetime.now(timezone.utc).timestamp() + retry_after
+                    print(f"Open-Meteo pollen 429 — backing off for {retry_after}s")
+                elif pol_res.ok:
+                    p_data = pol_res.json()
+            except Exception:
+                p_data = {}
 
         hourly = d['hourly']
         daily  = d['daily']
@@ -296,7 +322,7 @@ def get_weather():
         }
             
 
-    return get_cached('weather', fetch, ttl_seconds=3600)
+    return get_cached('weather', fetch, ttl_seconds=7200)  # NEW: extended from 3600 to 7200
 
 
 def get_kingston_flow():
@@ -447,5 +473,15 @@ def data_endpoint():
 def music():
     return render_template("music.html", stations=RADIO_STATIONS)
 
+# NEW: pre-warm cache on startup so first page load hits in-memory data
+def _prewarm():
+    print("Pre-warming cache on startup...")
+    for fn in (get_tides, get_weather, get_calendar_events, get_kingston_flow, get_pla_flag):
+        try:
+            fn()
+        except Exception as e:
+            print(f"Pre-warm error: {e}")
+
 if __name__ == "__main__":
+    threading.Thread(target=_prewarm, daemon=True).start()
     app.run(debug=True)
