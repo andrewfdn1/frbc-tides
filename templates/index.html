@@ -310,12 +310,12 @@
                     <td>Rain</td>
                     <td>
                         {% if m and m.rain_min is not none %}
-                            {% if m.rain_min == 0 and m.rain_max == 0 %}0%{% else %}{{ m.rain_min }}-{{ m.rain_max }}%{% endif %}
+                            {% if a.rain_max == 0 %}0%{% elif a.rain_min == a.rain_max %}{{ a.rain_max }}%{% else %}{{ a.rain_min }}-{{ a.rain_max }}%{% endif %}
                         {% else %}&mdash;{% endif %}
                     </td>
                     <td>
                         {% if a and a.rain_min is not none %}
-                            {% if a.rain_min == 0 and a.rain_max == 0 %}0%{% else %}{{ a.rain_min }}-{{ a.rain_max }}%{% endif %}
+                            {% if a.rain_max == 0 %}0%{% elif a.rain_min == a.rain_max %}{{ a.rain_max }}%{% else %}{{ a.rain_min }}-{{ a.rain_max }}%{% endif %}
                         {% else %}&mdash;{% endif %}
                     </td>
                 </tr>
