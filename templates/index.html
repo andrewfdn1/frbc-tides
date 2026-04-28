@@ -22,9 +22,9 @@
             --fs-footer:  clamp(10px, 0.9vw, 13px);
         }
 
-        .logo-img { 
-            width: 33%; 
-            height: auto; 
+        .logo-img {
+            width: 33%;
+            height: auto;
             margin-top: 20px;
             display: block;
         }
@@ -45,7 +45,7 @@
             .cal-event { font-size: clamp(12px, 1.4vw, 20px) !important; }
             .logo-landscape { display: block; }
             .logo-portrait { display: none; }
-            .logo-landscape .logo-img { width: 100%; } 
+            .logo-landscape .logo-img { width: 100%; }
         }
 
         h3 {
@@ -136,13 +136,22 @@
         .cal-event {
             margin-bottom: clamp(3px, 0.4vw, 6px);
             font-size: calc(var(--fs-data) * 0.6);
-            #font-size: var(--fs-data);
             border-left: 3px solid #33FF57;
             padding-left: 8px;
             line-height: 1.4;
         }
 
         .cal-time { color: #33FF57; }
+
+        .wx-source {
+            font-size: var(--fs-updated);
+            color: #555;
+            margin-top: 4px;
+        }
+
+        .wx-source.fallback {
+            color: #FFAA00;
+        }
 
         footer {
             position: fixed;
@@ -226,6 +235,10 @@
     {% else %}
         {% set m = d.weather.morning %}
         {% set a = d.weather.afternoon %}
+
+        {% if d.weather.source == 'WeatherAPI' %}
+            <p class="wx-source fallback">&#9888; Backup source active (WeatherAPI)</p>
+        {% endif %}
 
         <table class="wx-table">
             <thead>
@@ -323,15 +336,6 @@
                             {% else %}<span class="c-red">High</span>
                             {% endif %}
                         {% else %}&mdash;{% endif %}
-                    </td>
-                </tr>
-                <tr>
-                    <td>Pollen</td>
-                    <td>
-                        {% if m and m.pollen %}{{ m.pollen }}{% else %}&mdash;{% endif %}
-                    </td>
-                    <td>
-                        {% if a and a.pollen %}{{ a.pollen }}{% else %}&mdash;{% endif %}
                     </td>
                 </tr>
             </tbody>
