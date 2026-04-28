@@ -265,7 +265,7 @@ def _parse_weatherapi(data):
             gusts  = [h['gust_kph']     for h in hours]
             dirs   = [h['wind_degree']  for h in hours]
             rains  = [h['chance_of_rain'] for h in hours]
-            uvs    = [h['uv_index']     for h in hours]
+            uvs    = [h.get('uv', h.get('uv_index', 0)) for h in hours]
             codes  = [h['condition']['code'] for h in hours]
 
             # WeatherAPI condition codes: fog=248/260, storm=1273/1276/1279/1282
