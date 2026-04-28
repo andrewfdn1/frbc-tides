@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify
+from flask import Flask, jsonify, render_template
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from bs4 import BeautifulSoup
@@ -6,22 +6,51 @@ import requests
 import urllib3
 import threading
 import os
+import json
+import pathlib
+import tempfile
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
 
-TIDE_API_KEY    = os.environ.get("TIDE_API_KEY", "")
-GOOGLE_API_KEY  = os.environ.get("GOOGLE_CALENDAR_API_KEY", "")
-LONDON_TZ       = ZoneInfo("Europe/London")
-CAL_ID          = "info@fulhamreachboatclub.com"
+TIDE_API_KEY      = os.environ.get("TIDE_API_KEY", "")
+GOOGLE_API_KEY    = os.environ.get("GOOGLE_CALENDAR_API_KEY", "")
+WEATHERAPI_KEY    = os.environ.get("WEATHERAPI_KEY", "")
+LONDON_TZ         = ZoneInfo("Europe/London")
+CAL_ID            = "info@fulhamreachboatclub.com"
 
-_cache            = {}
-_cache_locks      = {}
-_cache_locks_mu   = threading.Lock()
-_cal_fail_until   = 0
-_weather_fail_until = 0   # NEW: backoff for Open-Meteo weather
-_pollen_fail_until  = 0   # NEW: backoff for Open-Meteo pollen
+# Hammersmith, London
+LAT, LON = 51.488, -0.224
+
+_cache           = {}
+_cache_locks     = {}
+_cache_locks_mu  = threading.Lock()
+_cal_fail_until  = 0
+
+# File-based backoff — survives process restarts and is shared across workers
+_BACKOFF_FILE = pathlib.Path(tempfile.gettempdir()) / "openmeteo_backoff.json"
+
+
+def _get_fail_until(key):
+    try:
+        data = json.loads(_BACKOFF_FILE.read_text())
+        return data.get(key, 0)
+    except Exception:
+        return 0
+
+
+def _set_fail_until(key, seconds):
+    try:
+        try:
+            data = json.loads(_BACKOFF_FILE.read_text())
+        except Exception:
+            data = {}
+        data[key] = datetime.now(timezone.utc).timestamp() + seconds
+        _BACKOFF_FILE.write_text(json.dumps(data))
+        print(f"Open-Meteo {key} 429 — backing off for {seconds}s")
+    except Exception as e:
+        print(f"Could not persist backoff state: {e}")
 
 
 def _get_lock(key):
@@ -30,7 +59,7 @@ def _get_lock(key):
             _cache_locks[key] = threading.Lock()
         return _cache_locks[key]
 
-# Add this near your other constants at the top
+
 RADIO_STATIONS = {
     "Capital FM":      "https://media-ice.musicradio.com/CapitalMP3",
     "Capital Anthems": "https://media-ice.musicradio.com/CapitalAnthemsMP3",
@@ -42,24 +71,21 @@ RADIO_STATIONS = {
     "Heart Dance":     "https://media-ice.musicradio.com/HeartDanceMP3",
 }
 
+
 @app.route("/play/<station_name>")
 def play_radio(station_name):
-    # Stop any existing radio first
-    os.system("pkill vlc") 
-    
-    # Get the URL from your RADIO_STATIONS dictionary
+    os.system("pkill vlc")
     url = RADIO_STATIONS.get(station_name)
     if url:
-        # Launch VLC in "dummy" mode (no window) and play in background
         os.system(f"cvlc {url} &")
         return jsonify(status="playing", station=station_name)
     return jsonify(status="error"), 404
+
 
 @app.route("/stop")
 def stop_radio_service():
     os.system("pkill vlc")
     return jsonify(status="stopped")
-
 
 
 def get_cached(key, fetch_fn, ttl_seconds):
@@ -90,18 +116,17 @@ def get_tides():
             timeout=10
         )
         r.raise_for_status()
-        events_data = r.json()
         return sorted([
             {
                 'dt_utc': datetime.fromisoformat(e['DateTime'].replace('Z', '')).replace(tzinfo=timezone.utc),
                 'EventType': e['EventType'],
                 'Height': e['Height']
-            } for e in events_data
+            }
+            for e in r.json()
         ], key=lambda x: x['dt_utc'])
     return get_cached('tides', fetch, ttl_seconds=7200)
 
 
-# UPDATE: get_calendar_events to include end times
 def get_calendar_events():
     global _cal_fail_until
     now_ts = datetime.now(timezone.utc).timestamp()
@@ -120,18 +145,13 @@ def get_calendar_events():
         day_start = display_date.replace(hour=0,  minute=0,  second=0,  microsecond=0)
         day_end   = display_date.replace(hour=23, minute=59, second=59, microsecond=0)
 
-        time_min = day_start.isoformat()
-        time_max = day_end.isoformat()
-
         url = (
             f"https://www.googleapis.com/calendar/v3/calendars/"
             f"{requests.utils.quote(CAL_ID, safe='')}/events"
             f"?key={GOOGLE_API_KEY}"
-            f"&timeMin={requests.utils.quote(time_min)}"
-            f"&timeMax={requests.utils.quote(time_max)}"
-            f"&singleEvents=true"
-            f"&orderBy=startTime"
-            f"&maxResults=20"
+            f"&timeMin={requests.utils.quote(day_start.isoformat())}"
+            f"&timeMax={requests.utils.quote(day_end.isoformat())}"
+            f"&singleEvents=true&orderBy=startTime&maxResults=20"
         )
 
         try:
@@ -141,18 +161,14 @@ def get_calendar_events():
             _cal_fail_until = datetime.now(timezone.utc).timestamp() + 600
             raise
 
-        data = r.json()
         events_list = []
-
-        for e in data.get('items', []):
+        for e in r.json().get('items', []):
             start = e.get('start', {})
-            end = e.get('end', {})
+            end   = e.get('end', {})
             summary = e.get('summary', '(no title)')
-            
             if 'dateTime' in start:
                 dt_s = datetime.fromisoformat(start['dateTime']).astimezone(LONDON_TZ)
                 if dt_s.date() == target_date:
-                    # NEW: Add end time if available
                     time_str = dt_s.strftime('%H:%M')
                     if 'dateTime' in end:
                         dt_e = datetime.fromisoformat(end['dateTime']).astimezone(LONDON_TZ)
@@ -182,7 +198,6 @@ def get_pla_flag():
         return None
 
     now = datetime.now(LONDON_TZ)
-    # Determine which 12-hour slot we're in: 0 = midnight–06:00, 1 = 06:00–18:00, 2 = 18:00–midnight
     if now.hour < 6:
         current_slot = (now.date(), 0)
     elif now.hour < 18:
@@ -194,11 +209,13 @@ def get_pla_flag():
     if cached and cached.get('slot') == current_slot:
         return cached['data'], cached['fetched_at']
 
-    # Cache is missing or from a previous slot — refresh
     try:
         data = fetch()
         fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
-        _cache['pla_flag'] = {'ts': now.timestamp(), 'data': data, 'fetched_at': fetched_at, 'slot': current_slot}
+        _cache['pla_flag'] = {
+            'ts': now.timestamp(), 'data': data,
+            'fetched_at': fetched_at, 'slot': current_slot
+        }
         return data, fetched_at
     except Exception as e:
         print(f"Error fetching pla_flag: {e}")
@@ -220,60 +237,119 @@ def prevailing_direction(degrees_list):
     return max(set(cardinals), key=cardinals.count)
 
 
-# UPDATE: get_weather to include Pollen logic
-def get_weather():
-    global _weather_fail_until, _pollen_fail_until  # NEW
+# ---------------------------------------------------------------------------
+# WeatherAPI.com fallback
+# ---------------------------------------------------------------------------
 
-    # NEW: skip entirely if weather API is in backoff
+def _parse_weatherapi(data):
+    """Map WeatherAPI.com forecast response to the same shape as get_weather()."""
+    try:
+        day = data['forecast']['forecastday'][0]
+        sunrise = day['astro']['sunrise']   # e.g. "06:12 AM"
+        sunset  = day['astro']['sunset']
+
+        # Normalise to HH:MM 24-hour
+        def to_24h(t):
+            return datetime.strptime(t, '%I:%M %p').strftime('%H:%M')
+
+        def window(start_h, end_h):
+            hours = [
+                h for h in day['hour']
+                if start_h <= int(h['time'][11:13]) < end_h
+            ]
+            if not hours:
+                return None
+
+            temps  = [h['temp_c']       for h in hours]
+            winds  = [h['wind_kph']     for h in hours]
+            gusts  = [h['gust_kph']     for h in hours]
+            dirs   = [h['wind_degree']  for h in hours]
+            rains  = [h['chance_of_rain'] for h in hours]
+            uvs    = [h['uv_index']     for h in hours]
+            codes  = [h['condition']['code'] for h in hours]
+
+            # WeatherAPI condition codes: fog=248/260, storm=1273/1276/1279/1282
+            FOG_CODES   = {248, 260}
+            STORM_CODES = {1273, 1276, 1279, 1282}
+
+            return {
+                'temp_min':  round(min(temps)),
+                'temp_max':  round(max(temps)),
+                'wind_min':  round(min(winds)),
+                'wind_max':  round(max(winds)),
+                'gust_min':  round(min(gusts)),
+                'gust_max':  round(max(gusts)),
+                'direction': prevailing_direction(dirs),
+                'rain_min':  round(min(rains)),
+                'rain_max':  round(max(rains)),
+                'uv_max':    round(max(uvs), 1) if uvs else None,
+                'fog':       any(c in FOG_CODES   for c in codes),
+                'storm':     any(c in STORM_CODES for c in codes),
+            }
+
+        return {
+            'morning':   window(6,  12),
+            'afternoon': window(12, 21),
+            'sunrise':   to_24h(sunrise),
+            'sunset':    to_24h(sunset),
+            'source':    'WeatherAPI',
+        }
+    except Exception as e:
+        raise Exception(f"WeatherAPI parse error: {e}")
+
+
+def get_weather_weatherapi():
+    """Fetch from WeatherAPI.com and return data in the same shape as get_weather()."""
+    if not WEATHERAPI_KEY:
+        raise Exception("No WEATHERAPI_KEY configured")
+    url = (
+        f"https://api.weatherapi.com/v1/forecast.json"
+        f"?key={WEATHERAPI_KEY}"
+        f"&q={LAT},{LON}"
+        f"&days=1"
+        f"&aqi=no"
+        f"&alerts=no"
+    )
+    r = requests.get(url, timeout=10)
+    if r.status_code == 429:
+        raise Exception("WeatherAPI rate limited")
+    r.raise_for_status()
+    return _parse_weatherapi(r.json())
+
+
+# ---------------------------------------------------------------------------
+# Primary weather: Open-Meteo, fallback: WeatherAPI
+# ---------------------------------------------------------------------------
+
+def get_weather():
     now_ts = datetime.now(timezone.utc).timestamp()
-    if now_ts < _weather_fail_until:
+
+    # Honour Open-Meteo backoff (file-persisted, survives restarts)
+    if now_ts < _get_fail_until('weather'):
         if 'weather' in _cache:
             return _cache['weather']['data'], _cache['weather']['fetched_at']
-        return None, ''
+        # Backoff active but no cache — try fallback immediately
+        print("Open-Meteo in backoff, trying WeatherAPI fallback")
+        return _get_weather_fallback()
 
     def fetch():
-        global _weather_fail_until, _pollen_fail_until  # NEW
-
         wx_url = (
-            "https://api.open-meteo.com/v1/forecast"
-            "?latitude=51.488&longitude=-0.224"
+            f"https://api.open-meteo.com/v1/forecast"
+            f"?latitude={LAT}&longitude={LON}"
             "&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,"
             "wind_gusts_10m,weather_code,precipitation_probability,uv_index"
             "&daily=sunrise,sunset"
             "&timezone=Europe%2FLondon"
             "&forecast_days=1"
         )
-        pollen_url = (
-            "https://air-quality-api.open-meteo.com/v1/air-quality"
-            "?latitude=51.488&longitude=-0.224"
-            "&hourly=grass_pollen"
-            "&timezone=Europe%2FLondon"
-            "&forecast_days=1"
-        )
 
-        # NEW: check for 429 on weather and honour Retry-After
         wx_res = requests.get(wx_url, timeout=10)
         if wx_res.status_code == 429:
             retry_after = int(wx_res.headers.get("Retry-After", 3600))
-            _weather_fail_until = datetime.now(timezone.utc).timestamp() + retry_after
-            print(f"Open-Meteo weather 429 — backing off for {retry_after}s")
-            raise Exception(f"Open-Meteo weather rate limited, retry after {retry_after}s")
+            _set_fail_until('weather', retry_after)
+            raise Exception(f"Open-Meteo rate limited, retry after {retry_after}s")
         wx_res.raise_for_status()
         d = wx_res.json()
-
-        # NEW: skip pollen if in backoff, otherwise check for 429 and honour Retry-After
-        p_data = {}
-        if datetime.now(timezone.utc).timestamp() >= _pollen_fail_until:
-            try:
-                pol_res = requests.get(pollen_url, timeout=10)
-                if pol_res.status_code == 429:
-                    retry_after = int(pol_res.headers.get("Retry-After", 3600))
-                    _pollen_fail_until = datetime.now(timezone.utc).timestamp() + retry_after
-                    print(f"Open-Meteo pollen 429 — backing off for {retry_after}s")
-                elif pol_res.ok:
-                    p_data = pol_res.json()
-            except Exception:
-                p_data = {}
 
         hourly = d['hourly']
         daily  = d['daily']
@@ -286,17 +362,6 @@ def get_weather():
 
             def vals(key):
                 return [hourly[key][i] for i in indices if hourly[key][i] is not None]
-
-            p_val = 0
-            if 'hourly' in p_data and 'grass_pollen' in p_data['hourly']:
-                p_indices = [p_data['hourly']['grass_pollen'][i] for i in indices
-                             if i < len(p_data['hourly']['grass_pollen'])
-                             and p_data['hourly']['grass_pollen'][i] is not None]
-                p_val = max(p_indices) if p_indices else 0
-
-            p_label = "Low"
-            if p_val > 50:   p_label = "High"
-            elif p_val > 10: p_label = "Medium"
 
             return {
                 'temp_min':  round(min(vals('temperature_2m'))) if vals('temperature_2m') else None,
@@ -311,7 +376,6 @@ def get_weather():
                 'uv_max':    round(max(vals('uv_index')), 1) if vals('uv_index') else None,
                 'fog':       any(c in [45, 48] for c in vals('weather_code')),
                 'storm':     any(c >= 95 for c in vals('weather_code')),
-                'pollen':    p_label
             }
 
         return {
@@ -319,20 +383,37 @@ def get_weather():
             'afternoon': window(12, 21),
             'sunrise':   daily['sunrise'][0][-5:],
             'sunset':    daily['sunset'][0][-5:],
+            'source':    'Open-Meteo',
         }
-            
 
-    return get_cached('weather', fetch, ttl_seconds=7200)  # NEW: extended from 3600 to 7200
+    # Try Open-Meteo via the normal cache wrapper
+    result, fetched_at = get_cached('weather', fetch, ttl_seconds=7200)
+
+    # If Open-Meteo failed and returned None, try fallback
+    if result is None:
+        return _get_weather_fallback()
+
+    return result, fetched_at
+
+
+def _get_weather_fallback():
+    """Try WeatherAPI.com and cache the result under the same 'weather' key."""
+    def fetch_fallback():
+        return get_weather_weatherapi()
+
+    result, fetched_at = get_cached('weather_fallback', fetch_fallback, ttl_seconds=7200)
+    return result, fetched_at
 
 
 def get_kingston_flow():
     def fetch():
-        url = ("https://environment.data.gov.uk/flood-monitoring/id/measures/"
-               "3400TH-flow-water-i-15_min-m3_s/readings?_sorted&_limit=1")
+        url = (
+            "https://environment.data.gov.uk/flood-monitoring/id/measures/"
+            "3400TH-flow-water-i-15_min-m3_s/readings?_sorted&_limit=1"
+        )
         r = requests.get(url, timeout=10)
         r.raise_for_status()
-        data = r.json()
-        items = data.get('items', [])
+        items = r.json().get('items', [])
         if items:
             val = items[0].get('value')
             if val is not None:
@@ -370,10 +451,8 @@ def build_dashboard_data():
         threading.Thread(target=run, args=('weather',       get_weather)),
         threading.Thread(target=run, args=('kingston_flow', get_kingston_flow)),
     ]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=15)
+    for t in threads: t.start()
+    for t in threads: t.join(timeout=15)
 
     # Tides
     tides, t_up = results.get('tides', (None, ''))
@@ -425,6 +504,7 @@ def build_dashboard_data():
         weather.update({
             "error":     False,
             "updated":   w_up,
+            "source":    w_res.get('source', ''),
             "sunrise":   w_res['sunrise'],
             "sunset":    w_res['sunset'],
             "morning":   m,
@@ -468,19 +548,31 @@ def index():
 def data_endpoint():
     return jsonify(build_dashboard_data())
 
-# Add this route at the bottom before if __name__ == "__main__":
+
 @app.route("/music")
 def music():
     return render_template("music.html", stations=RADIO_STATIONS)
 
-# NEW: pre-warm cache on startup so first page load hits in-memory data
+
+@app.route("/ping")
+def ping():
+    return "ok", 200
+
+
 def _prewarm():
+    import time
     print("Pre-warming cache on startup...")
-    for fn in (get_tides, get_weather, get_calendar_events, get_kingston_flow, get_pla_flag):
+    for fn in (get_tides, get_kingston_flow, get_pla_flag, get_calendar_events):
         try:
             fn()
         except Exception as e:
             print(f"Pre-warm error: {e}")
+    time.sleep(2)
+    try:
+        get_weather()
+    except Exception as e:
+        print(f"Pre-warm weather error: {e}")
+
 
 if __name__ == "__main__":
     threading.Thread(target=_prewarm, daemon=True).start()
