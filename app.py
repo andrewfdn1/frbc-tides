@@ -264,7 +264,7 @@ def _parse_weatherapi(data):
             winds  = [h['wind_kph']     for h in hours]
             gusts  = [h['gust_kph']     for h in hours]
             dirs   = [h['wind_degree']  for h in hours]
-            rains  = [h['chance_of_rain'] for h in hours]
+            rains  = [h.get('chance_of_rain', h.get('chance_of_snow', 0)) for h in hours]
             uvs    = [h.get('uv', h.get('uv_index', 0)) for h in hours]
             codes  = [h['condition']['code'] for h in hours]
 
@@ -280,7 +280,7 @@ def _parse_weatherapi(data):
                 'gust_min':  round(min(gusts)),
                 'gust_max':  round(max(gusts)),
                 'direction': prevailing_direction(dirs),
-                'rain_min':  round(min(rains)),
+                'rain_min':  round(max(rains)),
                 'rain_max':  round(max(rains)),
                 'uv_max':    round(max(uvs), 1) if uvs else None,
                 'fog':       any(c in FOG_CODES   for c in codes),
