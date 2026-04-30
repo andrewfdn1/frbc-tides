@@ -198,23 +198,43 @@ def get_pla_flag():
         return None
 
     now = datetime.now(LONDON_TZ)
-    if now.hour < 6:
-        current_slot = (now.date(), 0)
-    elif now.hour < 18:
-        current_slot = (now.date(), 1)
+    h, m = now.hour, now.minute
+
+    if h < 6:
+        slot = (now.date(), 'pre-dawn')
+    elif h == 6 and m < 15:
+        slot = (now.date(), 'am-early')       # 06:00–06:14 first fetch
+    elif h == 6 and m < 30:
+        slot = (now.date(), 'am-mid')         # 06:15–06:29 second fetch
+    elif h < 7:
+        slot = (now.date(), 'am-late')        # 06:30–06:59
+    elif h == 7 and m < 15:
+        slot = (now.date(), 'am-bst-catch')   # 07:00–07:14 BST safety fetch
+    elif h < 18:
+        slot = (now.date(), 'midday')         # 07:15–17:59 stable
+    elif h == 18 and m < 15:
+        slot = (now.date(), 'pm-early')       # 18:00–18:14 first fetch
+    elif h == 18 and m < 30:
+        slot = (now.date(), 'pm-mid')         # 18:15–18:29 second fetch
+    elif h < 19:
+        slot = (now.date(), 'pm-late')        # 18:30–18:59
+    elif h == 19 and m < 15:
+        slot = (now.date(), 'pm-bst-catch')   # 19:00–19:14 BST safety fetch
     else:
-        current_slot = (now.date(), 2)
+        slot = (now.date(), 'evening')        # 19:15 onward stable
 
     cached = _cache.get('pla_flag')
-    if cached and cached.get('slot') == current_slot:
+    if cached and cached.get('slot') == slot:
         return cached['data'], cached['fetched_at']
 
     try:
         data = fetch()
         fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
         _cache['pla_flag'] = {
-            'ts': now.timestamp(), 'data': data,
-            'fetched_at': fetched_at, 'slot': current_slot
+            'ts': datetime.now(timezone.utc).timestamp(),
+            'data': data,
+            'fetched_at': fetched_at,
+            'slot': slot
         }
         return data, fetched_at
     except Exception as e:
