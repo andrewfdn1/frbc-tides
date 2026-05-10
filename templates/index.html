@@ -169,6 +169,7 @@
         .c-red    { color: #FF4B4B; }
         .c-yellow { color: #FFFF00; }
         .c-green  { color: #33FF57; }
+        .c-black  { color: #ffffff; }
         .c-dim    { color: #555; }
         .c-white  { color: #fff; }
     </style>
@@ -203,6 +204,17 @@
             <p class="c-dim" style="font-size:var(--fs-data);">Flag status unavailable</p>
         {% endif %}
     </div>
+
+    <h3>RICHMOND LOW TIDE <span class="updated">Updated {{ d.richmond_lw_updated }}</span></h3>
+    {% if d.richmond_lw %}
+        <div class="tide-row" style="white-space:normal;">
+            Latest observed low tide at {{ d.richmond_lw.time }}
+            is {{ "%.2f"|format(d.richmond_lw.metres) }}m &mdash;
+            <span class="c-{{ d.richmond_lw.flag|lower }}">{{ d.richmond_lw.flag_word }}</span>
+        </div>
+    {% else %}
+        <p class="c-dim" style="font-size:var(--fs-data);">Richmond tide data unavailable</p>
+    {% endif %}
 
     <h3>KINGSTON FLOW <span class="updated">Updated {{ d.flow_updated }}</span></h3>
     {% if d.kingston_flow %}
