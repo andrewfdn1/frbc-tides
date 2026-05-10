@@ -244,6 +244,72 @@ def get_pla_flag():
         return None, ''
 
 
+# ---------------------------------------------------------------------------
+# PLA Richmond observed low tide
+# ---------------------------------------------------------------------------
+
+_PLA_RICHMOND_CHART_URL = (
+    "https://pla.co.uk/pla-proxy/one-minute?url=tides/chart/14541"
+)
+
+def get_richmond_observed_low_tide():
+    def fetch():
+        r = requests.get(
+            _PLA_RICHMOND_CHART_URL,
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://pla.co.uk/"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
+
+        now_utc = datetime.now(timezone.utc)
+        best = None
+
+        for tp in data.get("tpoints", []):
+            if tp.get("tidal_state") != 2:
+                continue
+            observed = tp.get("observed")
+            if observed is None:
+                continue
+            tstamp = tp.get("tstamp", "")
+            if not tstamp:
+                continue
+
+            dt_utc    = datetime.fromisoformat(tstamp[:19]).replace(tzinfo=timezone.utc)
+            dt_london = dt_utc.astimezone(LONDON_TZ)
+
+            if dt_utc > now_utc + timedelta(minutes=30):
+                continue
+
+            if best is None or dt_utc > best["dt_utc"]:
+                best = {
+                    "dt_utc":    dt_utc,
+                    "dt_london": dt_london,
+                    "metres":    float(observed),
+                }
+
+        if best is None:
+            return None
+
+        d      = best["dt_london"].day
+        suffix = "th" if 11 <= d % 100 <= 13 else {1:"st",2:"nd",3:"rd"}.get(d % 10, "th")
+        metres = best["metres"]
+
+        if   metres >= 2.6: flag, flag_word = "RED",    "Red"
+        elif metres >= 1.7: flag, flag_word = "YELLOW", "Yellow"
+        elif metres >= 0:   flag, flag_word = "GREEN",  "Green"
+        else:               flag, flag_word = "BLACK",  "Black"
+
+        return {
+            "time":      best["dt_london"].strftime(f"%H:%M {d}{suffix} %b"),
+            "metres":    metres,
+            "flag":      flag,
+            "flag_word": flag_word,
+        }
+
+    return get_cached("richmond_observed_lw", fetch, ttl_seconds=60)
+
+
 def get_cardinal_direction(degree):
     directions = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
                   "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
@@ -470,6 +536,7 @@ def build_dashboard_data():
         threading.Thread(target=run, args=('pla_flag',      get_pla_flag)),
         threading.Thread(target=run, args=('weather',       get_weather)),
         threading.Thread(target=run, args=('kingston_flow', get_kingston_flow)),
+        threading.Thread(target=run, args=('richmond_lw',   get_richmond_observed_low_tide)),
     ]
     for t in threads: t.start()
     for t in threads: t.join(timeout=15)
@@ -542,20 +609,25 @@ def build_dashboard_data():
     # PLA Flag
     pla_f, pla_u = results.get('pla_flag', (None, ''))
 
+    # Richmond observed low tide
+    lw_data, lw_up = results.get('richmond_lw', (None, ''))
+
     # Kingston Flow
     flow_data, flow_up = results.get('kingston_flow', (None, ''))
 
     return {
-        "tides":         t_data,
-        "pla_flag":      pla_f,
-        "pla_updated":   pla_u,
-        "weather":       weather,
-        "cal":           cal_data or {"day_label": "TODAY", "list": []},
-        "cal_updated":   cal_up,
-        "kingston_flow": flow_data,
-        "flow_updated":  flow_up,
-        "last_updated":  now_lon.strftime('%H:%M:%S'),
-        "tz_label":      "BST" if is_bst else "GMT"
+        "tides":               t_data,
+        "pla_flag":            pla_f,
+        "pla_updated":         pla_u,
+        "richmond_lw":         lw_data,
+        "richmond_lw_updated": lw_up,
+        "weather":             weather,
+        "cal":                 cal_data or {"day_label": "TODAY", "list": []},
+        "cal_updated":         cal_up,
+        "kingston_flow":       flow_data,
+        "flow_updated":        flow_up,
+        "last_updated":        now_lon.strftime('%H:%M:%S'),
+        "tz_label":            "BST" if is_bst else "GMT"
     }
 
 
