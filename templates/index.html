@@ -207,7 +207,7 @@
 
     <h3>RICHMOND LOW TIDE <span class="updated">Updated {{ d.richmond_lw_updated }}</span></h3>
     {% if d.richmond_lw %}
-        <div class="tide-row" style="white-space:normal;">
+        <div class="tide-row" style="white-space:normal; font-size:calc(var(--fs-data) * 0.6);">
             Latest observed low tide at {{ d.richmond_lw.time }}
             is {{ "%.2f"|format(d.richmond_lw.metres) }}m &mdash;
             <span class="c-{{ d.richmond_lw.flag|lower }}">{{ d.richmond_lw.flag_word }}</span>
