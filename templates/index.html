@@ -248,9 +248,10 @@
         {% set m = d.weather.morning %}
         {% set a = d.weather.afternoon %}
 
-        {% if d.weather.source == 'WeatherAPI' %}
-            <p class="wx-source fallback">&#9888; Backup source active (WeatherAPI)</p>
-        {% endif %}
+# deleted this code out for now
+#        {% if d.weather.source == 'WeatherAPI' %}
+#            <p class="wx-source fallback">&#9888; Backup source active (WeatherAPI)</p>
+#        {% endif %}
 
         <table class="wx-table">
             <thead>
@@ -352,6 +353,7 @@
                 </tr>
             </tbody>
         </table>
+            <p class="wx-source">Source: {{ d.weather.source }}</p>                    
     {% endif %}
 
     <h3 style="color:#FF4B4B;">HAZARDS</h3>
