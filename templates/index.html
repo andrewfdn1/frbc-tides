@@ -376,22 +376,22 @@
                     <td>{% if w.storm_morning %}<span class="c-red">Storm warning</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
                     <td>{% if w.storm_afternoon %}<span class="c-red">Storm warning</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
                 </tr>
-                <tr>
+               <tr>
     <td>Air+Water Temp</td>
     <td>
         {% if d.weather.morning and d.weather.morning.temp_min is not none and d.thames_temp %}
             {% set air_m = d.weather.morning.temp_min %}
-            {% set water = d.thames_temp.temperature_c %}
-            {% set total_m = air_m + water %}
-            <span class="{{ 'c-red' if total_m < 14 else 'c-white' }}">{{ air_m }}c+{{ water }}c={{ "%.1f"|format(total_m) }}c</span>
+            {% set water_m = d.thames_temp.temperature_c|round|int %}
+            {% set total_m = (air_m + water_m) %}
+            <small><span class="{{ 'c-red' if total_m < 14 else 'c-white' }}">{{ air_m }}c+{{ water_m }}c=<br>{{ total_m }}c</span></small>
         {% else %}<span class="c-dim">&mdash;</span>{% endif %}
     </td>
     <td>
         {% if d.weather.afternoon and d.weather.afternoon.temp_min is not none and d.thames_temp %}
             {% set air_a = d.weather.afternoon.temp_min %}
-            {% set water = d.thames_temp.temperature_c %}
-            {% set total_a = air_a + water %}
-            <span class="{{ 'c-red' if total_a < 14 else 'c-white' }}">{{ air_a }}c+{{ water }}c={{ "%.1f"|format(total_a) }}c</span>
+            {% set water_a = d.thames_temp.temperature_c|round|int %}
+            {% set total_a = (air_a + water_a) %}
+            <small><span class="{{ 'c-red' if total_a < 14 else 'c-white' }}">{{ air_a }}c+{{ water_a }}c=<br>{{ total_a }}c</span></small>
         {% else %}<span class="c-dim">&mdash;</span>{% endif %}
     </td>
 </tr>
