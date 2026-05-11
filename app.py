@@ -508,7 +508,26 @@ def get_kingston_flow():
         return None
     return get_cached('kingston_flow', fetch, ttl_seconds=900)
 
-
+def get_thames_temperature():
+    def fetch():
+        url = (
+            "https://environment.data.gov.uk/hydrology/id/measures/"
+            "GPRSD8A-temp-i-subdaily-C/readings?latest"
+        )
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        items = r.json().get('items', [])
+        if items:
+            reading = items[0]
+            val = reading.get('value')
+            if val is not None:
+                return {
+                    "temperature_c": round(float(val), 1),
+                    "datetime": reading.get('dateTime', ''),
+                }
+        return None
+    return get_cached('thames_temp', fetch, ttl_seconds=900)
+    
 def tide_direction_at(tides, check_utc):
     fut = [t for t in tides if t['dt_utc'] > check_utc]
     if fut:
@@ -537,6 +556,7 @@ def build_dashboard_data():
         threading.Thread(target=run, args=('weather',       get_weather)),
         threading.Thread(target=run, args=('kingston_flow', get_kingston_flow)),
         threading.Thread(target=run, args=('richmond_lw',   get_richmond_observed_low_tide)),
+        threading.Thread(target=run, args=('thames_temp', get_thames_temperature)),
     ]
     for t in threads: t.start()
     for t in threads: t.join(timeout=15)
@@ -615,6 +635,9 @@ def build_dashboard_data():
     # Kingston Flow
     flow_data, flow_up = results.get('kingston_flow', (None, ''))
 
+    # Thames water temperature
+    thames_temp_data, thames_temp_up = results.get('thames_temp', (None, ''))
+
     return {
         "tides":               t_data,
         "pla_flag":            pla_f,
@@ -628,6 +651,8 @@ def build_dashboard_data():
         "flow_updated":        flow_up,
         "last_updated":        now_lon.strftime('%H:%M:%S'),
         "tz_label":            "BST" if is_bst else "GMT"
+        "thames_temp":         thames_temp_data,
+        "thames_temp_updated": thames_temp_up,
     }
 
 
