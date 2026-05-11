@@ -650,7 +650,7 @@ def build_dashboard_data():
         "kingston_flow":       flow_data,
         "flow_updated":        flow_up,
         "last_updated":        now_lon.strftime('%H:%M:%S'),
-        "tz_label":            "BST" if is_bst else "GMT"
+        "tz_label":            "BST" if is_bst else "GMT",
         "thames_temp":         thames_temp_data,
         "thames_temp_updated": thames_temp_up,
     }
