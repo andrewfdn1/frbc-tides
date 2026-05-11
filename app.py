@@ -59,35 +59,6 @@ def _get_lock(key):
             _cache_locks[key] = threading.Lock()
         return _cache_locks[key]
 
-
-RADIO_STATIONS = {
-    "Capital FM":      "https://media-ice.musicradio.com/CapitalMP3",
-    "Capital Anthems": "https://media-ice.musicradio.com/CapitalAnthemsMP3",
-    "Capital Dance":   "https://media-ice.musicradio.com/CapitalDanceMP3",
-    "Capital XTRA":    "https://media-ice.musicradio.com/CapitalXTRALondonMP3",
-    "Heart FM":        "https://media-ice.musicradio.com/HeartLondonMP3",
-    "Heart 80s":       "https://media-ice.musicradio.com/Heart80sMP3",
-    "Heart 90s":       "https://media-ice.musicradio.com/Heart90sMP3",
-    "Heart Dance":     "https://media-ice.musicradio.com/HeartDanceMP3",
-}
-
-
-@app.route("/play/<station_name>")
-def play_radio(station_name):
-    os.system("pkill vlc")
-    url = RADIO_STATIONS.get(station_name)
-    if url:
-        os.system(f"cvlc {url} &")
-        return jsonify(status="playing", station=station_name)
-    return jsonify(status="error"), 404
-
-
-@app.route("/stop")
-def stop_radio_service():
-    os.system("pkill vlc")
-    return jsonify(status="stopped")
-
-
 def get_cached(key, fetch_fn, ttl_seconds):
     now = datetime.now(timezone.utc).timestamp()
     if key in _cache and now - _cache[key]['ts'] < ttl_seconds:
@@ -664,12 +635,6 @@ def index():
 @app.route("/data")
 def data_endpoint():
     return jsonify(build_dashboard_data())
-
-
-@app.route("/music")
-def music():
-    return render_template("music.html", stations=RADIO_STATIONS)
-
 
 @app.route("/ping")
 def ping():
