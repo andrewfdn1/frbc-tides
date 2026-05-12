@@ -207,8 +207,8 @@
 
     <h3>RICHMOND LOW TIDE <span class="updated">Updated {{ d.richmond_lw_updated }}</span></h3>
     {% if d.richmond_lw %}
-        <div class="tide-row" style="white-space:normal; font-size:calc(var(--fs-data) * 0.6);">
-            Latest observed low tide at {{ d.richmond_lw.time }}
+       <div style="white-space:normal; font-size:calc(var(--fs-data) * 0.6);">
+            {{ d.richmond_lw.time }}
             is {{ "%.2f"|format(d.richmond_lw.metres) }}m &mdash;
             <span class="c-{{ d.richmond_lw.flag|lower }}">{{ d.richmond_lw.flag_word }}</span>
         </div>
@@ -226,7 +226,7 @@
         {% else %}
             {% set fcol = '#ffffff' %}
         {% endif %}
-        <div class="flow-value" style="color:{{ fcol }};">
+        <div class="flow-value" style="color:{{ fcol }}; font-size:var(--fs-data);">
             {{ d.kingston_flow.flow }} <span style="font-size:var(--fs-data); color:{{ fcol }};">{{ d.kingston_flow.unit }}</span>
         </div>
     {% else %}
