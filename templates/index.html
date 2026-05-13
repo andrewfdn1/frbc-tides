@@ -35,18 +35,31 @@
             .logo-portrait { display: block; }
         }
 
-        @media (orientation: landscape) {
-            .grid {
-                display: grid;
-                grid-template-columns: 1fr 1fr 1fr;
-                gap: clamp(12px, 2vw, 28px);
-                padding: 0 clamp(10px, 2vw, 20px);
-            }
-            .cal-event { font-size: clamp(12px, 1.4vw, 20px) !important; }
-            .logo-landscape { display: block; }
-            .logo-portrait { display: none; }
-            .logo-landscape .logo-img { width: 100%; }
-        }
+@media (orientation: landscape) {
+    .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: clamp(12px, 2vw, 28px);
+        padding: 0 clamp(10px, 2vw, 20px);
+    }
+    .cal-event { font-size: clamp(12px, 1.4vw, 20px) !important; }
+    .logo-landscape { display: block; }
+    .logo-portrait { display: none; }
+    .logo-landscape .logo-img { width: 100%; }
+
+    /* Diary column: cap to viewport so it never overflows */
+    .grid > div:last-child {
+        display: flex;
+        flex-direction: column;
+        max-height: calc(100vh - 60px);
+    }
+    .cal-list {
+        overflow: hidden;
+        flex: 1 1 auto;
+        min-height: 0;
+        position: relative;
+    }
+}
 
         h3 {
             border-bottom: 1px solid #333;
@@ -410,17 +423,19 @@
 <!-- COLUMN 3 -->
 <div>
     <h3>{{ d.cal.day_label }} <span class="updated">Updated {{ d.cal_updated }}</span></h3>
-    <div>
-        {% if d.cal.list %}
-            {% for e in d.cal.list %}
-                <div class="cal-event">
-                    <span class="cal-time">{{ e.time }}</span><br>{{ e.summary }}
-                </div>
-            {% endfor %}
-        {% else %}
-            <p class="c-dim" style="font-size:var(--fs-data);">No sessions scheduled for {{ d.cal.day_label.lower() }}.</p>
-        {% endif %}
+<div class="cal-list" id="calList">
+    <div id="calListInner">
+    {% if d.cal.list %}
+        {% for e in d.cal.list %}
+            <div class="cal-event">
+                <span class="cal-time">{{ e.time }}</span><br>{{ e.summary }}
+            </div>
+        {% endfor %}
+    {% else %}
+        <p class="c-dim" style="font-size:var(--fs-data);">No sessions scheduled for {{ d.cal.day_label.lower() }}.</p>
+    {% endif %}
     </div>
+</div>
 
     <div class="logo-portrait">
         <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
@@ -441,6 +456,72 @@
             .catch(() => {});
     }
     setInterval(autoRefresh, 600000);
+
+    // Landscape diary: shrink font to fit, then auto-scroll if still overflowing
+    function fitDiary() {
+        if (window.matchMedia('(orientation: portrait)').matches) return;
+
+        var container = document.getElementById('calList');
+        var inner = document.getElementById('calListInner');
+        if (!container || !inner) return;
+
+        var events = inner.querySelectorAll('.cal-event');
+        if (!events.length) return;
+
+        // Step 1: shrink font size down until it fits (min 10px)
+        var currentSize = parseFloat(window.getComputedStyle(events[0]).fontSize);
+        while (inner.scrollHeight > container.clientHeight && currentSize > 10) {
+            currentSize -= 0.5;
+            events.forEach(function(e) { e.style.fontSize = currentSize + 'px'; });
+        }
+
+        // Step 2: if still overflowing after minimum font, start auto-scroll loop
+        if (inner.scrollHeight > container.clientHeight) {
+            startScroll(container, inner);
+        }
+    }
+
+    var scrollInterval = null;
+    function startScroll(container, inner) {
+        if (scrollInterval) return; // already running
+        var pos = 0;
+        var speed = 0.5; // px per tick — slow and readable
+        var pauseAt = 0;
+        var pausing = false;
+
+        scrollInterval = setInterval(function() {
+            if (pausing) {
+                pauseAt--;
+                if (pauseAt <= 0) pausing = false;
+                return;
+            }
+            pos += speed;
+            var maxScroll = inner.scrollHeight - container.clientHeight;
+            if (pos >= maxScroll) {
+                pos = maxScroll;
+                pausing = true;
+                pauseAt = 300;
+                setTimeout(function() {
+                    pos = 0;
+                    inner.style.transform = 'translateY(0px)';
+                    pausing = false;
+                }, 3000);
+                return;
+            }
+            inner.style.transform = 'translateY(-' + pos + 'px)';
+        }, 16); // ~60fps
+    }
+
+    window.addEventListener('load', fitDiary);
+    window.addEventListener('resize', function() {
+        if (scrollInterval) { clearInterval(scrollInterval); scrollInterval = null; }
+        var inner = document.getElementById('calListInner');
+        if (inner) {
+            inner.style.transform = '';
+            inner.querySelectorAll('.cal-event').forEach(function(e) { e.style.fontSize = ''; });
+        }
+        fitDiary();
+    });
 </script>
 
 </body>
