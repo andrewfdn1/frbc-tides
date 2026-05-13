@@ -45,7 +45,13 @@
     .cal-event { font-size: clamp(12px, 1.4vw, 20px) !important; }
     .logo-landscape { display: block; }
     .logo-portrait { display: none; }
-    .logo-landscape .logo-img { width: 100%; }
+    .logo-landscape .logo-img { width: clamp(80px, 12vw, 160px); }
+
+    /* Column 2: use flex so logo is pushed to the bottom */
+    .grid > div:nth-child(2) {
+        display: flex;
+        flex-direction: column;
+    }
 
     /* Diary column: cap to viewport so it never overflows */
     .grid > div:last-child {
@@ -246,9 +252,6 @@
         <p class="c-dim" style="font-size:var(--fs-data);">Flow data unavailable</p>
     {% endif %}
 
-    <div class="logo-landscape">
-        <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
-    </div>
 </div>
 
 <!-- COLUMN 2 -->
@@ -418,6 +421,9 @@
             </tbody>
         </table>
     {% endif %}
+<div class="logo-landscape" style="margin-top: auto; padding-top: 10px;">
+        <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
+    </div>
 </div>
 
 <!-- COLUMN 3 -->
@@ -437,11 +443,12 @@
     </div>
 </div>
 
-    <div class="logo-portrait">
-        <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
-    </div>
+   </div>
+
 </div>
 
+<div class="logo-portrait" style="text-align: center; padding: 20px 0 50px;">
+    <img src="/static/FRBC logo White on black.png" class="logo-img" style="width: 50%; margin: 0 auto;" alt="FRBC" onerror="this.style.display='none'">
 </div>
 
 <footer>
