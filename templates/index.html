@@ -202,7 +202,7 @@
     <h3>HAMMERSMITH TIDES <span class="updated">Updated {{ d.tides.updated }}</span></h3>
 
    {% if d.tides.last_tide %}
-        <div style="font-size:calc(var(--fs-data) * 0.75); color:#888; margin-bottom:4px;">
+        <div style="font-size:calc(var(--fs-data) * 0.95); color:#fff; margin-bottom:4px;">
             Last: {{ d.tides.last_tide.label }} tide &mdash; {{ d.tides.last_tide.time }} &mdash; {{ d.tides.last_tide.height }}
         </div>
     {% endif %}
@@ -212,7 +212,7 @@
     </div>
 
     {% if d.tides.next_tide %}
-        <div style="font-size:calc(var(--fs-data) * 0.75); color:#888; margin-top:4px;">
+        <div style="font-size:calc(var(--fs-data) * 0.95); color:#fff; margin-top:4px;">
             Next: {{ d.tides.next_tide.label }} tide &mdash; {{ d.tides.next_tide.time }} &mdash; {{ d.tides.next_tide.height }}
         </div>
     {% endif %}
