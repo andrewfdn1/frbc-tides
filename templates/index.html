@@ -201,20 +201,22 @@
 <div>
     <h3>HAMMERSMITH TIDES <span class="updated">Updated {{ d.tides.updated }}</span></h3>
 
+   {% if d.tides.last_tide %}
+        <div style="font-size:calc(var(--fs-data) * 0.75); color:#888; margin-bottom:4px;">
+            Last: {{ d.tides.last_tide.label }} tide &mdash; {{ d.tides.last_tide.time }} &mdash; {{ d.tides.last_tide.height }}
+        </div>
+    {% endif %}
+
     <div class="metric">
         {% if d.tides.direction %}{{ d.tides.direction }} UNTIL {{ d.tides.until }}{% else %}DATA UNAVAILABLE{% endif %}
     </div>
 
-    <div>
-        {% for t in d.tides.upcoming %}
-            <div class="tide-row {{ 'tide-hi' if t.type == 'HighWater' else 'tide-lo' }}">{{ "%-3s"|format(t.label) }} {{ "%-12s"|format(t.time) }} {{ t.height }}</div>
-        {% endfor %}
-    </div>
-
-    {% if d.tides.launch_warning %}
-        <div class="warn-active">&#9888; {{ d.tides.launch_warning }}</div>
+    {% if d.tides.next_tide %}
+        <div style="font-size:calc(var(--fs-data) * 0.75); color:#888; margin-top:4px;">
+            Next: {{ d.tides.next_tide.label }} tide &mdash; {{ d.tides.next_tide.time }} &mdash; {{ d.tides.next_tide.height }}
+        </div>
     {% endif %}
-
+    
     <h3>PLA EBB FLAG <span class="updated">Updated {{ d.pla_updated }}</span></h3>
     <div class="pla-flag">
         {% if d.pla_flag %}
@@ -245,9 +247,8 @@
         {% else %}
             {% set fcol = '#ffffff' %}
         {% endif %}
-        <div class="flow-value" style="color:{{ fcol }}; font-size:var(--fs-data);">
-            {{ d.kingston_flow.flow }} <span style="font-size:var(--fs-data); color:{{ fcol }};">{{ d.kingston_flow.unit }}</span>
-        </div>
+        <div class="flow-value" style="color:{{ fcol }}; font-size:calc(var(--fs-data) * 0.8);">
+            {{ d.kingston_flow.flow }} <span style="font-size:calc(var(--fs-data) * 0.8); color:{{ fcol }};">{{ d.kingston_flow.unit }}</span>        </div>
     {% else %}
         <p class="c-dim" style="font-size:var(--fs-data);">Flow data unavailable</p>
     {% endif %}
