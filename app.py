@@ -534,7 +534,7 @@ def build_dashboard_data():
 
     # Tides
     tides, t_up = results.get('tides', (None, ''))
-    t_data = {"upcoming": [], "direction": "", "until": "", "launch_warning": "", "updated": t_up}
+   t_data = {"upcoming": [], "direction": "", "until": "", "launch_warning": "", "updated": t_up, "last_tide": None, "next_tide": None}
 
     if tides:
         fut = [t for t in tides if t['dt_utc'] > now_utc]
@@ -549,13 +549,23 @@ def build_dashboard_data():
                     "height": f"{t['Height']:.1f}m",
                     "type":   t['EventType']
                 })
-        try:
-            last_lo = [t for t in pst if t['EventType'] == 'LowWater'][-1]
-            if (now_utc - last_lo['dt_utc']).total_seconds() <= 3600:
-                t_data["launch_warning"] = "CHECK PONTOON, FLOODING TIDE"
-        except Exception:
-            pass
-
+            if len(fut) >= 2:
+                nt = fut[1]
+                t_data["next_tide"] = {
+                    "label":  "High" if nt['EventType'] == 'HighWater' else "Low",
+                    "time":   (nt['dt_utc'] + off).strftime('%a %H:%M'),
+                    "height": f"{nt['Height']:.1f}m",
+                    "type":   nt['EventType']
+                }
+        if pst:
+            lt = pst[-1]
+            t_data["last_tide"] = {
+                "label":  "High" if lt['EventType'] == 'HighWater' else "Low",
+                "time":   (lt['dt_utc'] + off).strftime('%a %H:%M'),
+                "height": f"{lt['Height']:.1f}m",
+                "type":   lt['EventType']
+            }
+            
     # Calendar
     cal_data, cal_up = results.get('calendar', (None, ''))
 
