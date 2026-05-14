@@ -534,7 +534,7 @@ def build_dashboard_data():
 
     # Tides
     tides, t_up = results.get('tides', (None, ''))
-   t_data = {"upcoming": [], "direction": "", "until": "", "launch_warning": "", "updated": t_up, "last_tide": None, "next_tide": None}
+    t_data = {"upcoming": [], "direction": "", "until": "", "launch_warning": "", "updated": t_up, "last_tide": None, "next_tide": None}
 
     if tides:
         fut = [t for t in tides if t['dt_utc'] > now_utc]
