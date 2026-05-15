@@ -12,11 +12,19 @@ import tempfile
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+try:
+    from shapely.geometry import Point, shape as shapely_shape
+    _SHAPELY_OK = True
+except ImportError:
+    _SHAPELY_OK = False
+    print("WARNING: shapely not installed — NSWWS point-in-polygon disabled. pip install shapely")
+
 app = Flask(__name__)
 
 TIDE_API_KEY      = os.environ.get("TIDE_API_KEY", "")
 GOOGLE_API_KEY    = os.environ.get("GOOGLE_CALENDAR_API_KEY", "")
 WEATHERAPI_KEY    = os.environ.get("WEATHERAPI_KEY", "")
+NSWWS_API_KEY     = os.environ.get("METOFFICE_NSWWS", "")
 LONDON_TZ         = ZoneInfo("Europe/London")
 CAL_ID            = "info@fulhamreachboatclub.com"
 
@@ -462,6 +470,122 @@ def _get_weather_fallback():
     return result, fetched_at
 
 
+
+# ---------------------------------------------------------------------------
+# Met Office NSWWS weather warnings
+# ---------------------------------------------------------------------------
+
+_NSWWS_FEED_URL  = "https://prd.nswws.api.metoffice.gov.uk/v1.0/objects/feed"
+_LEVEL_ORDER     = {"RED": 3, "AMBER": 2, "YELLOW": 1}
+
+# London bounding box for a quick pre-filter before shapely
+_LON_BBOX = (-0.51, 51.28, 0.33, 51.70)   # (min_lon, min_lat, max_lon, max_lat)
+
+
+def _point_in_geojson(geometry, lat, lon):
+    """Return True if (lat, lon) falls inside the GeoJSON MultiPolygon geometry."""
+    if not _SHAPELY_OK:
+        return True   # can't filter, assume it applies
+    try:
+        return shapely_shape(geometry).contains(Point(lon, lat))
+    except Exception as e:
+        print(f"NSWWS shapely error: {e}")
+        return False
+
+
+def _fetch_nswws():
+    """
+    Fetch the NSWWS feed, filter to warnings covering Hammersmith (LAT, LON),
+    and return a list sorted highest severity first. Each item:
+      { level, weather_types, headline, area, valid_from, valid_to }
+    Returns [] if not configured or on error.
+    """
+    if not NSWWS_API_KEY:
+        return []
+
+    r = requests.get(
+        _NSWWS_FEED_URL,
+        headers={"X-Api-Key": NSWWS_API_KEY},
+        timeout=10,
+    )
+    r.raise_for_status()
+    data = r.json()
+
+    warnings_out = []
+    for feature in data.get("features", []):
+        props    = feature.get("properties", {})
+        level    = props.get("warningLevel", "").upper()
+        status   = props.get("warningStatus", "")
+
+        if level not in _LEVEL_ORDER:
+            continue
+        if status in ("EXPIRED", "CANCELLED"):
+            continue
+
+        # Quick bbox pre-filter, then precise polygon check
+        geometry = feature.get("geometry")
+        if geometry and not _point_in_geojson(geometry, LAT, LON):
+            continue
+
+        # Build area string from affectedAreas list
+        # e.g. [{"regionName": "London", "subRegions": ["Greater London"]}]
+        affected = props.get("affectedAreas", [])
+        if affected:
+            area_parts = []
+            for a in affected[:3]:
+                region = a.get("regionName", "")
+                subs   = a.get("subRegions", [])
+                if subs:
+                    area_parts.append(f"{region} ({', '.join(subs[:2])})")
+                elif region:
+                    area_parts.append(region)
+            area = "; ".join(area_parts) if area_parts else "your area"
+        else:
+            area = "your area"
+
+        weather_types = props.get("weatherType", [])
+        wtype = ", ".join(str(t).title() for t in weather_types) if weather_types else ""
+
+        warnings_out.append({
+            "level":         level,
+            "weather_types": wtype,
+            "headline":      props.get("warningHeadline", ""),
+            "area":          area,
+            "valid_from":    props.get("validFromDate", ""),
+            "valid_to":      props.get("validToDate", ""),
+        })
+
+    warnings_out.sort(key=lambda w: _LEVEL_ORDER.get(w["level"], 0), reverse=True)
+    return warnings_out
+
+
+def _warning_for_window(warnings, window_start_h, window_end_h):
+    """
+    Return the highest-severity warning active during the given local-time
+    window today, or None. window_start_h/end_h are integers (e.g. 6, 12).
+    """
+    now_local    = datetime.now(LONDON_TZ)
+    window_start = now_local.replace(hour=window_start_h, minute=0, second=0, microsecond=0)
+    window_end   = now_local.replace(hour=window_end_h,   minute=0, second=0, microsecond=0)
+
+    for w in warnings:   # already sorted highest-first
+        try:
+            vf = datetime.fromisoformat(w["valid_from"].replace("Z", "+00:00")).astimezone(LONDON_TZ) if w["valid_from"] else None
+            vt = datetime.fromisoformat(w["valid_to"].replace("Z", "+00:00")).astimezone(LONDON_TZ)   if w["valid_to"]   else None
+        except Exception:
+            vf, vt = None, None
+
+        starts_before_end = (vf is None) or (vf < window_end)
+        ends_after_start  = (vt is None) or (vt > window_start)
+        if starts_before_end and ends_after_start:
+            return w
+    return None
+
+
+def get_nswws_warnings():
+    """Cached wrapper — refreshes every 15 minutes."""
+    return get_cached("nswws", _fetch_nswws, ttl_seconds=900)
+
 def get_kingston_flow():
     def fetch():
         url = (
@@ -528,6 +652,7 @@ def build_dashboard_data():
         threading.Thread(target=run, args=('kingston_flow', get_kingston_flow)),
         threading.Thread(target=run, args=('richmond_lw',   get_richmond_observed_low_tide)),
         threading.Thread(target=run, args=('thames_temp', get_thames_temperature)),
+        threading.Thread(target=run, args=('nswws',       get_nswws_warnings)),
     ]
     for t in threads: t.start()
     for t in threads: t.join(timeout=15)
@@ -619,6 +744,12 @@ def build_dashboard_data():
     # Thames water temperature
     thames_temp_data, thames_temp_up = results.get('thames_temp', (None, ''))
 
+    # Met Office NSWWS weather warnings
+    nswws_all, nswws_up = results.get('nswws', ([], ''))
+    nswws_all = nswws_all or []
+    nswws_morning   = _warning_for_window(nswws_all, 6,  12)
+    nswws_afternoon = _warning_for_window(nswws_all, 12, 21)
+
     return {
         "tides":               t_data,
         "pla_flag":            pla_f,
@@ -634,6 +765,9 @@ def build_dashboard_data():
         "tz_label":            "BST" if is_bst else "GMT",
         "thames_temp":         thames_temp_data,
         "thames_temp_updated": thames_temp_up,
+        "nswws_morning":       nswws_morning,
+        "nswws_afternoon":     nswws_afternoon,
+        "nswws_updated":       nswws_up,
     }
 
 
