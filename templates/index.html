@@ -429,7 +429,7 @@
 
 <!-- COLUMN 3 -->
 <div>
-    <h3>{{ d.cal.day_label }} <span class="updated">Updated {{ d.cal_updated }}</span></h3>
+    <h3>{{ d.cal.day_label }} <span id="liveclock" class="updated"></span></h3>
 <div class="cal-list" id="calList">
     <div id="calListInner">
     {% if d.cal.list %}
@@ -494,8 +494,8 @@
         if (scrollInterval) return; // already running
         var pos = 0;
         var speed = 0.5; // px per tick — slow and readable
-        var pauseAt = 0;
-        var pausing = false;
+        var pauseAt = 180; // pause at top before first scroll (~3s at 60fps)
+        var pausing = true;
 
         scrollInterval = setInterval(function() {
             if (pausing) {
@@ -530,6 +530,18 @@
         }
         fitDiary();
     });
+    // Live clock in TODAY header
+    function updateClock() {
+        var el = document.getElementById('liveclock');
+        if (!el) return;
+        var now = new Date();
+        var h = String(now.getHours()).padStart(2, '0');
+        var m = String(now.getMinutes()).padStart(2, '0');
+        var s = String(now.getSeconds()).padStart(2, '0');
+        el.textContent = h + ':' + m + ':' + s;
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
 </script>
 
 </body>
