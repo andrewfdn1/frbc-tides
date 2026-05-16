@@ -714,7 +714,7 @@ def build_dashboard_data():
                 (dirn == "FLOOD TIDE" and wd in ["N", "NE", "NW"])
             )
 
-        weather.update({
+       weather.update({
             "error":     False,
             "updated":   w_up,
             "source":    w_res.get('source', ''),
@@ -722,24 +722,8 @@ def build_dashboard_data():
             "sunset":    w_res['sunset'],
             "morning":   m,
             "afternoon": a,
-                        # --- NSWWS WARNINGS MAPPING ---
-            nswws, _ = get_cached('nswws', _fetch_nswws, ttl_seconds=300)
-
-            def has_warning(warnings, keyword, start, end):
-                for w in warnings:
-                    wt = (w.get("weather_types") or "").lower()
-                    if keyword in wt:
-                        if _warning_for_window([w], start, end):
-                            return True
-                return False
-
-            "warnings": {
-                "fog_morning": has_warning(nswws, "fog", 6, 12),
-                "fog_afternoon": has_warning(nswws, "fog", 12, 21),
-                "storm_morning": has_warning(nswws, "thunderstorm", 6, 12),
-                "storm_afternoon": has_warning(nswws, "thunderstorm", 12, 21),
-            },
         })
+
 
     # PLA Flag
     pla_f, pla_u = results.get('pla_flag', (None, ''))
