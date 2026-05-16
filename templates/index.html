@@ -429,7 +429,12 @@
 
 <!-- COLUMN 3 -->
 <div>
-    <h3>{{ d.cal.day_label }} <span id="liveclock" class="updated"></span></h3>
+   <h3>
+        {{ d.cal.day_label }}
+        <span class="updated">
+            {{ d.cal.updated }} | <span id="liveclock"></span>
+        </span>
+    </h3>
 <div class="cal-list" id="calList">
     <div id="calListInner">
     {% if d.cal.list %}
@@ -491,34 +496,45 @@
 
     var scrollInterval = null;
     function startScroll(container, inner) {
-        if (scrollInterval) return; // already running
-        var pos = 0;
-        var speed = 0.5; // px per tick — slow and readable
-        var pauseAt = 180; // pause at top before first scroll (~3s at 60fps)
-        var pausing = true;
+    if (scrollInterval) return;
 
-        scrollInterval = setInterval(function() {
-            if (pausing) {
-                pauseAt--;
-                if (pauseAt <= 0) pausing = false;
+    var pos = 0;
+    var speed = 0.3;
+    var pauseDuration = 3000; // ms
+    var lastPauseTime = Date.now();
+    var isPaused = true;
+
+    scrollInterval = setInterval(function () {
+        var now = Date.now();
+
+        if (isPaused) {
+            if (now - lastPauseTime >= pauseDuration) {
+                isPaused = false;
+            } else {
                 return;
             }
-            pos += speed;
-            var maxScroll = inner.scrollHeight - container.clientHeight;
-            if (pos >= maxScroll) {
-                pos = maxScroll;
-                pausing = true;
-                pauseAt = 300;
-                setTimeout(function() {
-                    pos = 0;
-                    inner.style.transform = 'translateY(0px)';
-                    pausing = false;
-                }, 3000);
-                return;
-            }
-            inner.style.transform = 'translateY(-' + pos + 'px)';
-        }, 16); // ~60fps
-    }
+        }
+
+        pos += speed;
+        var maxScroll = inner.scrollHeight - container.clientHeight;
+
+        if (pos >= maxScroll) {
+            pos = maxScroll;
+            isPaused = true;
+            lastPauseTime = Date.now();
+
+            setTimeout(function () {
+                pos = 0;
+                inner.style.transform = 'translateY(0px)';
+                lastPauseTime = Date.now();
+            }, pauseDuration);
+
+            return;
+        }
+
+        inner.style.transform = 'translateY(-' + pos + 'px)';
+    }, 20);
+}
 
     window.addEventListener('load', fitDiary);
     window.addEventListener('resize', function() {
