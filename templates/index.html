@@ -427,17 +427,16 @@
 
 <!-- COLUMN 3 -->
 <div>
-   <h3>
-        {{ d.cal.day_label }}
-        <span class="updated">
-            {{ d.cal.updated }} | <span id="liveclock"></span>
-        </span>
+    <h3>
+        {{ d.cal.day_label }} &ndash; <span id="liveclock"></span>
+        <span class="updated">Updated {{ d.cal.updated }}</span>
     </h3>
 <div class="cal-list" id="calList">
     <div id="calListInner">
     {% if d.cal.list %}
         {% for e in d.cal.list %}
-            <div class="cal-event">
+            {% set is_past = e.time != 'All Day' and e.time.split('-')|last < d.last_updated[:5] %}
+            <div class="cal-event" style="{{ 'opacity:0.35;' if is_past else '' }}">
                 <span class="cal-time">{{ e.time }}</span><br>{{ e.summary }}
             </div>
         {% endfor %}
