@@ -154,7 +154,7 @@
 
         .cal-event {
             margin-bottom: clamp(3px, 0.4vw, 6px);
-            font-size: calc(var(--fs-data) * 0.6);
+            font-size: var(--fs-data);
             border-left: 3px solid #33FF57;
             padding-left: 8px;
             line-height: 1.4;
@@ -424,7 +424,6 @@
         <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
     </div>
 </div>
-</div>
 
 <!-- COLUMN 3 -->
 <div>
@@ -500,7 +499,7 @@
     var pos = 0;
     var speed = 0.3;
     var pauseDuration = 3000; // ms
-    var lastPauseTime = Date.now();
+    var lastPauseTime = Date.now() + pauseDuration; // extra initial delay
     var isPaused = true;
 
     scrollInterval = setInterval(function () {
@@ -550,10 +549,12 @@
         var el = document.getElementById('liveclock');
         if (!el) return;
         var now = new Date();
+        var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        var day = days[now.getDay()];
         var h = String(now.getHours()).padStart(2, '0');
         var m = String(now.getMinutes()).padStart(2, '0');
         var s = String(now.getSeconds()).padStart(2, '0');
-        el.textContent = h + ':' + m + ':' + s;
+        el.textContent = day + ' ' + h + ':' + m + ':' + s;
     }
     updateClock();
     setInterval(updateClock, 1000);
