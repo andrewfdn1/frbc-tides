@@ -274,177 +274,194 @@
 
 <!-- COLUMN 2 -->
 <div>
-    <h3>WEATHER <span class="updated">Updated {{ d.weather.updated }}</span></h3>
+    <h3>WEATHER <span class="updated">Updated {{ d.weather.updated }}</span>{% if d.nswws_updated %} <span class="updated">NSWWS {{ d.nswws_updated }}</span>{% endif %}</h3>
 
     {% if d.weather.error %}
-        <p class="c-red" style="font-size:var(--fs-data);">Weather Currently Unavailable</p>
-    {% else %}
-        {% set m = d.weather.morning %}
-        {% set a = d.weather.afternoon %}
-
-        <table class="wx-table">
-            <thead>
-                <tr>
-                    <th></th>
-                    <th>0600&ndash;1200</th>
-                    <th>1200&ndash;2100</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>Sunrise/set</td>
-                    <td>{{ d.weather.sunrise }}</td>
-                    <td>{{ d.weather.sunset }}</td>
-                </tr>
-                <tr>
-                    <td>Temp</td>
-                    <td>
-                        {% if m and m.temp_min is not none and m.temp_max is not none %}
-                            {{ m.temp_min }}-{{ m.temp_max }}c
-                        {% else %}&mdash;{% endif %}
-                    </td>
-                    <td>
-                        {% if a and a.temp_min is not none and a.temp_max is not none %}
-                            {{ a.temp_min }}-{{ a.temp_max }}c
-                        {% else %}&mdash;{% endif %}
-                    </td>
-                </tr>
-                <tr>
-                    <td>Wind</td>
-                    <td>
-                        {% if m and m.wind_min is not none %}
-                            <span class="{{ 'c-red' if m.wind_min > 20 else 'c-yellow' if m.wind_min > 10 else 'c-white' }}">
-                                {{ m.wind_min }}-{{ m.wind_max }} km/h
-                            </span>
-                        {% else %}&mdash;{% endif %}
-                    </td>
-                    <td>
-                        {% if a and a.wind_min is not none %}
-                            <span class="{{ 'c-red' if a.wind_min > 20 else 'c-yellow' if a.wind_min > 10 else 'c-white' }}">
-                                {{ a.wind_min }}-{{ a.wind_max }} km/h
-                            </span>
-                        {% else %}&mdash;{% endif %}
-                    </td>
-                </tr>
-                <tr>
-                    <td>Gusts</td>
-                    <td>
-                        {% if m and m.gust_min is not none %}
-                            <span class="{{ 'c-red' if m.gust_min > 20 else 'c-yellow' if m.gust_min > 10 else 'c-white' }}">
-                                {{ m.gust_min }}-{{ m.gust_max }} km/h
-                            </span>
-                        {% else %}&mdash;{% endif %}
-                    </td>
-                    <td>
-                        {% if a and a.gust_min is not none %}
-                            <span class="{{ 'c-red' if a.gust_min > 20 else 'c-yellow' if a.gust_min > 10 else 'c-white' }}">
-                                {{ a.gust_min }}-{{ a.gust_max }} km/h
-                            </span>
-                        {% else %}&mdash;{% endif %}
-                    </td>
-                </tr>
-                <tr>
-                    <td>Wind Dir</td>
-                    <td>{% if m and m.direction %}{{ m.direction }}{% else %}&mdash;{% endif %}</td>
-                    <td>{% if a and a.direction %}{{ a.direction }}{% else %}&mdash;{% endif %}</td>
-                </tr>
-                <tr>
-                    <td>Rain</td>
-                    <td>
-                        {% if m and m.rain_min is not none %}
-                            {% if m.rain_max == 0 %}0%{% elif m.rain_min == m.rain_max %}{{ m.rain_max }}%{% else %}{{ m.rain_min }}-{{ m.rain_max }}%{% endif %}
-                        {% else %}&mdash;{% endif %}
-                    </td>
-                    <td>
-                        {% if a and a.rain_min is not none %}
-                            {% if a.rain_max == 0 %}0%{% elif a.rain_min == a.rain_max %}{{ a.rain_max }}%{% else %}{{ a.rain_min }}-{{ a.rain_max }}%{% endif %}
-                        {% else %}&mdash;{% endif %}
-                    </td>
-                </tr>
-                <tr>
-                    <td>UV</td>
-                    <td>
-                        {% if m and m.uv_max is not none %}
-                            {% if m.uv_max < 3 %}Low
-                            {% elif m.uv_max < 6 %}<span class="c-yellow">Medium</span>
-                            {% else %}<span class="c-red">High</span>
-                            {% endif %}
-                        {% else %}&mdash;{% endif %}
-                    </td>
-                    <td>
-                        {% if a and a.uv_max is not none %}
-                            {% if a.uv_max < 3 %}Low
-                            {% elif a.uv_max < 6 %}<span class="c-yellow">Medium</span>
-                            {% else %}<span class="c-red">High</span>
-                            {% endif %}
-                        {% else %}&mdash;{% endif %}
-                    </td>
-                </tr>
-            </tbody>
-        </table>
-            <p class="wx-source">Source: {{ d.weather.source }}</p>                    
+        <p class="c-red" style="font-size:var(--fs-data);">Weather forecast unavailable</p>
     {% endif %}
-
-    <h3 style="color:#FF4B4B;">HAZARDS <span class="updated">NSWWS {{ d.nswws_updated or '—' }}</span></h3>
-
     {% if d.nswws_status == 'no_key' %}
         <p class="c-yellow" style="font-size:var(--fs-data);">Met Office warnings: set METOFFICE_NSWWS in Render environment</p>
     {% elif d.nswws_status == 'error' %}
         <p class="c-yellow" style="font-size:var(--fs-data);">Met Office warnings temporarily unavailable{% if d.nswws_error %}: {{ d.nswws_error[:120] }}{% endif %}</p>
     {% endif %}
 
-        <table class="wx-table">
-            <thead>
-                <tr>
-                    <th></th>
-                    <th>0600&ndash;1200</th>
-                    <th>1200&ndash;2000</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>Met Office Warning</td>
-                    <td>
-                        {% if d.nswws_morning and d.nswws_morning.level == 'RED' %}<span class="c-red">Red</span>
-                        {% elif d.nswws_morning and d.nswws_morning.level == 'AMBER' %}<span class="c-yellow">Amber</span>
-                        {% elif d.nswws_morning and d.nswws_morning.level == 'YELLOW' %}<span class="c-yellow">Yellow</span>
-                        {% else %}<span class="c-dim">None</span>{% endif %}
-                    </td>
-                    <td>
-                        {% if d.nswws_afternoon and d.nswws_afternoon.level == 'RED' %}<span class="c-red">Red</span>
-                        {% elif d.nswws_afternoon and d.nswws_afternoon.level == 'AMBER' %}<span class="c-yellow">Amber</span>
-                        {% elif d.nswws_afternoon and d.nswws_afternoon.level == 'YELLOW' %}<span class="c-yellow">Yellow</span>
-                        {% else %}<span class="c-dim">None</span>{% endif %}
-                    </td>
-                </tr>
-                {% if not d.weather.error %}
-                <tr>
-                    <td>Air+Water Temp</td>
-                    <td>
-        {% if d.weather.morning and d.weather.morning.temp_min is not none and d.thames_temp %}
-            {% set air_m = d.weather.morning.temp_min %}
-            {% set water_m = d.thames_temp.temperature_c|round|int %}
-            {% set total_m = (air_m + water_m) %}
-            <small><span class="{{ 'c-red' if total_m < 14 else 'c-white' }}">{{ air_m }}c+{{ water_m }}c=<br>{{ total_m }}c</span></small>
-        {% else %}<span class="c-dim">&mdash;</span>{% endif %}
-    </td>
-    <td>
-        {% if d.weather.afternoon and d.weather.afternoon.temp_min is not none and d.thames_temp %}
-            {% set air_a = d.weather.afternoon.temp_min %}
-            {% set water_a = d.thames_temp.temperature_c|round|int %}
-            {% set total_a = (air_a + water_a) %}
-            <small><span class="{{ 'c-red' if total_a < 14 else 'c-white' }}">{{ air_a }}c+{{ water_a }}c=<br>{{ total_a }}c</span></small>
-        {% else %}<span class="c-dim">&mdash;</span>{% endif %}
-                    </td>
-                </tr>
-                {% endif %}
-            </tbody>
-        </table>
-        {% for line in d.nswws_headlines %}
-        <p class="nswws-headline {% if line.level == 'RED' %}c-red{% elif line.level in ('AMBER', 'YELLOW') %}c-yellow{% else %}c-white{% endif %}">
-            <strong>{{ line.period }}</strong> &mdash; {{ line.headline }}
-        </p>
-        {% endfor %}
+    {% set m = d.weather.morning if not d.weather.error else none %}
+    {% set a = d.weather.afternoon if not d.weather.error else none %}
+
+    <table class="wx-table">
+        <thead>
+            <tr>
+                <th></th>
+                <th>0600&ndash;1200</th>
+                <th>1200&ndash;2000</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Sunrise/set</td>
+                <td>{% if not d.weather.error %}{{ d.weather.sunrise }}{% else %}&mdash;{% endif %}</td>
+                <td>{% if not d.weather.error %}{{ d.weather.sunset }}{% else %}&mdash;{% endif %}</td>
+            </tr>
+            <tr>
+                <td>Temp</td>
+                <td>
+                    {% if m and m.temp_min is not none and m.temp_max is not none %}
+                        {{ m.temp_min }}-{{ m.temp_max }}c
+                    {% else %}&mdash;{% endif %}
+                </td>
+                <td>
+                    {% if a and a.temp_min is not none and a.temp_max is not none %}
+                        {{ a.temp_min }}-{{ a.temp_max }}c
+                    {% else %}&mdash;{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Wind</td>
+                <td>
+                    {% if m and m.wind_min is not none %}
+                        <span class="{{ 'c-red' if m.wind_min > 20 else 'c-yellow' if m.wind_min > 10 else 'c-white' }}">
+                            {{ m.wind_min }}-{{ m.wind_max }} km/h
+                        </span>
+                    {% else %}&mdash;{% endif %}
+                </td>
+                <td>
+                    {% if a and a.wind_min is not none %}
+                        <span class="{{ 'c-red' if a.wind_min > 20 else 'c-yellow' if a.wind_min > 10 else 'c-white' }}">
+                            {{ a.wind_min }}-{{ a.wind_max }} km/h
+                        </span>
+                    {% else %}&mdash;{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Gusts</td>
+                <td>
+                    {% if m and m.gust_min is not none %}
+                        <span class="{{ 'c-red' if m.gust_min > 20 else 'c-yellow' if m.gust_min > 10 else 'c-white' }}">
+                            {{ m.gust_min }}-{{ m.gust_max }} km/h
+                        </span>
+                    {% else %}&mdash;{% endif %}
+                </td>
+                <td>
+                    {% if a and a.gust_min is not none %}
+                        <span class="{{ 'c-red' if a.gust_min > 20 else 'c-yellow' if a.gust_min > 10 else 'c-white' }}">
+                            {{ a.gust_min }}-{{ a.gust_max }} km/h
+                        </span>
+                    {% else %}&mdash;{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Wind Dir</td>
+                <td>{% if m and m.direction %}{{ m.direction }}{% else %}&mdash;{% endif %}</td>
+                <td>{% if a and a.direction %}{{ a.direction }}{% else %}&mdash;{% endif %}</td>
+            </tr>
+            <tr>
+                <td>Rain</td>
+                <td>
+                    {% if m and m.rain_min is not none %}
+                        {% if m.rain_max == 0 %}0%{% elif m.rain_min == m.rain_max %}{{ m.rain_max }}%{% else %}{{ m.rain_min }}-{{ m.rain_max }}%{% endif %}
+                    {% else %}&mdash;{% endif %}
+                </td>
+                <td>
+                    {% if a and a.rain_min is not none %}
+                        {% if a.rain_max == 0 %}0%{% elif a.rain_min == a.rain_max %}{{ a.rain_max }}%{% else %}{{ a.rain_min }}-{{ a.rain_max }}%{% endif %}
+                    {% else %}&mdash;{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>UV</td>
+                <td>
+                    {% if m and m.uv_max is not none %}
+                        {% if m.uv_max < 3 %}Low
+                        {% elif m.uv_max < 6 %}<span class="c-yellow">Medium</span>
+                        {% else %}<span class="c-red">High</span>
+                        {% endif %}
+                    {% else %}&mdash;{% endif %}
+                </td>
+                <td>
+                    {% if a and a.uv_max is not none %}
+                        {% if a.uv_max < 3 %}Low
+                        {% elif a.uv_max < 6 %}<span class="c-yellow">Medium</span>
+                        {% else %}<span class="c-red">High</span>
+                        {% endif %}
+                    {% else %}&mdash;{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Fog</td>
+                <td>
+                    {% if d.nswws_morning and 'fog' in (d.nswws_morning.weather_types or '')|lower %}<span class="c-{{ d.nswws_morning.level|lower }}">{{ d.nswws_morning.level }} Fog</span>
+                    {% elif m and m.fog %}<span class="c-yellow">Forecast</span>
+                    {% else %}<span class="c-dim">None</span>{% endif %}
+                </td>
+                <td>
+                    {% if d.nswws_afternoon and 'fog' in (d.nswws_afternoon.weather_types or '')|lower %}<span class="c-{{ d.nswws_afternoon.level|lower }}">{{ d.nswws_afternoon.level }} Fog</span>
+                    {% elif a and a.fog %}<span class="c-yellow">Forecast</span>
+                    {% else %}<span class="c-dim">None</span>{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Storm</td>
+                <td>
+                    {% if d.nswws_morning and 'thunderstorm' in (d.nswws_morning.weather_types or '')|lower %}<span class="c-{{ d.nswws_morning.level|lower }}">{{ d.nswws_morning.level }} Storm</span>
+                    {% elif m and m.storm %}<span class="c-red">Forecast</span>
+                    {% else %}<span class="c-dim">None</span>{% endif %}
+                </td>
+                <td>
+                    {% if d.nswws_afternoon and 'thunderstorm' in (d.nswws_afternoon.weather_types or '')|lower %}<span class="c-{{ d.nswws_afternoon.level|lower }}">{{ d.nswws_afternoon.level }} Storm</span>
+                    {% elif a and a.storm %}<span class="c-red">Forecast</span>
+                    {% else %}<span class="c-dim">None</span>{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Air+Water Temp</td>
+                <td>
+                    {% if m and m.temp_min is not none and d.thames_temp %}
+                        {% set air_m = m.temp_min %}
+                        {% set water_m = d.thames_temp.temperature_c|round|int %}
+                        {% set total_m = (air_m + water_m) %}
+                        <small><span class="{{ 'c-red' if total_m < 14 else 'c-white' }}">{{ air_m }}c+{{ water_m }}c=<br>{{ total_m }}c</span></small>
+                    {% else %}<span class="c-dim">&mdash;</span>{% endif %}
+                </td>
+                <td>
+                    {% if a and a.temp_min is not none and d.thames_temp %}
+                        {% set air_a = a.temp_min %}
+                        {% set water_a = d.thames_temp.temperature_c|round|int %}
+                        {% set total_a = (air_a + water_a) %}
+                        <small><span class="{{ 'c-red' if total_a < 14 else 'c-white' }}">{{ air_a }}c+{{ water_a }}c=<br>{{ total_a }}c</span></small>
+                    {% else %}<span class="c-dim">&mdash;</span>{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Met Office Warning</td>
+                <td>
+                    {% if d.nswws_morning and d.nswws_morning.level == 'RED' %}<span class="c-red">Red</span>
+                    {% elif d.nswws_morning and d.nswws_morning.level == 'AMBER' %}<span class="c-yellow">Amber</span>
+                    {% elif d.nswws_morning and d.nswws_morning.level == 'YELLOW' %}<span class="c-yellow">Yellow</span>
+                    {% else %}<span class="c-dim">None</span>{% endif %}
+                </td>
+                <td>
+                    {% if d.nswws_afternoon and d.nswws_afternoon.level == 'RED' %}<span class="c-red">Red</span>
+                    {% elif d.nswws_afternoon and d.nswws_afternoon.level == 'AMBER' %}<span class="c-yellow">Amber</span>
+                    {% elif d.nswws_afternoon and d.nswws_afternoon.level == 'YELLOW' %}<span class="c-yellow">Yellow</span>
+                    {% else %}<span class="c-dim">None</span>{% endif %}
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    {% if not d.weather.error %}
+        <p class="wx-source">Forecast: {{ d.weather.source }}</p>
+    {% endif %}
+
+    {% for line in d.nswws_headlines %}
+    <p class="nswws-headline {% if line.level == 'RED' %}c-red{% elif line.level in ('AMBER', 'YELLOW') %}c-yellow{% else %}c-white{% endif %}">
+        <strong>{{ line.period }}</strong> &mdash; {{ line.headline }}
+    </p>
+    {% endfor %}
+    {% if d.nswws_status == 'ok' and not d.nswws_headlines %}
+    <p class="nswws-headline c-dim">No Met Office Warnings in Hammersmith</p>
+    {% endif %}
+
 <div class="logo-landscape" style="margin-top: auto; padding-top: 10px;">
         <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
     </div>
