@@ -324,7 +324,7 @@ def _ms_to_kmh(ms):
 def _fetch_metoffice_timeseries(api_key, timestep="hourly"):
     """Fetch GeoJSON timeSeries from Met Office Global Spot API."""
     url = f"{_MO_SS_BASE}{timestep}"
-    headers = {"apikey": api_key, "accept": "application/json"}
+    headers = {"x-api-key": api_key, "accept": "application/json"}
     params = {
         "latitude": LAT,
         "longitude": LON,
@@ -438,26 +438,21 @@ def _parse_metoffice_timeseries(time_series, source_label):
 def get_weather_metoffice():
     """
     Met Office Weather DataHub Global Spot (site-specific JSON API).
-    Tries METOFFICE_SITESPECIFIC then METOFFICE_ATMOSPHERIC; hourly then three-hourly.
+    Uses METOFFICE_SITESPECIFIC key only; tries hourly then three-hourly.
+    Note: Atmospheric API returns GRIB2 format, not GeoJSON, so it's not compatible.
     """
-    keys = []
-    if MO_ATMO_KEY:
-        keys.append(("Atmospheric", MO_ATMO_KEY))
-    if MO_SITE_KEY and MO_SITE_KEY != MO_ATMO_KEY:
-        keys.append(("Site Specific", MO_SITE_KEY))
-    if not keys:
-        raise Exception("No Met Office DataHub API key configured")
+    if not MO_SITE_KEY:
+        raise Exception("No Met Office DataHub Site-Specific API key configured (METOFFICE_SITESPECIFIC)")
 
     last_err = None
-    for label, api_key in keys:
-        for timestep in ("hourly", "three-hourly"):
-            try:
-                ts = _fetch_metoffice_timeseries(api_key, timestep)
-                src = f"Met Office {label} ({timestep})"
-                return _parse_metoffice_timeseries(ts, src)
-            except Exception as e:
-                last_err = e
-                print(f"Met Office {label} {timestep} failed: {e}")
+    for timestep in ("hourly", "three-hourly"):
+        try:
+            ts = _fetch_metoffice_timeseries(MO_SITE_KEY, timestep)
+            src = f"Met Office Site-Specific ({timestep})"
+            return _parse_metoffice_timeseries(ts, src)
+        except Exception as e:
+            last_err = e
+            print(f"Met Office Site-Specific {timestep} failed: {e}")
     raise last_err or Exception("Met Office weather unavailable")
 
 
@@ -601,12 +596,18 @@ def _fetch_openmeteo():
 
 
 def _fetch_weather_with_fallbacks():
-    """Try Met Office DataHub, then Open-Meteo, then WeatherAPI."""
-    if MO_SITE_KEY or MO_ATMO_KEY:
+    """Try Met Office DataHub, then WeatherAPI, then Open-Meteo."""
+    if MO_SITE_KEY:
         try:
             return get_weather_metoffice()
         except Exception as e:
             print(f"Met Office weather failed, trying fallbacks: {e}")
+
+    if WEATHERAPI_KEY:
+        try:
+            return get_weather_weatherapi()
+        except Exception as e:
+            print(f"WeatherAPI failed, trying Open-Meteo: {e}")
 
     now_ts = datetime.now(timezone.utc).timestamp()
     if now_ts >= _get_fail_until('weather_openmeteo'):
@@ -615,10 +616,7 @@ def _fetch_weather_with_fallbacks():
         except Exception as e:
             print(f"Open-Meteo failed: {e}")
     else:
-        print("Open-Meteo in backoff, skipping to WeatherAPI")
-
-    if WEATHERAPI_KEY:
-        return get_weather_weatherapi()
+        print("Open-Meteo in backoff")
 
     raise Exception("All weather sources failed")
 
