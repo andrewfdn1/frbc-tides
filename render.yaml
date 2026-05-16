@@ -4,3 +4,16 @@ services:
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --timeout 60 --bind 0.0.0.0:$PORT
+    envVars:
+      - key: METOFFICE_NSWWS
+        sync: false
+      - key: METOFFICE_SITESPECIFIC
+        sync: false
+      - key: METOFFICE_ATMOSPHERIC
+        sync: false
+      - key: TIDE_API_KEY
+        sync: false
+      - key: GOOGLE_CALENDAR_API_KEY
+        sync: false
+      - key: WEATHERAPI_KEY
+        sync: false

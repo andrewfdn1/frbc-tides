@@ -26,6 +26,8 @@ TIDE_API_KEY      = os.environ.get("TIDE_API_KEY", "")
 GOOGLE_API_KEY    = os.environ.get("GOOGLE_CALENDAR_API_KEY", "")
 WEATHERAPI_KEY    = os.environ.get("WEATHERAPI_KEY", "")
 NSWWS_API_KEY     = os.environ.get("METOFFICE_NSWWS", "")
+MO_SITE_KEY       = os.environ.get("METOFFICE_SITESPECIFIC", "")
+MO_ATMO_KEY       = os.environ.get("METOFFICE_ATMOSPHERIC", "")
 LONDON_TZ         = ZoneInfo("Europe/London")
 CAL_ID            = "info@fulhamreachboatclub.com"
 
@@ -307,6 +309,159 @@ def prevailing_direction(degrees_list):
 
 
 # ---------------------------------------------------------------------------
+# Met Office Weather DataHub — Site Specific (Global Spot)
+# ---------------------------------------------------------------------------
+
+_MO_SS_BASE = "https://data.hub.api.metoffice.gov.uk/sitespecific/v0/point/"
+_MO_FOG_CODES = {5, 6}          # mist, fog
+_MO_STORM_CODES = {28, 29, 30}  # thunder showers / thunder
+
+
+def _ms_to_kmh(ms):
+    return round(float(ms) * 3.6)
+
+
+def _fetch_metoffice_timeseries(api_key, timestep="hourly"):
+    """Fetch GeoJSON timeSeries from Met Office Global Spot API."""
+    url = f"{_MO_SS_BASE}{timestep}"
+    headers = {"apikey": api_key, "accept": "application/json"}
+    params = {
+        "latitude": LAT,
+        "longitude": LON,
+        "excludeParameterMetadata": "true",
+        "includeLocationName": "false",
+    }
+    r = requests.get(url, headers=headers, params=params, timeout=15)
+    if r.status_code in (401, 403):
+        raise Exception("Met Office authentication failed — check API key")
+    if r.status_code == 429:
+        raise Exception("Met Office rate limited")
+    r.raise_for_status()
+    features = r.json().get("features", [])
+    if not features:
+        raise Exception("Met Office response has no features")
+    ts = features[0].get("properties", {}).get("timeSeries", [])
+    if not ts:
+        raise Exception("Met Office empty timeSeries")
+    return ts
+
+
+def _metoffice_window_from_entries(entries):
+    if not entries:
+        return None
+
+    temps = []
+    for e in entries:
+        for k in ("minScreenAirTemp", "maxScreenAirTemp", "screenTemperature"):
+            if e.get(k) is not None:
+                temps.append(float(e[k]))
+
+    winds, gusts, dirs, rains, uvs, codes = [], [], [], [], [], []
+    for e in entries:
+        if e.get("windSpeed10m") is not None:
+            winds.append(float(e["windSpeed10m"]))
+        g = e.get("max10mWindGust")
+        if g is None:
+            g = e.get("windGustSpeed10m")
+        if g is not None:
+            gusts.append(float(g))
+        if e.get("windDirectionFrom10m") is not None:
+            dirs.append(float(e["windDirectionFrom10m"]))
+        if e.get("probOfPrecipitation") is not None:
+            rains.append(float(e["probOfPrecipitation"]))
+        if e.get("uvIndex") is not None:
+            uvs.append(float(e["uvIndex"]))
+        if e.get("significantWeatherCode") is not None:
+            codes.append(int(e["significantWeatherCode"]))
+
+    sferics = any((e.get("probOfSferics") or 0) > 0 for e in entries)
+
+    return {
+        "temp_min":  round(min(temps)) if temps else None,
+        "temp_max":  round(max(temps)) if temps else None,
+        "wind_min":  _ms_to_kmh(min(winds)) if winds else None,
+        "wind_max":  _ms_to_kmh(max(winds)) if winds else None,
+        "gust_min":  _ms_to_kmh(min(gusts)) if gusts else None,
+        "gust_max":  _ms_to_kmh(max(gusts)) if gusts else None,
+        "direction": prevailing_direction(dirs),
+        "rain_min":  round(min(rains)) if rains else None,
+        "rain_max":  round(max(rains)) if rains else None,
+        "uv_max":    round(max(uvs), 1) if uvs else None,
+        "fog":       any(c in _MO_FOG_CODES for c in codes),
+        "storm":     any(c in _MO_STORM_CODES for c in codes) or sferics,
+    }
+
+
+def _fetch_sunrise_sunset_openmeteo():
+    """Sunrise/sunset only — used to supplement Met Office site-specific data."""
+    url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={LAT}&longitude={LON}"
+        "&daily=sunrise,sunset"
+        "&timezone=Europe%2FLondon"
+        "&forecast_days=1"
+    )
+    r = requests.get(url, timeout=10)
+    r.raise_for_status()
+    daily = r.json()["daily"]
+    return daily["sunrise"][0][-5:], daily["sunset"][0][-5:]
+
+
+def _parse_metoffice_timeseries(time_series, source_label):
+    today = datetime.now(LONDON_TZ).date()
+
+    def bucket(start_h, end_h):
+        entries = []
+        for e in time_series:
+            t = datetime.fromisoformat(e["time"].replace("Z", "+00:00")).astimezone(LONDON_TZ)
+            if t.date() != today:
+                continue
+            if start_h <= t.hour < end_h:
+                entries.append(e)
+        return _metoffice_window_from_entries(entries)
+
+    try:
+        sunrise, sunset = _fetch_sunrise_sunset_openmeteo()
+    except Exception as e:
+        print(f"Sunrise/sunset fallback failed: {e}")
+        sunrise, sunset = "", ""
+
+    return {
+        "morning":   bucket(6, 12),
+        "afternoon": bucket(12, 20),
+        "sunrise":   sunrise,
+        "sunset":    sunset,
+        "source":    source_label,
+    }
+
+
+def get_weather_metoffice():
+    """
+    Met Office Weather DataHub Global Spot (site-specific JSON API).
+    Tries METOFFICE_SITESPECIFIC then METOFFICE_ATMOSPHERIC; hourly then three-hourly.
+    """
+    keys = []
+    if MO_ATMO_KEY:
+        keys.append(("Atmospheric", MO_ATMO_KEY))
+    if MO_SITE_KEY and MO_SITE_KEY != MO_ATMO_KEY:
+        keys.append(("Site Specific", MO_SITE_KEY))
+    if not keys:
+        raise Exception("No Met Office DataHub API key configured")
+
+    last_err = None
+    for label, api_key in keys:
+        for timestep in ("hourly", "three-hourly"):
+            try:
+                ts = _fetch_metoffice_timeseries(api_key, timestep)
+                src = f"Met Office {label} ({timestep})"
+                return _parse_metoffice_timeseries(ts, src)
+            except Exception as e:
+                last_err = e
+                print(f"Met Office {label} {timestep} failed: {e}")
+    raise last_err or Exception("Met Office weather unavailable")
+
+
+# ---------------------------------------------------------------------------
 # WeatherAPI.com fallback
 # ---------------------------------------------------------------------------
 
@@ -358,7 +513,7 @@ def _parse_weatherapi(data):
 
         return {
             'morning':   window(6,  12),
-            'afternoon': window(12, 21),
+            'afternoon': window(12, 20),
             'sunrise':   to_24h(sunrise),
             'sunset':    to_24h(sunset),
             'source':    'WeatherAPI',
@@ -387,90 +542,91 @@ def get_weather_weatherapi():
 
 
 # ---------------------------------------------------------------------------
-# Primary weather: Open-Meteo, fallback: WeatherAPI
+# Weather: Met Office DataHub → Open-Meteo → WeatherAPI
 # ---------------------------------------------------------------------------
 
-def get_weather():
-    now_ts = datetime.now(timezone.utc).timestamp()
+def _fetch_openmeteo():
+    wx_url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={LAT}&longitude={LON}"
+        "&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,"
+        "wind_gusts_10m,weather_code,precipitation_probability,uv_index"
+        "&daily=sunrise,sunset"
+        "&timezone=Europe%2FLondon"
+        "&forecast_days=1"
+    )
 
-    # Honour Open-Meteo backoff (file-persisted, survives restarts)
-    if now_ts < _get_fail_until('weather'):
-        if 'weather' in _cache:
-            return _cache['weather']['data'], _cache['weather']['fetched_at']
-        # Backoff active but no cache — try fallback immediately
-        print("Open-Meteo in backoff, trying WeatherAPI fallback")
-        return _get_weather_fallback()
+    wx_res = requests.get(wx_url, timeout=10)
+    if wx_res.status_code == 429:
+        retry_after = int(wx_res.headers.get("Retry-After", 3600))
+        _set_fail_until('weather_openmeteo', retry_after)
+        raise Exception(f"Open-Meteo rate limited, retry after {retry_after}s")
+    wx_res.raise_for_status()
+    d = wx_res.json()
 
-    def fetch():
-        wx_url = (
-            f"https://api.open-meteo.com/v1/forecast"
-            f"?latitude={LAT}&longitude={LON}"
-            "&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,"
-            "wind_gusts_10m,weather_code,precipitation_probability,uv_index"
-            "&daily=sunrise,sunset"
-            "&timezone=Europe%2FLondon"
-            "&forecast_days=1"
-        )
+    hourly = d['hourly']
+    daily  = d['daily']
+    times  = hourly['time']
 
-        wx_res = requests.get(wx_url, timeout=10)
-        if wx_res.status_code == 429:
-            retry_after = int(wx_res.headers.get("Retry-After", 3600))
-            _set_fail_until('weather', retry_after)
-            raise Exception(f"Open-Meteo rate limited, retry after {retry_after}s")
-        wx_res.raise_for_status()
-        d = wx_res.json()
+    def window(start_h, end_h):
+        indices = [i for i, t in enumerate(times) if start_h <= int(t[11:13]) < end_h]
+        if not indices:
+            return None
 
-        hourly = d['hourly']
-        daily  = d['daily']
-        times  = hourly['time']
-
-        def window(start_h, end_h):
-            indices = [i for i, t in enumerate(times) if start_h <= int(t[11:13]) < end_h]
-            if not indices:
-                return None
-
-            def vals(key):
-                return [hourly[key][i] for i in indices if hourly[key][i] is not None]
-
-            return {
-                'temp_min':  round(min(vals('temperature_2m'))) if vals('temperature_2m') else None,
-                'temp_max':  round(max(vals('temperature_2m'))) if vals('temperature_2m') else None,
-                'wind_min':  round(min(vals('wind_speed_10m'))) if vals('wind_speed_10m') else None,
-                'wind_max':  round(max(vals('wind_speed_10m'))) if vals('wind_speed_10m') else None,
-                'gust_min':  round(min(vals('wind_gusts_10m'))) if vals('wind_gusts_10m') else None,
-                'gust_max':  round(max(vals('wind_gusts_10m'))) if vals('wind_gusts_10m') else None,
-                'direction': prevailing_direction(vals('wind_direction_10m')),
-                'rain_min':  round(min(vals('precipitation_probability'))) if vals('precipitation_probability') else None,
-                'rain_max':  round(max(vals('precipitation_probability'))) if vals('precipitation_probability') else None,
-                'uv_max':    round(max(vals('uv_index')), 1) if vals('uv_index') else None,
-                'fog':       any(c in [45, 48] for c in vals('weather_code')),
-                'storm':     any(c >= 95 for c in vals('weather_code')),
-            }
+        def vals(key):
+            return [hourly[key][i] for i in indices if hourly[key][i] is not None]
 
         return {
-            'morning':   window(6,  12),
-            'afternoon': window(12, 21),
-            'sunrise':   daily['sunrise'][0][-5:],
-            'sunset':    daily['sunset'][0][-5:],
-            'source':    'Open-Meteo',
+            'temp_min':  round(min(vals('temperature_2m'))) if vals('temperature_2m') else None,
+            'temp_max':  round(max(vals('temperature_2m'))) if vals('temperature_2m') else None,
+            'wind_min':  round(min(vals('wind_speed_10m'))) if vals('wind_speed_10m') else None,
+            'wind_max':  round(max(vals('wind_speed_10m'))) if vals('wind_speed_10m') else None,
+            'gust_min':  round(min(vals('wind_gusts_10m'))) if vals('wind_gusts_10m') else None,
+            'gust_max':  round(max(vals('wind_gusts_10m'))) if vals('wind_gusts_10m') else None,
+            'direction': prevailing_direction(vals('wind_direction_10m')),
+            'rain_min':  round(min(vals('precipitation_probability'))) if vals('precipitation_probability') else None,
+            'rain_max':  round(max(vals('precipitation_probability'))) if vals('precipitation_probability') else None,
+            'uv_max':    round(max(vals('uv_index')), 1) if vals('uv_index') else None,
+            'fog':       any(c in [45, 48] for c in vals('weather_code')),
+            'storm':     any(c >= 95 for c in vals('weather_code')),
         }
 
-    # Try Open-Meteo via the normal cache wrapper
-    result, fetched_at = get_cached('weather', fetch, ttl_seconds=7200)
+    return {
+        'morning':   window(6,  12),
+        'afternoon': window(12, 20),
+        'sunrise':   daily['sunrise'][0][-5:],
+        'sunset':    daily['sunset'][0][-5:],
+        'source':    'Open-Meteo',
+    }
 
-    # If Open-Meteo failed and returned None, try fallback
-    if result is None:
-        return _get_weather_fallback()
 
-    return result, fetched_at
+def _fetch_weather_with_fallbacks():
+    """Try Met Office DataHub, then Open-Meteo, then WeatherAPI."""
+    if MO_SITE_KEY or MO_ATMO_KEY:
+        try:
+            return get_weather_metoffice()
+        except Exception as e:
+            print(f"Met Office weather failed, trying fallbacks: {e}")
 
+    now_ts = datetime.now(timezone.utc).timestamp()
+    if now_ts >= _get_fail_until('weather_openmeteo'):
+        try:
+            return _fetch_openmeteo()
+        except Exception as e:
+            print(f"Open-Meteo failed: {e}")
+    else:
+        print("Open-Meteo in backoff, skipping to WeatherAPI")
 
-def _get_weather_fallback():
-    """Try WeatherAPI.com and cache the result under the same 'weather' key."""
-    def fetch_fallback():
+    if WEATHERAPI_KEY:
         return get_weather_weatherapi()
 
-    result, fetched_at = get_cached('weather_fallback', fetch_fallback, ttl_seconds=7200)
+    raise Exception("All weather sources failed")
+
+
+def get_weather():
+    result, fetched_at = get_cached('weather', _fetch_weather_with_fallbacks, ttl_seconds=7200)
+    if result is None:
+        raise Exception("Weather unavailable")
     return result, fetched_at
 
 
@@ -646,6 +802,36 @@ def _fetch_nswws():
 
     warnings_out.sort(key=lambda w: _LEVEL_ORDER.get(w["level"], 0), reverse=True)
     return warnings_out
+
+
+def _nswws_headline_lines(morning, afternoon):
+    """
+    Human-readable warning text for below the hazards table.
+    period: 'All day', 'AM (0600–1200)', or 'PM (1200–2000)'.
+    """
+    m_h = (morning or {}).get("headline", "").strip() if morning else ""
+    a_h = (afternoon or {}).get("headline", "").strip() if afternoon else ""
+    if not m_h and not a_h:
+        return []
+
+    if m_h and a_h and m_h == a_h:
+        level = (morning or afternoon).get("level", "")
+        return [{"period": "All day", "headline": m_h, "level": level}]
+
+    lines = []
+    if m_h:
+        lines.append({
+            "period": "AM (0600–1200)",
+            "headline": m_h,
+            "level": morning.get("level", ""),
+        })
+    if a_h:
+        lines.append({
+            "period": "PM (1200–2000)",
+            "headline": a_h,
+            "level": afternoon.get("level", ""),
+        })
+    return lines
 
 
 def _warning_for_window(warnings, window_start_h, window_end_h):
@@ -843,7 +1029,8 @@ def build_dashboard_data():
         else:
             nswws_status = "ok"
     nswws_morning   = _warning_for_window(nswws_all, 6,  12)
-    nswws_afternoon = _warning_for_window(nswws_all, 12, 21)
+    nswws_afternoon = _warning_for_window(nswws_all, 12, 20)
+    nswws_headlines = _nswws_headline_lines(nswws_morning, nswws_afternoon)
 
     return {
         "tides":               t_data,
@@ -865,6 +1052,7 @@ def build_dashboard_data():
         "thames_temp_updated": thames_temp_up,
         "nswws_morning":       nswws_morning,
         "nswws_afternoon":     nswws_afternoon,
+        "nswws_headlines":     nswws_headlines,
         "nswws_updated":       nswws_up,
         "nswws_status":        nswws_status,
         "nswws_count":         len(nswws_all),
