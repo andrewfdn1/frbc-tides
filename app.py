@@ -714,7 +714,7 @@ def build_dashboard_data():
                 (dirn == "FLOOD TIDE" and wd in ["N", "NE", "NW"])
             )
 
-       weather.update({
+        weather.update({
             "error":     False,
             "updated":   w_up,
             "source":    w_res.get('source', ''),
