@@ -667,6 +667,8 @@ def build_dashboard_data():
         if fut:
             t_data["direction"] = "FLOOD TIDE" if fut[0]['EventType'] == "HighWater" else "EBB TIDE"
             t_data["until"] = (fut[0]['dt_utc'] + off).strftime('%H:%M')
+            # Extract the height string for the current imminent tide target
+            t_data["current_target_height"] = f"{fut[0]['Height']:.1f}m"
             for t in fut[:5]:
                 t_data["upcoming"].append({
                     "label":  "HI" if t['EventType'] == 'HighWater' else "LO",
