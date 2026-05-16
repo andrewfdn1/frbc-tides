@@ -9,6 +9,7 @@ import os
 import json
 import pathlib
 import tempfile
+import xml.etree.ElementTree as ET
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -476,6 +477,7 @@ def _get_weather_fallback():
 # ---------------------------------------------------------------------------
 
 _NSWWS_FEED_URL  = "https://prd.nswws.api.metoffice.gov.uk/v1.0/objects/feed"
+_NSWWS_ATOM_NS   = "{http://www.w3.org/2005/Atom}"
 _LEVEL_ORDER     = {"RED": 3, "AMBER": 2, "YELLOW": 1}
 
 # London bounding box for a quick pre-filter before shapely
@@ -493,23 +495,46 @@ def _point_in_geojson(geometry, lat, lon):
         return False
 
 
+def _nswws_issued_url_from_feed(feed_xml):
+    """Get the GeoJSON issued-warnings URL from the Atom feed (link rel=related)."""
+    root = ET.fromstring(feed_xml)
+    for link in root.findall(f"{_NSWWS_ATOM_NS}link"):
+        if link.get("rel") == "related":
+            href = link.get("href")
+            if href:
+                return href
+    return None
+
+
 def _fetch_nswws():
     """
-    Fetch the NSWWS feed, filter to warnings covering Hammersmith (LAT, LON),
-    and return a list sorted highest severity first. Each item:
+    Fetch Met Office NSWWS warnings for Hammersmith (LAT, LON).
+
+    Step 1: GET /v1.0/objects/feed (Atom XML) with X-Api-Key.
+    Step 2: GET the link[@rel=related] URL for issued warnings (GeoJSON).
+
+    Returns a list sorted highest severity first. Each item:
       { level, weather_types, headline, area, valid_from, valid_to }
-    Returns [] if not configured or on error.
     """
     if not NSWWS_API_KEY:
+        print("NSWWS: METOFFICE_NSWWS not set")
         return []
 
-    r = requests.get(
-        _NSWWS_FEED_URL,
-        headers={"X-Api-Key": NSWWS_API_KEY},
-        timeout=10,
-    )
+    headers = {"X-Api-Key": NSWWS_API_KEY}
+
+    r = requests.get(_NSWWS_FEED_URL, headers=headers, timeout=10)
+    if r.status_code == 403:
+        print("NSWWS: authentication failed — check METOFFICE_NSWWS API key")
     r.raise_for_status()
-    data = r.json()
+
+    issued_url = _nswws_issued_url_from_feed(r.content)
+    if not issued_url:
+        print("NSWWS: no rel=related link in Atom feed")
+        return []
+
+    r2 = requests.get(issued_url, headers=headers, timeout=10)
+    r2.raise_for_status()
+    data = r2.json()
 
     warnings_out = []
     for feature in data.get("features", []):

@@ -396,8 +396,9 @@
                     <td>{% if d.nswws_morning and 'thunderstorm' in (d.nswws_morning.weather_types or '')|lower %}<span class="c-{{ d.nswws_morning.level|lower }}">{{ d.nswws_morning.level }} Storm</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
                     <td>{% if d.nswws_afternoon and 'thunderstorm' in (d.nswws_afternoon.weather_types or '')|lower %}<span class="c-{{ d.nswws_afternoon.level|lower }}">{{ d.nswws_afternoon.level }} Storm</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
                 </tr>
-    <td>Air+Water Temp</td>
-    <td>
+                <tr>
+                    <td>Air+Water Temp</td>
+                    <td>
         {% if d.weather.morning and d.weather.morning.temp_min is not none and d.thames_temp %}
             {% set air_m = d.weather.morning.temp_min %}
             {% set water_m = d.thames_temp.temperature_c|round|int %}
@@ -412,8 +413,8 @@
             {% set total_a = (air_a + water_a) %}
             <small><span class="{{ 'c-red' if total_a < 14 else 'c-white' }}">{{ air_a }}c+{{ water_a }}c=<br>{{ total_a }}c</span></small>
         {% else %}<span class="c-dim">&mdash;</span>{% endif %}
-    </td>
-</tr>
+                    </td>
+                </tr>
                  {#
                 <tr>
                     <td>Wind v Tide</td>
