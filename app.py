@@ -722,14 +722,23 @@ def build_dashboard_data():
             "sunset":    w_res['sunset'],
             "morning":   m,
             "afternoon": a,
+                        # --- NSWWS WARNINGS MAPPING ---
+            nswws, _ = get_cached('nswws', _fetch_nswws, ttl_seconds=300)
+
+            def has_warning(warnings, keyword, start, end):
+                for w in warnings:
+                    wt = (w.get("weather_types") or "").lower()
+                    if keyword in wt:
+                        if _warning_for_window([w], start, end):
+                            return True
+                return False
+
             "warnings": {
-                "fog_morning":     m['fog']   if m else False,
-                "fog_afternoon":   a['fog']   if a else False,
-                "storm_morning":   m['storm'] if m else False,
-                "storm_afternoon": a['storm'] if a else False,
-                "wvt_morning":     wvt(m, 6),
-                "wvt_afternoon":   wvt(a, 12),
-            }
+                "fog_morning": has_warning(nswws, "fog", 6, 12),
+                "fog_afternoon": has_warning(nswws, "fog", 12, 21),
+                "storm_morning": has_warning(nswws, "thunderstorm", 6, 12),
+                "storm_afternoon": has_warning(nswws, "thunderstorm", 12, 21),
+            },
         })
 
     # PLA Flag
@@ -757,7 +766,10 @@ def build_dashboard_data():
         "richmond_lw":         lw_data,
         "richmond_lw_updated": lw_up,
         "weather":             weather,
-        "cal":                 cal_data or {"day_label": "TODAY", "list": []},
+        "cal": {
+            **(cal_data or {"day_label": "TODAY", "list": []}),
+            "updated": cal_up
+        },
         "cal_updated":         cal_up,
         "kingston_flow":       flow_data,
         "flow_updated":        flow_up,
