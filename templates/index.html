@@ -335,7 +335,7 @@
                     <td>Rain</td>
                     <td>
                         {% if m and m.rain_min is not none %}
-                            {% if a.rain_max == 0 %}0%{% elif a.rain_min == a.rain_max %}{{ a.rain_max }}%{% else %}{{ a.rain_min }}-{{ a.rain_max }}%{% endif %}
+                            {% if m.rain_max == 0 %}0%{% elif m.rain_min == m.rain_max %}{{ m.rain_max }}%{% else %}{{ m.rain_min }}-{{ m.rain_max }}%{% endif %}
                         {% else %}&mdash;{% endif %}
                     </td>
                     <td>
@@ -370,10 +370,9 @@
 
     <h3 style="color:#FF4B4B;">HAZARDS</h3>
 
-    {% if d.weather.error %}
+{% if d.weather.error %}
         <p class="c-dim" style="font-size:var(--fs-data);">Hazards check unavailable</p>
     {% else %}
-        {% set w = d.weather.warnings %}
         <table class="wx-table">
             <thead>
                 <tr>
@@ -385,15 +384,14 @@
             <tbody>
                 <tr>
                     <td>Fog</td>
-                    <td>{% if w.fog_morning %}<span class="c-red">Fog warning</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
-                    <td>{% if w.fog_afternoon %}<span class="c-red">Fog warning</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
+                    <td>{% if d.nswws_morning and 'fog' in (d.nswws_morning.weather_types or '')|lower %}<span class="c-{{ d.nswws_morning.level|lower }}">{{ d.nswws_morning.level }} Fog</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
+                    <td>{% if d.nswws_afternoon and 'fog' in (d.nswws_afternoon.weather_types or '')|lower %}<span class="c-{{ d.nswws_afternoon.level|lower }}">{{ d.nswws_afternoon.level }} Fog</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
                 </tr>
                 <tr>
                     <td>Storm</td>
-                    <td>{% if w.storm_morning %}<span class="c-red">Storm warning</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
-                    <td>{% if w.storm_afternoon %}<span class="c-red">Storm warning</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
+                    <td>{% if d.nswws_morning and 'thunderstorm' in (d.nswws_morning.weather_types or '')|lower %}<span class="c-{{ d.nswws_morning.level|lower }}">{{ d.nswws_morning.level }} Storm</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
+                    <td>{% if d.nswws_afternoon and 'thunderstorm' in (d.nswws_afternoon.weather_types or '')|lower %}<span class="c-{{ d.nswws_afternoon.level|lower }}">{{ d.nswws_afternoon.level }} Storm</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
                 </tr>
-               <tr>
     <td>Air+Water Temp</td>
     <td>
         {% if d.weather.morning and d.weather.morning.temp_min is not none and d.thames_temp %}
@@ -425,6 +423,7 @@
 <div class="logo-landscape" style="margin-top: auto; padding-top: 10px;">
         <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
     </div>
+</div>
 </div>
 
 <!-- COLUMN 3 -->
