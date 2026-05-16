@@ -83,6 +83,9 @@ def get_cached(key, fetch_fn, ttl_seconds):
             return data, fetched_at
         except Exception as e:
             print(f"Error fetching {key}: {e}")
+            if key == "nswws":
+                global _nswws_last_error
+                _nswws_last_error = str(e)
             if key in _cache:
                 return _cache[key]['data'], _cache[key]['fetched_at']
             return None, ''
@@ -476,9 +479,13 @@ def _get_weather_fallback():
 # Met Office NSWWS weather warnings
 # ---------------------------------------------------------------------------
 
-_NSWWS_FEED_URL  = "https://prd.nswws.api.metoffice.gov.uk/v1.0/objects/feed"
+_NSWWS_FEED_URL  = os.environ.get(
+    "METOFFICE_NSWWS_FEED_URL",
+    "https://prd.nswws.api.metoffice.gov.uk/v1.0/objects/feed",
+)
 _NSWWS_ATOM_NS   = "{http://www.w3.org/2005/Atom}"
 _LEVEL_ORDER     = {"RED": 3, "AMBER": 2, "YELLOW": 1}
+_nsws_last_error = ""
 
 # London bounding box for a quick pre-filter before shapely
 _LON_BBOX = (-0.51, 51.28, 0.33, 51.70)   # (min_lon, min_lat, max_lon, max_lat)
@@ -506,6 +513,36 @@ def _nswws_issued_url_from_feed(feed_xml):
     return None
 
 
+def _nswws_request_headers():
+    return {
+        "x-api-key": NSWWS_API_KEY,
+        "Accept": "application/json, application/vnd.geo+json;q=0.9, */*;q=0.8",
+        "User-Agent": "frbc-tides/1.0",
+    }
+
+
+def _nswws_read_json(response, label):
+    """Parse a Met Office NSWWS JSON body; tolerate empty issued-warning collections."""
+    body = (response.content or b"").strip()
+    if not body:
+        print(
+            f"NSWWS: {label} returned empty body "
+            f"(HTTP {response.status_code}) {response.url}"
+        )
+        return {"type": "FeatureCollection", "features": []}
+    ctype = (response.headers.get("Content-Type") or "").lower()
+    if "json" not in ctype and not body.startswith((b"{", b"[")):
+        snippet = body[:160].decode("utf-8", errors="replace")
+        raise ValueError(
+            f"NSWWS {label}: expected JSON, got {ctype or 'unknown'} — {snippet!r}"
+        )
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as e:
+        snippet = body[:160].decode("utf-8", errors="replace")
+        raise ValueError(f"NSWWS {label}: invalid JSON ({e}) — {snippet!r}") from e
+
+
 def _fetch_nswws():
     """
     Fetch Met Office NSWWS warnings for Hammersmith (LAT, LON).
@@ -516,25 +553,52 @@ def _fetch_nswws():
     Returns a list sorted highest severity first. Each item:
       { level, weather_types, headline, area, valid_from, valid_to }
     """
+    global _nswws_last_error
+    _nswws_last_error = ""
+
     if not NSWWS_API_KEY:
         print("NSWWS: METOFFICE_NSWWS not set")
         return []
 
-    headers = {"X-Api-Key": NSWWS_API_KEY}
+    session = requests.Session()
+    session.headers.update(_nswws_request_headers())
 
-    r = requests.get(_NSWWS_FEED_URL, headers=headers, timeout=10)
-    if r.status_code == 403:
+    r = session.get(_NSWWS_FEED_URL, timeout=15)
+    if r.status_code in (401, 403):
+        _nswws_last_error = "authentication failed on Atom feed"
         print("NSWWS: authentication failed — check METOFFICE_NSWWS API key")
+        return []
     r.raise_for_status()
 
     issued_url = _nswws_issued_url_from_feed(r.content)
     if not issued_url:
+        _nswws_last_error = "no rel=related link in Atom feed"
         print("NSWWS: no rel=related link in Atom feed")
         return []
 
-    r2 = requests.get(issued_url, headers=headers, timeout=10)
-    r2.raise_for_status()
-    data = r2.json()
+    data = None
+    for attempt in range(2):
+        r2 = session.get(issued_url, timeout=15)
+        if r2.status_code == 404 and attempt == 0:
+            print("NSWWS: issued URL expired (404), refreshing Atom feed")
+            r = session.get(_NSWWS_FEED_URL, timeout=15)
+            r.raise_for_status()
+            issued_url = _nswws_issued_url_from_feed(r.content)
+            if not issued_url:
+                _nswws_last_error = "issued URL 404 and feed had no replacement link"
+                return []
+            continue
+        if r2.status_code in (401, 403):
+            _nswws_last_error = "authentication failed on issued warnings"
+            print("NSWWS: authentication failed on issued warnings URL")
+            return []
+        r2.raise_for_status()
+        data = _nswws_read_json(r2, "issued warnings")
+        break
+
+    if data is None:
+        _nswws_last_error = "could not load issued warnings"
+        return []
 
     warnings_out = []
     for feature in data.get("features", []):
@@ -765,8 +829,19 @@ def build_dashboard_data():
     thames_temp_data, thames_temp_up = results.get('thames_temp', (None, ''))
 
     # Met Office NSWWS weather warnings
-    nswws_all, nswws_up = results.get('nswws', ([], ''))
-    nswws_all = nswws_all or []
+    if not NSWWS_API_KEY:
+        nswws_status = "no_key"
+        nswws_all, nswws_up = [], ""
+    elif "nswws" not in results:
+        nswws_status = "error"
+        nswws_all, nswws_up = [], ""
+    else:
+        nswws_all, nswws_up = results["nswws"]
+        if nswws_all is None:
+            nswws_status = "error"
+            nswws_all = []
+        else:
+            nswws_status = "ok"
     nswws_morning   = _warning_for_window(nswws_all, 6,  12)
     nswws_afternoon = _warning_for_window(nswws_all, 12, 21)
 
@@ -791,6 +866,9 @@ def build_dashboard_data():
         "nswws_morning":       nswws_morning,
         "nswws_afternoon":     nswws_afternoon,
         "nswws_updated":       nswws_up,
+        "nswws_status":        nswws_status,
+        "nswws_count":         len(nswws_all),
+        "nswws_error":         _nswws_last_error,
     }
 
 
@@ -808,10 +886,27 @@ def ping():
     return "ok", 200
 
 
+@app.route("/api/nswws-status")
+def nswws_status_endpoint():
+    """Lightweight diagnostic — hit this URL to verify Met Office NSWWS from Render."""
+    if not NSWWS_API_KEY:
+        return jsonify({"status": "no_key", "error": "METOFFICE_NSWWS not set"}), 200
+    try:
+        warnings = _fetch_nswws()
+        return jsonify({
+            "status": "ok",
+            "count": len(warnings),
+            "warnings": warnings[:3],
+            "feed_url": _NSWWS_FEED_URL,
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e), "feed_url": _NSWWS_FEED_URL}), 500
+
+
 def _prewarm():
     import time
     print("Pre-warming cache on startup...")
-    for fn in (get_tides, get_kingston_flow, get_pla_flag, get_calendar_events):
+    for fn in (get_tides, get_kingston_flow, get_pla_flag, get_calendar_events, get_nswws_warnings):
         try:
             fn()
         except Exception as e:

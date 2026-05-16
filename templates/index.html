@@ -186,10 +186,11 @@
         }
 
         .c-red    { color: #FF4B4B; }
+        .c-amber  { color: #FFAA00; }
         .c-yellow { color: #FFFF00; }
         .c-green  { color: #33FF57; }
         .c-black  { color: #ffffff; }
-        .c-dim    { color: #555; }
+        .c-dim    { color: #888; }
         .c-white  { color: #fff; }
     </style>
 </head>
@@ -332,8 +333,8 @@
                 </tr>
                 <tr>
                     <td>Wind Dir</td>
-                    <td>{{ m.direction if m else '&mdash;' }}</td>
-                    <td>{{ a.direction if a else '&mdash;' }}</td>
+                    <td>{% if m and m.direction %}{{ m.direction }}{% else %}&mdash;{% endif %}</td>
+                    <td>{% if a and a.direction %}{{ a.direction }}{% else %}&mdash;{% endif %}</td>
                 </tr>
                 <tr>
                     <td>Rain</td>
@@ -372,11 +373,16 @@
             <p class="wx-source">Source: {{ d.weather.source }}</p>                    
     {% endif %}
 
-    <h3 style="color:#FF4B4B;">HAZARDS</h3>
+    <h3 style="color:#FF4B4B;">HAZARDS <span class="updated">NSWWS {{ d.nswws_updated or '—' }}</span></h3>
 
-{% if d.weather.error %}
-        <p class="c-dim" style="font-size:var(--fs-data);">Hazards check unavailable</p>
-    {% else %}
+    {% if d.nswws_status == 'no_key' %}
+        <p class="c-yellow" style="font-size:var(--fs-data);">Met Office warnings: set METOFFICE_NSWWS in Render environment</p>
+    {% elif d.nswws_status == 'error' %}
+        <p class="c-yellow" style="font-size:var(--fs-data);">Met Office warnings temporarily unavailable{% if d.nswws_error %}: {{ d.nswws_error[:120] }}{% endif %}</p>
+    {% elif d.nswws_status == 'ok' and d.nswws_count == 0 %}
+        <p class="c-dim" style="font-size:var(--fs-updated);">No Met Office warnings for Hammersmith right now</p>
+    {% endif %}
+
         <table class="wx-table">
             <thead>
                 <tr>
@@ -387,6 +393,11 @@
             </thead>
             <tbody>
                 <tr>
+                    <td>Headline</td>
+                    <td>{% if d.nswws_morning and d.nswws_morning.headline %}<span class="c-{{ d.nswws_morning.level|lower }}">{{ d.nswws_morning.headline }}</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
+                    <td>{% if d.nswws_afternoon and d.nswws_afternoon.headline %}<span class="c-{{ d.nswws_afternoon.level|lower }}">{{ d.nswws_afternoon.headline }}</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
+                </tr>
+                <tr>
                     <td>Fog</td>
                     <td>{% if d.nswws_morning and 'fog' in (d.nswws_morning.weather_types or '')|lower %}<span class="c-{{ d.nswws_morning.level|lower }}">{{ d.nswws_morning.level }} Fog</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
                     <td>{% if d.nswws_afternoon and 'fog' in (d.nswws_afternoon.weather_types or '')|lower %}<span class="c-{{ d.nswws_afternoon.level|lower }}">{{ d.nswws_afternoon.level }} Fog</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
@@ -396,6 +407,7 @@
                     <td>{% if d.nswws_morning and 'thunderstorm' in (d.nswws_morning.weather_types or '')|lower %}<span class="c-{{ d.nswws_morning.level|lower }}">{{ d.nswws_morning.level }} Storm</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
                     <td>{% if d.nswws_afternoon and 'thunderstorm' in (d.nswws_afternoon.weather_types or '')|lower %}<span class="c-{{ d.nswws_afternoon.level|lower }}">{{ d.nswws_afternoon.level }} Storm</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
                 </tr>
+                {% if not d.weather.error %}
                 <tr>
                     <td>Air+Water Temp</td>
                     <td>
@@ -415,16 +427,10 @@
         {% else %}<span class="c-dim">&mdash;</span>{% endif %}
                     </td>
                 </tr>
-                 {#
-                <tr>
-                    <td>Wind v Tide</td>
-                    <td>{% if w.wvt_morning %}<span class="c-red">Check for white horses</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
-                    <td>{% if w.wvt_afternoon %}<span class="c-red">Check for white horses</span>{% else %}<span class="c-dim">None</span>{% endif %}</td>
-                </tr>
-                #}
+                {% endif %}
             </tbody>
         </table>
-    {% endif %}
+        <p class="wx-source">Warnings: Met Office NSWWS{% if d.nswws_status == 'ok' %} — {{ d.nswws_count }} for Hammersmith{% endif %}</p>
 <div class="logo-landscape" style="margin-top: auto; padding-top: 10px;">
         <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
     </div>
