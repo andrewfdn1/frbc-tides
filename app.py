@@ -13,6 +13,92 @@ import xml.etree.ElementTree as ET
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# ---------------------------------------------------------------------------
+# Blitzortung MQTT — real-time lightning strike counter
+# ---------------------------------------------------------------------------
+
+import math
+import collections
+import time as _time
+
+try:
+    import paho.mqtt.client as mqtt
+    _MQTT_OK = True
+except ImportError:
+    _MQTT_OK = False
+    print("WARNING: paho-mqtt not installed — lightning tracking disabled. pip install paho-mqtt")
+
+LIGHTNING_LAT          = 51.488
+LIGHTNING_LON          = -0.224
+LIGHTNING_RADIUS_KM    = 10.0
+_LIGHTNING_BROKER      = "blitzortung.ha.tryb.pl"
+_LIGHTNING_PORT        = 1883
+_LIGHTNING_TOPIC       = "blitzortung/1.1/+/+"
+
+_lightning_strikes = collections.deque()
+_lightning_lock    = threading.Lock()
+_lightning_mqtt_ok = False
+
+
+def _haversine_km(lat1, lon1, lat2, lon2):
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
+    return R * 2 * math.asin(math.sqrt(a))
+
+
+def _on_lightning_message(client, userdata, msg):
+    global _lightning_mqtt_ok
+    try:
+        payload = json.loads(msg.payload)
+        lat = payload.get("lat")
+        lon = payload.get("lon")
+        if lat is None or lon is None:
+            return
+        dist = _haversine_km(LIGHTNING_LAT, LIGHTNING_LON, float(lat), float(lon))
+        if dist <= LIGHTNING_RADIUS_KM:
+            now = _time.time()
+            with _lightning_lock:
+                _lightning_strikes.append(now)
+                cutoff = now - 7200
+                while _lightning_strikes and _lightning_strikes[0] < cutoff:
+                    _lightning_strikes.popleft()
+        _lightning_mqtt_ok = True
+    except Exception as e:
+        print(f"Lightning MQTT parse error: {e}")
+
+
+def _lightning_mqtt_thread():
+    if not _MQTT_OK:
+        return
+    while True:
+        try:
+            client = mqtt.Client(client_id=f"frbc-tides-{int(_time.time())}", protocol=mqtt.MQTTv311)
+            client.on_message = _on_lightning_message
+            client.connect(_LIGHTNING_BROKER, _LIGHTNING_PORT, keepalive=60)
+            client.subscribe(_LIGHTNING_TOPIC, qos=0)
+            client.loop_forever()
+        except Exception as e:
+            print(f"Lightning MQTT error: {e} — retrying in 30s")
+            _time.sleep(30)
+
+
+def get_lightning_data():
+    now_local  = datetime.now(LONDON_TZ)
+    hour_start = now_local.replace(minute=0, second=0, microsecond=0)
+    hour_start_ts = hour_start.timestamp()
+    next_hour  = (hour_start + timedelta(hours=1)).strftime('%H%M')
+    window_label = f"{hour_start.strftime('%H%M')}-{next_hour}"
+    with _lightning_lock:
+        count = sum(1 for t in _lightning_strikes if t >= hour_start_ts)
+    return {
+        "count":     count,
+        "window":    window_label,
+        "active":    _lightning_mqtt_ok,
+        "radius_km": LIGHTNING_RADIUS_KM,
+    }
+
 try:
     from shapely.geometry import Point, shape as shapely_shape
     _SHAPELY_OK = True
@@ -1029,8 +1115,10 @@ def build_dashboard_data():
     nswws_morning   = _warning_for_window(nswws_all, 6,  12)
     nswws_afternoon = _warning_for_window(nswws_all, 12, 20)
     nswws_headlines = _nswws_headline_lines(nswws_morning, nswws_afternoon)
+    lightning = get_lightning_data()
 
     return {
+        "lightning":           lightning,
         "tides":               t_data,
         "pla_flag":            pla_f,
         "pla_updated":         pla_u,
@@ -1092,8 +1180,12 @@ def nswws_status_endpoint():
 def _prewarm():
     import time
     print("Pre-warming cache on startup...")
-    for fn in (get_tides, get_kingston_flow, get_pla_flag, get_calendar_events, get_nswws_warnings):
-        try:
+    if _MQTT_OK:
+        threading.Thread(target=_lightning_mqtt_thread, daemon=True).start()
+        print("Lightning MQTT thread started")
+    else:
+        print("Lightning MQTT disabled (paho-mqtt not installed)")
+    for fn in (get_tides, get_kingston_flow, get_pla_flag, get_calendar_events, get_nswws_warnings):        try:
             fn()
         except Exception as e:
             print(f"Pre-warm error: {e}")
