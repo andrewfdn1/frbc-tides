@@ -14,98 +14,44 @@ import xml.etree.ElementTree as ET
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ---------------------------------------------------------------------------
-# Blitzortung MQTT — real-time lightning strike counter
+# Lightning risk — Open-Meteo lightning_potential index
 # ---------------------------------------------------------------------------
 
-import math
-import collections
-import time as _time
+def get_lightning_risk():
+    def fetch():
+        url = (
+            f"https://api.open-meteo.com/v1/forecast"
+            f"?latitude={LAT}&longitude={LON}"
+            "&hourly=lightning_potential"
+            "&timezone=Europe%2FLondon"
+            "&forecast_days=1"
+        )
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        hourly = data.get("hourly", {})
+        times  = hourly.get("time", [])
+        values = hourly.get("lightning_potential", [])
 
-try:
-    import paho.mqtt.client as mqtt
-    _MQTT_OK = True
-except ImportError:
-    _MQTT_OK = False
-    print("WARNING: paho-mqtt not installed — lightning tracking disabled. pip install paho-mqtt")
+        now_local = datetime.now(LONDON_TZ)
+        current_hour_str = now_local.strftime("%Y-%m-%dT%H:00")
 
-LIGHTNING_LAT          = 51.488
-LIGHTNING_LON          = -0.224
-LIGHTNING_RADIUS_KM    = 10.0
-_LIGHTNING_BROKER      = "blitzortung.ha.tryb.pl"
-_LIGHTNING_PORT        = 1883
-_LIGHTNING_TOPIC       = "blitzortung/1.1/+/+"
+        current_val = None
+        for t, v in zip(times, values):
+            if t == current_hour_str and v is not None:
+                current_val = round(float(v))
+                break
 
-_lightning_strikes = collections.deque()
-_lightning_lock    = threading.Lock()
-_lightning_mqtt_ok = False
+        return {
+            "risk":   current_val,
+            "hour":   now_local.strftime("%H00"),
+            "active": True,
+        }
 
-
-def _haversine_km(lat1, lon1, lat2, lon2):
-    R = 6371.0
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
-    return R * 2 * math.asin(math.sqrt(a))
-
-
-def _on_lightning_message(client, userdata, msg):
-    global _lightning_mqtt_ok
-    try:
-        payload = json.loads(msg.payload)
-        lat = payload.get("lat")
-        lon = payload.get("lon")
-        if lat is None or lon is None:
-            return
-        dist = _haversine_km(LIGHTNING_LAT, LIGHTNING_LON, float(lat), float(lon))
-        if dist <= LIGHTNING_RADIUS_KM:
-            now = _time.time()
-            with _lightning_lock:
-                _lightning_strikes.append(now)
-                cutoff = now - 7200
-                while _lightning_strikes and _lightning_strikes[0] < cutoff:
-                    _lightning_strikes.popleft()
-        _lightning_mqtt_ok = True
-    except Exception as e:
-        print(f"Lightning MQTT parse error: {e}")
-
-
-def _lightning_mqtt_thread():
-    if not _MQTT_OK:
-        print("Lightning MQTT: paho-mqtt not available, thread exiting")
-        return
-    print(f"Lightning MQTT: connecting to {_LIGHTNING_BROKER}:{_LIGHTNING_PORT} (plain TCP)")
-    while True:
-        try:
-            client = mqtt.Client(
-                client_id=f"frbc-tides-{int(_time.time())}",
-                protocol=mqtt.MQTTv311,
-            )
-            client.on_message = _on_lightning_message
-            client.connect(_LIGHTNING_BROKER, _LIGHTNING_PORT, keepalive=60)
-            print("Lightning MQTT: connected, subscribing...")
-            client.subscribe(_LIGHTNING_TOPIC, qos=0)
-            print("Lightning MQTT: subscribed, entering loop")
-            client.loop_forever()
-            print("Lightning MQTT: loop exited unexpectedly, retrying in 30s")
-        except Exception as e:
-            print(f"Lightning MQTT error: {e} — retrying in 30s")
-        _time.sleep(30)
-
-
-def get_lightning_data():
-    now_local  = datetime.now(LONDON_TZ)
-    hour_start = now_local.replace(minute=0, second=0, microsecond=0)
-    hour_start_ts = hour_start.timestamp()
-    next_hour  = (hour_start + timedelta(hours=1)).strftime('%H%M')
-    window_label = f"{hour_start.strftime('%H%M')}-{next_hour}"
-    with _lightning_lock:
-        count = sum(1 for t in _lightning_strikes if t >= hour_start_ts)
-    return {
-        "count":     count,
-        "window":    window_label,
-        "active":    _lightning_mqtt_ok,
-        "radius_km": LIGHTNING_RADIUS_KM,
-    }
+    result, fetched_at = get_cached("lightning_risk", fetch, ttl_seconds=1800)
+    if result is None:
+        return {"risk": None, "hour": "", "active": False}, fetched_at
+    return result, fetched_at
 
 try:
     from shapely.geometry import Point, shape as shapely_shape
@@ -1123,7 +1069,7 @@ def build_dashboard_data():
     nswws_morning   = _warning_for_window(nswws_all, 6,  12)
     nswws_afternoon = _warning_for_window(nswws_all, 12, 20)
     nswws_headlines = _nswws_headline_lines(nswws_morning, nswws_afternoon)
-    lightning = get_lightning_data()
+    lightning, _ = get_lightning_risk()
 
     return {
         "lightning":           lightning,
@@ -1188,11 +1134,7 @@ def nswws_status_endpoint():
 def _prewarm():
     import time
     print("Pre-warming cache on startup...")
-    if _MQTT_OK:
-        threading.Thread(target=_lightning_mqtt_thread, daemon=True).start()
-        print("Lightning MQTT thread started")
-    else:
-        print("Lightning MQTT disabled (paho-mqtt not installed)")
+    get_lightning_risk()
     for fn in (get_tides, get_kingston_flow, get_pla_flag, get_calendar_events, get_nswws_warnings):
         try:
             fn()
@@ -1205,14 +1147,6 @@ def _prewarm():
         print(f"Pre-warm weather error: {e}")
 
 
-def _start_background_threads():
-    t = threading.Thread(target=_prewarm, daemon=True)
-    t.daemon = True
-    t.start()
-    # Do NOT join — gunicorn workers must not block at import time
-
-# Works under both gunicorn and direct python execution
-_start_background_threads()
-
 if __name__ == "__main__":
+    threading.Thread(target=_prewarm, daemon=True).start()
     app.run(debug=True)
