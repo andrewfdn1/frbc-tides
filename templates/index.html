@@ -462,16 +462,16 @@
             <tr>
                 <td>Lightning strikes</td>
                 <td colspan="2">
-                    {% if d.lightning and d.lightning.active %}
-                        {% if d.lightning.count > 0 %}
-                            <span class="lightning-flash c-red">
-                                &#9889; {{ d.lightning.count }} &#9889; ({{ d.lightning.window }})
-                            </span>
+                    {% if d.lightning and d.lightning.active and d.lightning.risk is not none %}
+                        {% if d.lightning.risk >= 50 %}
+                            <span class="lightning-flash c-red">&#9889; {{ d.lightning.risk }}/100 ({{ d.lightning.hour }}h)</span>
+                        {% elif d.lightning.risk >= 20 %}
+                            <span class="c-yellow">&#9889; {{ d.lightning.risk }}/100 ({{ d.lightning.hour }}h)</span>
                         {% else %}
-                            <span class="c-dim">&#9889; 0 within {{ d.lightning.radius_km|int }}km</span>
+                            <span class="c-dim">&#9889; {{ d.lightning.risk }}/100 ({{ d.lightning.hour }}h)</span>
                         {% endif %}
                     {% else %}
-                        <span class="c-dim">&#8212; connecting&hellip;</span>
+                        <span class="c-dim">&#8212; unavailable</span>
                     {% endif %}
                 </td>
             </tr>
