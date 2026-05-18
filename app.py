@@ -81,7 +81,9 @@ def _lightning_mqtt_thread():
                 protocol=mqtt.MQTTv311,
                 transport="websockets",
             )
-            client.tls_set()
+            import ssl
+            client.tls_set(cert_reqs=ssl.CERT_NONE)
+            client.tls_insecure_set(True)
             client.on_message = _on_lightning_message
             client.ws_set_options(path="/")
             client.connect(_LIGHTNING_BROKER, _LIGHTNING_PORT, keepalive=60)
