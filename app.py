@@ -32,7 +32,7 @@ LIGHTNING_LAT          = 51.488
 LIGHTNING_LON          = -0.224
 LIGHTNING_RADIUS_KM    = 10.0
 _LIGHTNING_BROKER      = "blitzortung.ha.tryb.pl"
-_LIGHTNING_PORT        = 443
+_LIGHTNING_PORT        = 1883
 _LIGHTNING_TOPIC       = "blitzortung/1.1/+/+"
 
 _lightning_strikes = collections.deque()
@@ -79,13 +79,8 @@ def _lightning_mqtt_thread():
             client = mqtt.Client(
                 client_id=f"frbc-tides-{int(_time.time())}",
                 protocol=mqtt.MQTTv311,
-                transport="websockets",
             )
-            import ssl
-            client.tls_set(cert_reqs=ssl.CERT_NONE)
-            client.tls_insecure_set(True)
             client.on_message = _on_lightning_message
-            client.ws_set_options(path="/")
             client.connect(_LIGHTNING_BROKER, _LIGHTNING_PORT, keepalive=60)
             print("Lightning MQTT: connected, subscribing...")
             client.subscribe(_LIGHTNING_TOPIC, qos=0)
@@ -1211,7 +1206,10 @@ def _prewarm():
 
 
 def _start_background_threads():
-    threading.Thread(target=_prewarm, daemon=True).start()
+    t = threading.Thread(target=_prewarm, daemon=True)
+    t.daemon = True
+    t.start()
+    # Do NOT join — gunicorn workers must not block at import time
 
 # Works under both gunicorn and direct python execution
 _start_background_threads()
