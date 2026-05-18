@@ -7,3 +7,4 @@ python-dateutil
 pytz
 tzdata
 shapely
+paho-mqtt
