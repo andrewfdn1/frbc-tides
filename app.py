@@ -1185,7 +1185,8 @@ def _prewarm():
         print("Lightning MQTT thread started")
     else:
         print("Lightning MQTT disabled (paho-mqtt not installed)")
-    for fn in (get_tides, get_kingston_flow, get_pla_flag, get_calendar_events, get_nswws_warnings):        try:
+    for fn in (get_tides, get_kingston_flow, get_pla_flag, get_calendar_events, get_nswws_warnings):
+        try:
             fn()
         except Exception as e:
             print(f"Pre-warm error: {e}")
