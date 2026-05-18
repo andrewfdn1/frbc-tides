@@ -104,12 +104,25 @@
         .tide-hi { color: #FFD700; }
         .tide-lo { color: #00CED1; }
 
-        .warn-active {
+.warn-active {
             color: #FFFF00;
             font-weight: bold;
             margin-top: 10px;
             font-size: var(--fs-data);
             animation: blink 2s infinite;
+        }
+
+        .lightning-flash {
+            font-weight: bold;
+            animation: lightning-blink 0.8s infinite;
+        }
+
+        @keyframes lightning-blink {
+            0%   { opacity: 1; }
+            45%  { opacity: 1; }
+            50%  { opacity: 0; }
+            95%  { opacity: 0; }
+            100% { opacity: 1; }
         }
 
         @keyframes blink {
@@ -446,12 +459,27 @@
                     {% else %}<span class="c-dim">None</span>{% endif %}
                 </td>
             </tr>
+            <tr>
+                <td>Lightning strikes</td>
+                <td colspan="2">
+                    {% if d.lightning and d.lightning.active %}
+                        {% if d.lightning.count > 0 %}
+                            <span class="lightning-flash c-red">
+                                &#9889; {{ d.lightning.count }} &#9889; ({{ d.lightning.window }})
+                            </span>
+                        {% else %}
+                            <span class="c-dim">&#9889; 0 within {{ d.lightning.radius_km|int }}km</span>
+                        {% endif %}
+                    {% else %}
+                        <span class="c-dim">&#8212; connecting&hellip;</span>
+                    {% endif %}
+                </td>
+            </tr>
         </tbody>
     </table>
 
     {% if not d.weather.error %}
         <p class="wx-source">Forecast: {{ d.weather.source }}, Updated {{ d.weather.updated }}</p>
-    {% endif %}
 
     {% for line in d.nswws_headlines %}
     <p class="nswws-headline {% if line.level == 'RED' %}c-red{% elif line.level in ('AMBER', 'YELLOW') %}c-yellow{% else %}c-white{% endif %}">
