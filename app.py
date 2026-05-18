@@ -324,7 +324,7 @@ def _ms_to_kmh(ms):
 def _fetch_metoffice_timeseries(api_key, timestep="hourly"):
     """Fetch GeoJSON timeSeries from Met Office Global Spot API."""
     url = f"{_MO_SS_BASE}{timestep}"
-    headers = {"x-api-key": api_key, "accept": "application/json"}
+    headers = {"apikey": api_key, "accept": "application/json"}
     params = {
         "latitude": LAT,
         "longitude": LON,
