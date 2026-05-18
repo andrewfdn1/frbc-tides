@@ -23,12 +23,18 @@ def get_lightning_risk():
             f"https://api.open-meteo.com/v1/forecast"
             f"?latitude={LAT}&longitude={LON}"
             "&hourly=lightning_potential"
+            "&models=icon_seamless"
             "&timezone=Europe%2FLondon"
             "&forecast_days=1"
         )
         r = requests.get(url, timeout=10)
-        r.raise_for_status()
+        if not r.ok:
+            print(f"Lightning risk HTTP {r.status_code}: {r.text[:200]}")
+            r.raise_for_status()
         data = r.json()
+        if "error" in data:
+            print(f"Lightning risk API error: {data}")
+            raise Exception(data.get("reason", "unknown error"))
         hourly = data.get("hourly", {})
         times  = hourly.get("time", [])
         values = hourly.get("lightning_potential", [])
@@ -42,6 +48,7 @@ def get_lightning_risk():
                 current_val = round(float(v))
                 break
 
+        print(f"Lightning risk fetched: {current_val} at {current_hour_str}, {len(values)} values total, nulls: {values.count(None)}")
         return {
             "risk":   current_val,
             "hour":   now_local.strftime("%H00"),
