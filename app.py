@@ -32,7 +32,7 @@ LIGHTNING_LAT          = 51.488
 LIGHTNING_LON          = -0.224
 LIGHTNING_RADIUS_KM    = 10.0
 _LIGHTNING_BROKER      = "blitzortung.ha.tryb.pl"
-_LIGHTNING_PORT        = 1883
+_LIGHTNING_PORT        = 443
 _LIGHTNING_TOPIC       = "blitzortung/1.1/+/+"
 
 _lightning_strikes = collections.deque()
@@ -71,17 +71,28 @@ def _on_lightning_message(client, userdata, msg):
 
 def _lightning_mqtt_thread():
     if not _MQTT_OK:
+        print("Lightning MQTT: paho-mqtt not available, thread exiting")
         return
+    print(f"Lightning MQTT: connecting to {_LIGHTNING_BROKER}:{_LIGHTNING_PORT} (WebSocket/TLS)")
     while True:
         try:
-            client = mqtt.Client(client_id=f"frbc-tides-{int(_time.time())}", protocol=mqtt.MQTTv311)
+            client = mqtt.Client(
+                client_id=f"frbc-tides-{int(_time.time())}",
+                protocol=mqtt.MQTTv311,
+                transport="websockets",
+            )
+            client.tls_set()
             client.on_message = _on_lightning_message
+            client.ws_set_options(path="/")
             client.connect(_LIGHTNING_BROKER, _LIGHTNING_PORT, keepalive=60)
+            print("Lightning MQTT: connected, subscribing...")
             client.subscribe(_LIGHTNING_TOPIC, qos=0)
+            print("Lightning MQTT: subscribed, entering loop")
             client.loop_forever()
+            print("Lightning MQTT: loop exited unexpectedly, retrying in 30s")
         except Exception as e:
             print(f"Lightning MQTT error: {e} — retrying in 30s")
-            _time.sleep(30)
+        _time.sleep(30)
 
 
 def get_lightning_data():
