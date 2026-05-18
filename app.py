@@ -1208,6 +1208,11 @@ def _prewarm():
         print(f"Pre-warm weather error: {e}")
 
 
-if __name__ == "__main__":
+def _start_background_threads():
     threading.Thread(target=_prewarm, daemon=True).start()
+
+# Works under both gunicorn and direct python execution
+_start_background_threads()
+
+if __name__ == "__main__":
     app.run(debug=True)
