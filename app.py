@@ -73,7 +73,7 @@ def _lightning_mqtt_thread():
     if not _MQTT_OK:
         print("Lightning MQTT: paho-mqtt not available, thread exiting")
         return
-    print(f"Lightning MQTT: connecting to {_LIGHTNING_BROKER}:{_LIGHTNING_PORT} (WebSocket/TLS)")
+    print(f"Lightning MQTT: connecting to {_LIGHTNING_BROKER}:{_LIGHTNING_PORT} (plain TCP)")
     while True:
         try:
             client = mqtt.Client(
