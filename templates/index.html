@@ -480,6 +480,7 @@
 
     {% if not d.weather.error %}
         <p class="wx-source">Forecast: {{ d.weather.source }}, Updated {{ d.weather.updated }}</p>
+    {% endif %}
 
     {% for line in d.nswws_headlines %}
     <p class="nswws-headline {% if line.level == 'RED' %}c-red{% elif line.level in ('AMBER', 'YELLOW') %}c-yellow{% else %}c-white{% endif %}">
