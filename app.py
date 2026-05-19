@@ -219,15 +219,26 @@ def get_calendar_events():
     return get_cached('calendar', fetch, ttl_seconds=1800)
 
 
-def get_pla_flag():
     def fetch():
         r = requests.get("https://pla.co.uk/pla-api-integration/ebb-tide-widget-embed", timeout=5)
         soup = BeautifulSoup(r.text, 'html.parser')
         img = soup.find('img')
-        if img:
-            src = img['src']
-            return "https://pla.co.uk" + src if not src.startswith('http') else src
-        return None
+        if not img:
+            print("ERROR [pla_flag]: no <img> tag found in PLA widget response")
+            return None
+        src = img['src']
+        url = "https://pla.co.uk" + src if not src.startswith('http') else src
+        try:
+            head = requests.head(url, timeout=5)
+            ct = head.headers.get("Content-Type", "")
+            if not head.ok or not ct.startswith("image/"):
+                print(f"ERROR [pla_flag]: image URL returned {head.status_code} / Content-Type '{ct}' — url: {url}")
+                return None
+        except Exception as e:
+            print(f"ERROR [pla_flag]: could not verify image URL ({url}): {e}")
+            return None
+        _cache['pla_flag_last_good'] = url
+        return url
 
     now = datetime.now(LONDON_TZ)
     h, m = now.hour, now.minute
@@ -257,7 +268,11 @@ def get_pla_flag():
 
     cached = _cache.get('pla_flag')
     if cached and cached.get('slot') == slot:
-        return cached['data'], cached['fetched_at']
+        if cached['data'] is None:
+            last_good = _cache.get('pla_flag_last_good')
+            print(f"INFO [pla_flag]: cached data is None for slot {slot}, retrying fetch (last good: {last_good})")
+        else:
+            return cached['data'], cached['fetched_at']
 
     try:
         data = fetch()
@@ -271,8 +286,12 @@ def get_pla_flag():
         return data, fetched_at
     except Exception as e:
         print(f"Error fetching pla_flag: {e}")
-        if cached:
+        if cached and cached['data'] is not None:
             return cached['data'], cached['fetched_at']
+        last_good = _cache.get('pla_flag_last_good')
+        if last_good:
+            print(f"INFO [pla_flag]: using last known-good image URL as fallback: {last_good}")
+            return last_good, cached['fetched_at'] if cached else ''
         return None, ''
 
 
