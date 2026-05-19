@@ -219,6 +219,7 @@ def get_calendar_events():
     return get_cached('calendar', fetch, ttl_seconds=1800)
 
 
+def get_pla_flag():
     def fetch():
         r = requests.get("https://pla.co.uk/pla-api-integration/ebb-tide-widget-embed", timeout=5)
         soup = BeautifulSoup(r.text, 'html.parser')
