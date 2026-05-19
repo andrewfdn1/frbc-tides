@@ -987,7 +987,7 @@ def build_dashboard_data():
     threads = [
         threading.Thread(target=run, args=('tides',         get_tides)),
         threading.Thread(target=run, args=('calendar',      get_calendar_events)),
-        threading.Thread(target=run, args=('pla_flag',      get_pla_ebb_flag)),
+        threading.Thread(target=run, args=('pla_flag',      get_pla_flag)),
         threading.Thread(target=run, args=('weather',       get_weather)),
         threading.Thread(target=run, args=('kingston_flow', get_kingston_flow)),
         threading.Thread(target=run, args=('richmond_lw',   get_richmond_observed_low_tide)),
