@@ -287,11 +287,6 @@
 
 </div>
 
-   <div class="logo-landscape" style="margin-top: auto; padding-top: 10px;">
-        <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
-    </div>
-</div> 
-
 <!-- COLUMN 2 -->
 <div>
     <h3>WEATHER</h3>
@@ -499,7 +494,7 @@
     (function() {
         var map = L.map('radar-map', {
             center: [51.49, -0.23],
-            zoom: 7,
+            zoom: 9,
             zoomControl: false,
             attributionControl: false,
             dragging: false,
@@ -548,7 +543,10 @@
     <p class="nswws-headline c-dim">No Met Office Warnings in Hammersmith{% if d.nswws_updated %}, NSWWS updated at {{ d.nswws_updated }}{% endif %}</p>
     {% endif %}
 
-
+<div class="logo-landscape" style="margin-top: auto; padding-top: 10px;">
+        <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
+    </div>
+</div>
 
 <!-- COLUMN 3 -->
 <div>
