@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HAMMERSMITH TIDES</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
 
@@ -35,37 +36,41 @@
             .logo-portrait { display: block; }
         }
 
-@media (orientation: landscape) {
-    .grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
-        gap: clamp(12px, 2vw, 28px);
-        padding: 0 clamp(10px, 2vw, 20px);
-    }
-    .cal-event { font-size: clamp(12px, 1.4vw, 20px) !important; }
-    .logo-landscape { display: block; }
-    .logo-portrait { display: none; }
-    .logo-landscape .logo-img { width: clamp(96px, 24vw, 192px); }
+        @media (orientation: landscape) {
+            .grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr 1fr;
+                gap: clamp(12px, 2vw, 28px);
+                padding: 0 clamp(10px, 2vw, 20px);
+            }
+            .cal-event { font-size: clamp(12px, 1.4vw, 20px) !important; }
+            .logo-landscape { display: block; }
+            .logo-portrait { display: none; }
 
-    /* Column 2: use flex so logo is pushed to the bottom */
-    .grid > div:nth-child(2) {
-        display: flex;
-        flex-direction: column;
-    }
+            /* Column 1: flex so logo sits at the bottom */
+            .grid > div:nth-child(1) {
+                display: flex;
+                flex-direction: column;
+            }
 
-    /* Diary column: cap to viewport so it never overflows */
-    .grid > div:last-child {
-        display: flex;
-        flex-direction: column;
-        max-height: calc(100vh - 60px);
-    }
-    .cal-list {
-        overflow: hidden;
-        flex: 1 1 auto;
-        min-height: 0;
-        position: relative;
-    }
-}
+            /* Diary column: cap to viewport so it never overflows */
+            .grid > div:last-child {
+                display: flex;
+                flex-direction: column;
+                max-height: calc(100vh - 60px);
+            }
+            .cal-list {
+                overflow: hidden;
+                flex: 1 1 auto;
+                min-height: 0;
+                position: relative;
+            }
+
+            /* Logo in column 1: 25% larger than original */
+            .logo-landscape .logo-img {
+                width: clamp(120px, 30vw, 240px);
+            }
+        }
 
         h3 {
             border-bottom: 1px solid #333;
@@ -104,7 +109,7 @@
         .tide-hi { color: #FFD700; }
         .tide-lo { color: #00CED1; }
 
-.warn-active {
+        .warn-active {
             color: #FFFF00;
             font-weight: bold;
             margin-top: 10px;
@@ -217,6 +222,20 @@
         .c-black  { color: #ffffff; }
         .c-dim    { color: #888; }
         .c-white  { color: #fff; }
+
+        /* Rain radar map */
+        #radar-map {
+            width: 100%;
+            border: 1px solid #333;
+            margin-bottom: 6px;
+            height: clamp(160px, 18vw, 280px);
+        }
+
+        @media (orientation: portrait) {
+            #radar-map {
+                height: 40vw;
+            }
+        }
     </style>
 </head>
 <body>
@@ -227,13 +246,13 @@
 <div>
     <h3>HAMMERSMITH TIDES <span class="updated">Updated {{ d.tides.updated }}</span></h3>
 
-   {% if d.tides.last_tide %}
+    {% if d.tides.last_tide %}
         <div style="font-size:calc(var(--fs-data) * 0.95); color:#fff; margin-bottom:4px;">
             Last {{ d.tides.last_tide.label }} {{ d.tides.last_tide.time }} {{ d.tides.last_tide.height }}
         </div>
     {% endif %}
 
-   <div class="metric" {% if d.richmond_lw %}style="color:{% if d.richmond_lw.flag == 'RED' %}#FF4B4B{% elif d.richmond_lw.flag == 'YELLOW' %}#FFFF00{% elif d.richmond_lw.flag == 'GREEN' %}#33FF57{% else %}#ffffff{% endif %};"{% endif %}>
+    <div class="metric" {% if d.richmond_lw %}style="color:{% if d.richmond_lw.flag == 'RED' %}#FF4B4B{% elif d.richmond_lw.flag == 'YELLOW' %}#FFFF00{% elif d.richmond_lw.flag == 'GREEN' %}#33FF57{% else %}#ffffff{% endif %};"{% endif %}>
         {% if d.tides.direction %}
             {{ d.tides.direction }} UNTIL {{ d.tides.until }} {{ d.tides.current_target_height }}
         {% else %}
@@ -246,7 +265,7 @@
             Next {{ d.tides.next_tide.label }} {{ d.tides.next_tide.time }} {{ d.tides.next_tide.height }}
         </div>
     {% endif %}
-    
+
     <h3>PLA EBB FLAG <span class="updated">Updated {{ d.pla_updated }}</span></h3>
     <div class="pla-flag">
         {% if d.pla_flag %}
@@ -260,7 +279,7 @@
 
     <h3>RICHMOND LOW TIDE <span class="updated">Updated {{ d.richmond_lw_updated }}</span></h3>
     {% if d.richmond_lw %}
-       <div style="white-space:normal; font-size:calc(var(--fs-data) * 0.95);">
+        <div style="white-space:normal; font-size:calc(var(--fs-data) * 0.95);">
             {{ d.richmond_lw.time }}
             is {{ "%.2f"|format(d.richmond_lw.metres) }}m &mdash;
             <span class="c-{{ d.richmond_lw.flag|lower }}">{{ d.richmond_lw.flag_word }}</span>
@@ -280,11 +299,15 @@
             {% set fcol = '#ffffff' %}
         {% endif %}
         <div class="flow-value" style="color:{{ fcol }}; font-size:calc(var(--fs-data) * 0.95);">
-            {{ d.kingston_flow.flow }} <span style="font-size:calc(var(--fs-data) * 0.95); color:{{ fcol }};">{{ d.kingston_flow.unit }}</span>        </div>
+            {{ d.kingston_flow.flow }} <span style="font-size:calc(var(--fs-data) * 0.95); color:{{ fcol }};">{{ d.kingston_flow.unit }}</span>
+        </div>
     {% else %}
         <p class="c-dim" style="font-size:var(--fs-data);">Flow data unavailable</p>
     {% endif %}
 
+    <div class="logo-landscape" style="margin-top: auto; padding-top: 10px;">
+        <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
+    </div>
 </div>
 
 <!-- COLUMN 2 -->
@@ -484,56 +507,6 @@
         <p class="wx-source">Forecast: {{ d.weather.source }}, Updated {{ d.weather.updated }}</p>
     {% endif %}
 
-    <h3>RAIN RADAR</h3>
-    <div id="radar-map" style="width:100%; height:clamp(180px, 20vw, 300px); border:1px solid #333; margin-bottom:8px;"></div>
-    <p class="wx-source" id="radar-updated">Loading radar...</p>
-
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-    <script>
-    (function() {
-        var map = L.map('radar-map', {
-            center: [51.49, -0.23],
-            zoom: 7,
-            zoomControl: false,
-            attributionControl: false,
-            dragging: false,
-            scrollWheelZoom: false,
-            doubleClickZoom: false,
-            touchZoom: false
-        });
-
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            opacity: 0.8
-        }).addTo(map);
-
-        var radarLayer = null;
-
-        function loadRadar() {
-            fetch('https://api.rainviewer.com/public/weather-maps.json')
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                    var frames = data.radar && data.radar.past;
-                    if (!frames || !frames.length) return;
-                    var latest = frames[frames.length - 1];
-                    var url = data.host + latest.path + '/512/{z}/{x}/{y}/6/1_1.png';
-                    if (radarLayer) map.removeLayer(radarLayer);
-                    radarLayer = L.tileLayer(url, { opacity: 0.6, tileSize: 512 }).addTo(map);
-                    var d = new Date(latest.time * 1000);
-                    var h = String(d.getHours()).padStart(2,'0');
-                    var m = String(d.getMinutes()).padStart(2,'0');
-                    document.getElementById('radar-updated').textContent = 'Radar: ' + h + ':' + m;
-                })
-                .catch(function() {
-                    document.getElementById('radar-updated').textContent = 'Radar unavailable';
-                });
-        }
-
-        loadRadar();
-        setInterval(loadRadar, 300000);
-    })();
-    </script>
-
     {% for line in d.nswws_headlines %}
     <p class="nswws-headline {% if line.level == 'RED' %}c-red{% elif line.level in ('AMBER', 'YELLOW') %}c-yellow{% else %}c-white{% endif %}">
         <strong>{{ line.period }}</strong> &mdash; {{ line.headline }}
@@ -543,9 +516,10 @@
     <p class="nswws-headline c-dim">No Met Office Warnings in Hammersmith{% if d.nswws_updated %}, NSWWS updated at {{ d.nswws_updated }}{% endif %}</p>
     {% endif %}
 
-<div class="logo-landscape" style="margin-top: auto; padding-top: 10px;">
-        <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
-    </div>
+    <h3>RAIN RADAR</h3>
+    <div id="radar-map"></div>
+    <p class="wx-source" id="radar-updated">Loading radar...</p>
+
 </div>
 
 <!-- COLUMN 3 -->
@@ -554,22 +528,21 @@
         {{ d.cal.day_label }} <span id="liveclock"></span>
         <span class="updated">Updated {{ d.cal.updated }}</span>
     </h3>
-<div class="cal-list" id="calList">
-    <div id="calListInner">
-    {% if d.cal.list %}
-        {% for e in d.cal.list %}
-            {% set is_past = e.time != 'All Day' and e.time.split('-')|last < d.last_updated[:5] %}
-            <div class="cal-event" style="{{ 'opacity:0.35;' if is_past else '' }}">
-                <span class="cal-time">{{ e.time }}</span><br>{{ e.summary }}
-            </div>
-        {% endfor %}
-    {% else %}
-        <p class="c-dim" style="font-size:var(--fs-data);">No sessions scheduled for {{ d.cal.day_label.lower() }}.</p>
-    {% endif %}
+    <div class="cal-list" id="calList">
+        <div id="calListInner">
+        {% if d.cal.list %}
+            {% for e in d.cal.list %}
+                {% set is_past = e.time != 'All Day' and e.time.split('-')|last < d.last_updated[:5] %}
+                <div class="cal-event" style="{{ 'opacity:0.35;' if is_past else '' }}">
+                    <span class="cal-time">{{ e.time }}</span><br>{{ e.summary }}
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="c-dim" style="font-size:var(--fs-data);">No sessions scheduled for {{ d.cal.day_label.lower() }}.</p>
+        {% endif %}
+        </div>
     </div>
 </div>
-
-   </div>
 
 </div>
 
@@ -582,6 +555,7 @@
     <span>{{ d.last_updated }}</span>
 </footer>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
     function autoRefresh() {
         fetch('/data')
@@ -593,22 +567,16 @@
     // Landscape diary: shrink font to fit, then auto-scroll if still overflowing
     function fitDiary() {
         if (window.matchMedia('(orientation: portrait)').matches) return;
-
         var container = document.getElementById('calList');
         var inner = document.getElementById('calListInner');
         if (!container || !inner) return;
-
         var events = inner.querySelectorAll('.cal-event');
         if (!events.length) return;
-
-        // Step 1: shrink font size down until it fits (min 10px)
         var currentSize = parseFloat(window.getComputedStyle(events[0]).fontSize);
         while (inner.scrollHeight > container.clientHeight && currentSize > 10) {
             currentSize -= 0.5;
             events.forEach(function(e) { e.style.fontSize = currentSize + 'px'; });
         }
-
-        // Step 2: if still overflowing after minimum font, start auto-scroll loop
         if (inner.scrollHeight > container.clientHeight) {
             startScroll(container, inner);
         }
@@ -616,47 +584,39 @@
 
     var scrollInterval = null;
     function startScroll(container, inner) {
-    if (scrollInterval) return;
-
-    var pos = 0;
-    var speed = 0.3;
-    var pauseDuration = 3000; // ms
-    var lastPauseTime = Date.now() + pauseDuration; // extra initial delay
-    var isPaused = true;
-
-    scrollInterval = setInterval(function () {
-        var now = Date.now();
-
-        if (isPaused) {
-            if (now - lastPauseTime >= pauseDuration) {
-                isPaused = false;
-            } else {
+        if (scrollInterval) return;
+        var pos = 0;
+        var speed = 0.3;
+        var pauseDuration = 3000;
+        var lastPauseTime = Date.now() + pauseDuration;
+        var isPaused = true;
+        scrollInterval = setInterval(function () {
+            var now = Date.now();
+            if (isPaused) {
+                if (now - lastPauseTime >= pauseDuration) { isPaused = false; } else { return; }
+            }
+            pos += speed;
+            var maxScroll = inner.scrollHeight - container.clientHeight;
+            if (pos >= maxScroll) {
+                pos = maxScroll;
+                isPaused = true;
+                lastPauseTime = Date.now();
+                setTimeout(function () {
+                    pos = 0;
+                    inner.style.transform = 'translateY(0px)';
+                    lastPauseTime = Date.now();
+                }, pauseDuration);
                 return;
             }
-        }
+            inner.style.transform = 'translateY(-' + pos + 'px)';
+        }, 20);
+    }
 
-        pos += speed;
-        var maxScroll = inner.scrollHeight - container.clientHeight;
+    window.addEventListener('load', function() {
+        fitDiary();
+        initRadar();
+    });
 
-        if (pos >= maxScroll) {
-            pos = maxScroll;
-            isPaused = true;
-            lastPauseTime = Date.now();
-
-            setTimeout(function () {
-                pos = 0;
-                inner.style.transform = 'translateY(0px)';
-                lastPauseTime = Date.now();
-            }, pauseDuration);
-
-            return;
-        }
-
-        inner.style.transform = 'translateY(-' + pos + 'px)';
-    }, 20);
-}
-
-    window.addEventListener('load', fitDiary);
     window.addEventListener('resize', function() {
         if (scrollInterval) { clearInterval(scrollInterval); scrollInterval = null; }
         var inner = document.getElementById('calListInner');
@@ -665,21 +625,71 @@
             inner.querySelectorAll('.cal-event').forEach(function(e) { e.style.fontSize = ''; });
         }
         fitDiary();
+        if (radarMap) radarMap.invalidateSize();
     });
-    // Live clock in TODAY header
+
+    // Live clock
     function updateClock() {
         var el = document.getElementById('liveclock');
         if (!el) return;
         var now = new Date();
         var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-        var day = days[now.getDay()];
         var h = String(now.getHours()).padStart(2, '0');
         var m = String(now.getMinutes()).padStart(2, '0');
         var s = String(now.getSeconds()).padStart(2, '0');
-        el.textContent = day + ' ' + h + ':' + m + ':' + s;
+        el.textContent = days[now.getDay()] + ' ' + h + ':' + m + ':' + s;
     }
     updateClock();
     setInterval(updateClock, 1000);
+
+    // Rain radar
+    var radarMap = null;
+    var radarLayer = null;
+
+    function initRadar() {
+        radarMap = L.map('radar-map', {
+            center: [51.49, -0.23],
+            zoom: 9,
+            zoomControl: false,
+            attributionControl: false,
+            dragging: false,
+            scrollWheelZoom: false,
+            doubleClickZoom: false,
+            touchZoom: false
+        });
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            opacity: 0.8
+        }).addTo(radarMap);
+
+        loadRadar();
+        setInterval(loadRadar, 300000);
+    }
+
+    function loadRadar() {
+        fetch('https://api.rainviewer.com/public/weather-maps.json')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var frames = data.radar && data.radar.past;
+                if (!frames || !frames.length) return;
+                var latest = frames[frames.length - 1];
+                // colour=2 (green→yellow→red), tileSize=512, smooth=1, snow=0
+                var url = data.host + latest.path + '/512/{z}/{x}/{y}/2/1_0.png';
+                if (radarLayer) radarMap.removeLayer(radarLayer);
+                radarLayer = L.tileLayer(url, {
+                    opacity: 0.7,
+                    tileSize: 512,
+                    zoomOffset: 0
+                }).addTo(radarMap);
+                var d = new Date(latest.time * 1000);
+                var h = String(d.getHours()).padStart(2,'0');
+                var mn = String(d.getMinutes()).padStart(2,'0');
+                document.getElementById('radar-updated').textContent = 'Radar: ' + h + ':' + mn;
+            })
+            .catch(function() {
+                document.getElementById('radar-updated').textContent = 'Radar unavailable';
+            });
+    }
 </script>
 
 </body>
