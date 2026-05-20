@@ -724,7 +724,7 @@ function loadWindArrows() {
                 var arrowDirection = (p.direction + 180) % 360;
                 
                 // Scale arrow size by wind speed (min 20px, max 40px)
-                var size = Math.min(24, Math.max(12, 10 + p.speed / 3));
+                var size = Math.min(40, Math.max(20, 15 + p.speed / 2));
                 
                 // Color by speed: green < 15, yellow 15-30, orange 30-45, red > 45 km/h
                 var color;
