@@ -1126,6 +1126,80 @@ def build_dashboard_data():
         "nswws_error":         _nswws_last_error,
     }
 
+# ---------------------------------------------------------------------------
+# Wind grid data for radar overlay — Open-Meteo with caching
+# ---------------------------------------------------------------------------
+
+def get_wind_grid():
+    """
+    Fetch wind data for a grid around the map center.
+    Returns a sparse grid of points with wind speed/direction for arrow overlay.
+    Cached for 1 hour to minimize API calls.
+    """
+    def fetch():
+        now_ts = datetime.now(timezone.utc).timestamp()
+        
+        # Honour backoff
+        if now_ts < _get_fail_until('wind_grid'):
+            raise Exception("Wind grid in backoff")
+        
+        # Grid: 5x5 points covering roughly the radar map area
+        # Centered on Hammersmith, spanning ~0.5 degrees
+        lat_min, lat_max = 51.3, 51.7
+        lon_min, lon_max = -0.6, 0.2
+        grid_size = 5
+        
+        lats = [lat_min + i * (lat_max - lat_min) / (grid_size - 1) for i in range(grid_size)]
+        lons = [lon_min + i * (lon_max - lon_min) / (grid_size - 1) for i in range(grid_size)]
+        
+        points = []
+        for lat in lats:
+            for lon in lons:
+                points.append((round(lat, 3), round(lon, 3)))
+        
+        # Batch request - Open-Meteo supports multiple locations
+        lat_str = ",".join(str(p[0]) for p in points)
+        lon_str = ",".join(str(p[1]) for p in points)
+        
+        url = (
+            f"https://api.open-meteo.com/v1/forecast"
+            f"?latitude={lat_str}&longitude={lon_str}"
+            "&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m"
+            "&timezone=Europe%2FLondon"
+        )
+        
+        r = requests.get(url, timeout=15)
+        if r.status_code == 429:
+            retry_after = int(r.headers.get("Retry-After", 3600))
+            _set_fail_until('wind_grid', retry_after)
+            raise Exception(f"Open-Meteo rate limited, retry after {retry_after}s")
+        r.raise_for_status()
+        
+        data = r.json()
+        
+        # Handle both single-location and multi-location responses
+        if isinstance(data, list):
+            locations = data
+        else:
+            locations = [data]
+        
+        wind_data = []
+        for i, loc in enumerate(locations):
+            current = loc.get("current", {})
+            wind_data.append({
+                "lat": points[i][0],
+                "lon": points[i][1],
+                "speed": current.get("wind_speed_10m"),  # km/h
+                "direction": current.get("wind_direction_10m"),  # degrees
+                "gusts": current.get("wind_gusts_10m"),
+            })
+        
+        return {
+            "points": wind_data,
+            "generated_at": datetime.now(LONDON_TZ).isoformat(),
+        }
+    
+    return get_cached('wind_grid', fetch, ttl_seconds=3600)  # 1 hour cache
 
 @app.route("/")
 def index():
@@ -1160,6 +1234,21 @@ def nswws_status_endpoint():
     except Exception as e:
         return jsonify({"status": "error", "error": str(e), "feed_url": _NSWWS_FEED_URL}), 500
 
+@app.route("/api/wind")
+def wind_endpoint():
+    """Wind grid data for radar map overlay."""
+    try:
+        data, fetched_at = get_wind_grid()
+        if data is None:
+            return jsonify({"error": "Wind data unavailable", "points": []}), 503
+        return jsonify({
+            **data,
+            "fetched_at": fetched_at,
+            "cache_ttl": 3600,
+        })
+    except Exception as e:
+        print(f"Wind endpoint error: {e}")
+        return jsonify({"error": str(e), "points": []}), 500
 
 def _prewarm():
     import time
