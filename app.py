@@ -1145,9 +1145,9 @@ def get_wind_grid():
         
         # Grid: 5x5 points covering roughly the radar map area
         # Centered on Hammersmith, spanning ~0.5 degrees
-        lat_min, lat_max = 51.3, 51.7
-        lon_min, lon_max = -0.6, 0.2
-        grid_size = 5
+        lat_min, lat_max = 51.1, 51.9
+        lon_min, lon_max = -1.0, 0.5
+        grid_size = 3
         
         lats = [lat_min + i * (lat_max - lat_min) / (grid_size - 1) for i in range(grid_size)]
         lons = [lon_min + i * (lon_max - lon_min) / (grid_size - 1) for i in range(grid_size)]
