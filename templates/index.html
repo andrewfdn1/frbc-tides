@@ -721,7 +721,7 @@ function loadWindArrows() {
                 
                 // Create arrow icon - rotated by wind direction
                 // Wind direction is where wind comes FROM, arrow shows where it goes TO
-                var arrowDirection = (p.direction + 180) % 360;
+                var arrowDirection = (p.direction + 90) % 360;
                 
                 // Scale arrow size by wind speed (min 20px, max 40px)
                 var size = Math.min(40, Math.max(20, 15 + p.speed / 2));
