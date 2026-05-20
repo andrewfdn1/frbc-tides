@@ -674,13 +674,11 @@
                 if (!frames || !frames.length) return;
                 var latest = frames[frames.length - 1];
                 // colour=2 (green→yellow→red), tileSize=512, smooth=1, snow=0
-                var url = data.host + latest.path + '/512/{z}/{x}/{y}/2/1_1.png';
+                var url = data.host + latest.path + '/256/{z}/{x}/{y}/2/1_1.png';
                 if (radarLayer) radarMap.removeLayer(radarLayer);
                 radarLayer = L.tileLayer(url, {
                     opacity: 0.8,
-                    tileSize: 512,
-                    maxZoom: 7,
-                    zoomOffset: 0
+                    tileSize: 256
                 }).addTo(radarMap);
                 var d = new Date(latest.time * 1000);
                 var h = String(d.getHours()).padStart(2,'0');
