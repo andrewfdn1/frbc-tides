@@ -724,7 +724,7 @@ function loadWindArrows() {
                 var arrowDirection = (p.direction + 180) % 360;
                 
                 // Scale arrow size by wind speed (min 20px, max 40px)
-                var size = Math.min(40, Math.max(20, 15 + p.speed / 2));
+                var size = Math.min(24, Math.max(12, 10 + p.speed / 3));
                 
                 // Color by speed: green < 15, yellow 15-30, orange 30-45, red > 45 km/h
                 var color;
@@ -735,7 +735,7 @@ function loadWindArrows() {
                 
                 var arrowIcon = L.divIcon({
                     className: 'wind-arrow',
-                    html: '<div style="transform: rotate(' + arrowDirection + 'deg); font-size: ' + size + 'px; color: ' + color + '; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">➤</div>',
+                    html: '<div style="transform: rotate(' + arrowDirection + 'deg); font-size: ' + size + 'px; color: ' + color + '; opacity: 0.5; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">➤</div>',
                     iconSize: [size, size],
                     iconAnchor: [size/2, size/2]
                 });
