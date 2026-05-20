@@ -1143,11 +1143,14 @@ def get_wind_grid():
         if now_ts < _get_fail_until('wind_grid'):
             raise Exception("Wind grid in backoff")
         
-        # Grid: 5x5 points covering roughly the radar map area
+        # Grid: | `grid_size = 2` | 4 | Very sparse
+        # `grid_size = 3` | 9 arrows | Few
+        # `grid_size = 4` | 16 arrows | Moderate
+        # `grid_size = 5` | 25 arrows | Dense
         # Centered on Hammersmith, spanning ~0.5 degrees
         lat_min, lat_max = 51.1, 51.9   
         lon_min, lon_max = -3.2, 2.74
-        grid_size = 3
+        grid_size = 4
         
         lats = [lat_min + i * (lat_max - lat_min) / (grid_size - 1) for i in range(grid_size)]
         lons = [lon_min + i * (lon_max - lon_min) / (grid_size - 1) for i in range(grid_size)]
