@@ -223,6 +223,12 @@
         .c-dim    { color: #888; }
         .c-white  { color: #fff; }
 
+        .wind-arrow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+        }
         /* Rain radar map */
         #radar-map {
             width: 100%;
@@ -689,6 +695,82 @@
                 document.getElementById('radar-updated').textContent = 'Radar unavailable';
             });
     }
+    // ---------------------------------------------------------------------------
+// Wind arrows overlay
+// ---------------------------------------------------------------------------
+var windLayer = null;
+
+function loadWindArrows() {
+    fetch('/api/wind')
+        .then(r => r.json())
+        .then(data => {
+            if (data.error || !data.points) {
+                console.log('Wind data unavailable:', data.error);
+                return;
+            }
+            
+            // Remove existing wind layer
+            if (windLayer) {
+                radarMap.removeLayer(windLayer);
+            }
+            
+            // Create arrow markers for each point
+            var arrows = [];
+            data.points.forEach(function(p) {
+                if (p.speed === null || p.direction === null) return;
+                
+                // Create arrow icon - rotated by wind direction
+                // Wind direction is where wind comes FROM, arrow shows where it goes TO
+                var arrowDirection = (p.direction + 180) % 360;
+                
+                // Scale arrow size by wind speed (min 20px, max 40px)
+                var size = Math.min(40, Math.max(20, 15 + p.speed / 2));
+                
+                // Color by speed: green < 15, yellow 15-30, orange 30-45, red > 45 km/h
+                var color;
+                if (p.speed < 15) color = '#22c55e';      // green
+                else if (p.speed < 30) color = '#eab308'; // yellow  
+                else if (p.speed < 45) color = '#f97316'; // orange
+                else color = '#ef4444';                    // red
+                
+                var arrowIcon = L.divIcon({
+                    className: 'wind-arrow',
+                    html: '<div style="transform: rotate(' + arrowDirection + 'deg); font-size: ' + size + 'px; color: ' + color + '; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">➤</div>',
+                    iconSize: [size, size],
+                    iconAnchor: [size/2, size/2]
+                });
+                
+                var marker = L.marker([p.lat, p.lon], {
+                    icon: arrowIcon,
+                    interactive: true
+                });
+                
+                // Tooltip with details
+                marker.bindTooltip(
+                    '<b>' + Math.round(p.speed) + ' km/h</b><br>' +
+                    'Gusts: ' + Math.round(p.gusts || p.speed) + ' km/h<br>' +
+                    'From: ' + getCardinalDirection(p.direction),
+                    { direction: 'top', offset: [0, -10] }
+                );
+                
+                arrows.push(marker);
+            });
+            
+            windLayer = L.layerGroup(arrows).addTo(radarMap);
+            console.log('Wind arrows loaded:', data.points.length, 'points');
+        })
+        .catch(err => console.error('Wind fetch error:', err));
+}
+
+function getCardinalDirection(deg) {
+    var dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+                'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    return dirs[Math.round((deg % 360) / 22.5) % 16];
+}
+
+// Load wind arrows after radar loads, refresh every hour
+setTimeout(loadWindArrows, 2000);
+setInterval(loadWindArrows, 3600000);
 </script>
 
 </body>
