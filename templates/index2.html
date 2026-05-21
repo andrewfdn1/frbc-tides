@@ -879,8 +879,10 @@ function loadWindArrows() {
                 // Wind direction is where wind comes FROM, arrow shows where it goes TO
                 var arrowDirection = (p.direction + 90) % 360;
                 
-                // Scale arrow size by wind speed (min 20px, max 40px)
-                var size = Math.min(40, Math.max(20, 15 + p.speed / 2));
+                // Scale arrow size by wind speed — larger in landscape
+                var isLandscape = window.matchMedia("(orientation: landscape)").matches;
+                var sizeScale = isLandscape ? 1.6 : 1.0;
+                var size = Math.min(64, Math.max(20, (15 + p.speed / 2) * sizeScale));
                 
                 // Color by speed: green < 15, yellow 15-30, orange 30-45, red > 45 km/h
                 var color;
