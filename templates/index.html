@@ -140,6 +140,58 @@
             height: clamp(120px, 16vw, 240px);
             margin: 10px 0;
             border: 1px solid #333;
+            flex-shrink: 0;
+        }
+
+        .pla-flag-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+        }
+
+        .pla-flag-text {
+            font-size: clamp(10px, 1.1vw, 15px);
+            color: #ccc;
+            line-height: 1.45;
+        }
+
+        @media (orientation: landscape) {
+            .pla-flag-text {
+                max-height: clamp(120px, 16vw, 240px);
+                overflow: hidden;
+                position: relative;
+            }
+            .pla-flag-text-inner {
+                animation: flag-scroll 14s ease-in-out infinite;
+            }
+            @keyframes flag-scroll {
+                0%   { transform: translateY(0); }
+                10%  { transform: translateY(0); }
+                80%  { transform: translateY(var(--scroll-dist, -60px)); }
+                90%  { transform: translateY(var(--scroll-dist, -60px)); }
+                100% { transform: translateY(0); }
+            }
+        }
+
+        @media (orientation: portrait) {
+            .pla-flag-text-inner {
+                animation: none;
+            }
+        }
+
+        .flag-footnote {
+            font-size: clamp(10px, 1.0vw, 13px);
+            color: #fff;
+            margin-top: 6px;
+            animation: blink 1.5s infinite;
+        }
+
+        .flag-error {
+            font-size: clamp(13px, 1.5vw, 20px);
+            color: #FF4B4B;
+            font-weight: bold;
+            margin-top: 10px;
+            animation: blink 1.5s infinite;
         }
 
         .flow-value {
@@ -274,13 +326,47 @@
 
     <h3>PLA EBB FLAG <span class="updated">Updated {{ d.pla_updated }}</span></h3>
     <div class="pla-flag">
-        {% if d.pla_flag %}
-            <img src="{{ d.pla_flag }}" alt="PLA Flag"
-                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-            <p class="c-amber" style="display:none; font-size:var(--fs-data);">Broken link, please check flag with PLA</p>
-        {% else %}
-            <p class="c-dim" style="font-size:var(--fs-data);">Flag status unavailable</p>
-        {% endif %}
+    {% if d.pla_flag %}
+        {% set fc = d.pla_flag.colour %}
+        <div class="pla-flag-row">
+            <img src="{{ d.pla_flag.image_url }}" alt="PLA {{ fc | capitalize }} Flag">
+            <div>
+                <div class="pla-flag-text">
+                    <div class="pla-flag-text-inner" id="flagTextInner">
+                    {% if fc == 'red' %}
+                        <strong>Red &mdash; Very Strong Fluvial Flows</strong><br>
+                        Conditions are difficult and dangerous.<br>
+                        All man-powered vessels are advised not to go afloat.
+                    {% elif fc == 'yellow' %}
+                        <strong>Yellow &mdash; Strong Fluvial Flows</strong><br>
+                        PLA advise man-powered vessels:<br>
+                        Beginners, novices, younger juniors (J15s and younger), or any weaker crews, and those that do not usually navigate on the tidal section of the River Thames not to go afloat on the ebb tide.<br>
+                        All river users of man-powered vessels should navigate with extreme caution and consider whether it is safe for them to go afloat on the ebb tide.
+                    {% elif fc == 'green' %}
+                        <strong>Green &mdash; Average Fluvial Flows</strong><br>
+                        All river users to navigate with caution and maintain a proper look out.
+                    {% elif fc == 'black' %}
+                        <strong>Black &mdash; Low Fluvial Flows</strong><br>
+                        Fluvial flow is lower than usual. River users should expect lower than predicted tides, especially around low water.
+                    {% endif %}
+                    </div>
+                </div>
+                {% if d.pla_flag.source in ('json', 'richmond') %}
+                <p class="flag-footnote">&#9888; Double check flag status with PLA</p>
+                {% endif %}
+            </div>
+        </div>
+        <script>
+        (function(){
+            var inner = document.getElementById('flagTextInner');
+            if (!inner) return;
+            var dist = inner.scrollHeight - inner.parentElement.clientHeight;
+            if (dist > 0) inner.style.setProperty('--scroll-dist', '-' + dist + 'px');
+        })();
+        </script>
+    {% else %}
+        <p class="flag-error">&#9888; Error: check flag status with PLA</p>
+    {% endif %}
     </div>
 
     <h3>RICHMOND LOW TIDE <span class="updated">Updated {{ d.richmond_lw_updated }}</span></h3>
