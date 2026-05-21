@@ -218,7 +218,6 @@ def get_calendar_events():
 
     return get_cached('calendar', fetch, ttl_seconds=1800)
 
-
 # ---------------------------------------------------------------------------
 # PLA Ebb Flag
 # ---------------------------------------------------------------------------
@@ -327,7 +326,6 @@ def get_pla_flag():
     if data is not None:
         _cache['pla_flag'] = {'data': data, 'fetched_at': fetched_at, 'slot': slot}
     elif cached:
-        # All stages failed — keep serving the last cached result rather than dropping to None
         print("ERROR [pla_flag]: all sources failed, serving stale cache")
         return cached['data'], cached['fetched_at']
 
