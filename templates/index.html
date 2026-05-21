@@ -150,7 +150,7 @@
         }
 
         .pla-flag-text {
-            font-size: clamp(10px, 1.1vw, 15px);
+            font-size: clamp(12px, 1.4vw, 20px);
             color: #ccc;
             line-height: 1.45;
         }
@@ -161,15 +161,15 @@
                 overflow: hidden;
                 position: relative;
             }
-            .pla-flag-text-inner {
-                animation: flag-scroll 14s ease-in-out infinite;
-            }
             @keyframes flag-scroll {
                 0%   { transform: translateY(0); }
                 10%  { transform: translateY(0); }
                 80%  { transform: translateY(var(--scroll-dist, -60px)); }
                 90%  { transform: translateY(var(--scroll-dist, -60px)); }
                 100% { transform: translateY(0); }
+            }
+            .pla-flag-text-inner.needs-scroll {
+                animation: flag-scroll 14s ease-in-out infinite;
             }
         }
 
@@ -180,7 +180,7 @@
         }
 
         .flag-footnote {
-            font-size: clamp(10px, 1.0vw, 13px);
+            font-size: clamp(12px, 1.4vw, 20px);
             color: #fff;
             margin-top: 6px;
             animation: blink 1.5s infinite;
@@ -357,12 +357,16 @@
             </div>
         </div>
         <script>
-        (function(){
+        window.addEventListener('load', function() {
             var inner = document.getElementById('flagTextInner');
             if (!inner) return;
-            var dist = inner.scrollHeight - inner.parentElement.clientHeight;
-            if (dist > 0) inner.style.setProperty('--scroll-dist', '-' + dist + 'px');
-        })();
+            var container = inner.parentElement;
+            var dist = inner.scrollHeight - container.clientHeight;
+            if (dist > 4) {
+                inner.style.setProperty('--scroll-dist', '-' + dist + 'px');
+                inner.classList.add('needs-scroll');
+            }
+        });
         </script>
     {% else %}
         <p class="flag-error">&#9888; Error: check flag status with PLA</p>
