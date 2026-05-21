@@ -219,28 +219,69 @@ def get_calendar_events():
     return get_cached('calendar', fetch, ttl_seconds=1800)
 
 
-def get_pla_flag():
-    def fetch():
-        r = requests.get("https://pla.co.uk/pla-api-integration/ebb-tide-widget-embed", timeout=5)
-        soup = BeautifulSoup(r.text, 'html.parser')
-        img = soup.find('img')
-        if not img:
-            print("ERROR [pla_flag]: no <img> tag found in PLA widget response")
-            return None
-        src = img['src']
-        url = "https://pla.co.uk" + src if not src.startswith('http') else src
-        try:
-            head = requests.head(url, timeout=5)
-            ct = head.headers.get("Content-Type", "")
-            if not head.ok or not ct.startswith("image/"):
-                print(f"ERROR [pla_flag]: image URL returned {head.status_code} / Content-Type '{ct}' — url: {url}")
-                return None
-        except Exception as e:
-            print(f"ERROR [pla_flag]: could not verify image URL ({url}): {e}")
-            return None
-        _cache['pla_flag_last_good'] = url
-        return url
+# ---------------------------------------------------------------------------
+# PLA Ebb Flag
+# ---------------------------------------------------------------------------
 
+_PLA_FLAG_EMBED_URL  = "https://pla.co.uk/pla-api-integration/ebb-tide-widget-embed"
+_PLA_FLAG_JSON_URL   = "https://pla.co.uk/pla-proxy/five-minute?url=tides/ebb-flag"
+_PLA_FLAG_IMAGE_BASE = "https://pla.co.uk/modules/custom/pla_api_integration/assets/flag_{colour}.png"
+
+_PLA_LETTER_MAP = {"G": "green", "Y": "yellow", "R": "red", "B": "black"}
+
+
+def _flag_result(colour, source):
+    """Build a normalised flag result dict from a colour name (lowercase)."""
+    return {"colour": colour, "image_url": _PLA_FLAG_IMAGE_BASE.format(colour=colour), "source": source}
+
+
+def _pla_flag_from_embed():
+    """Stage 1: scrape the PLA embed page and extract colour from the img src."""
+    r = requests.get(_PLA_FLAG_EMBED_URL, timeout=5)
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, 'html.parser')
+    img = soup.find('img')
+    if not img:
+        print("ERROR [pla_flag]: no <img> tag in embed page")
+        return None
+    src = img.get('src', '')
+    for colour in ('green', 'yellow', 'red', 'black'):
+        if f'flag_{colour}' in src:
+            print(f"INFO [pla_flag]: embed → {colour}")
+            return _flag_result(colour, 'embed')
+    print(f"ERROR [pla_flag]: unrecognised img src '{src}'")
+    return None
+
+
+def _pla_flag_from_json():
+    """Stage 2: fetch the PLA JSON endpoint and map letter code to colour."""
+    r = requests.get(_PLA_FLAG_JSON_URL, timeout=5)
+    r.raise_for_status()
+    data = r.json()
+    letter = data.get("flag_colour", "").strip().upper()
+    colour = _PLA_LETTER_MAP.get(letter)
+    if not colour:
+        print(f"ERROR [pla_flag]: JSON returned unrecognised flag_colour '{letter}'")
+        return None
+    print(f"INFO [pla_flag]: JSON → {letter} → {colour}")
+    return _flag_result(colour, 'json')
+
+
+def _pla_flag_from_richmond():
+    """Stage 3: derive flag colour from cached Richmond low tide height using PLA thresholds."""
+    lw_data, _ = get_richmond_observed_low_tide()
+    if lw_data is None:
+        return None
+    metres = lw_data["metres"]
+    if   metres >= 2.6: colour = "red"
+    elif metres >= 1.7: colour = "yellow"
+    elif metres >= 0:   colour = "green"
+    else:               colour = "black"
+    print(f"INFO [pla_flag]: Richmond fallback {metres}m → {colour}")
+    return _flag_result(colour, 'richmond')
+
+
+def get_pla_flag():
     now = datetime.now(LONDON_TZ)
     h, m = now.hour, now.minute
 
@@ -268,32 +309,29 @@ def get_pla_flag():
         slot = (now.date(), 'evening')        # 19:15 onward stable
 
     cached = _cache.get('pla_flag')
-    if cached and cached.get('slot') == slot:
-        if cached['data'] is None:
-            last_good = _cache.get('pla_flag_last_good')
-            print(f"INFO [pla_flag]: cached data is None for slot {slot}, retrying fetch (last good: {last_good})")
-        else:
-            return cached['data'], cached['fetched_at']
+    if cached and cached.get('slot') == slot and cached['data'] is not None:
+        return cached['data'], cached['fetched_at']
 
-    try:
-        data = fetch()
-        fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
-        _cache['pla_flag'] = {
-            'ts': datetime.now(timezone.utc).timestamp(),
-            'data': data,
-            'fetched_at': fetched_at,
-            'slot': slot
-        }
-        return data, fetched_at
-    except Exception as e:
-        print(f"Error fetching pla_flag: {e}")
-        if cached and cached['data'] is not None:
-            return cached['data'], cached['fetched_at']
-        last_good = _cache.get('pla_flag_last_good')
-        if last_good:
-            print(f"INFO [pla_flag]: using last known-good image URL as fallback: {last_good}")
-            return last_good, cached['fetched_at'] if cached else ''
-        return None, ''
+    # Work through the fallback chain
+    data = None
+    for fn in (_pla_flag_from_embed, _pla_flag_from_json, _pla_flag_from_richmond):
+        try:
+            data = fn()
+        except Exception as e:
+            print(f"ERROR [pla_flag]: {fn.__name__} raised {e}")
+            data = None
+        if data is not None:
+            break
+
+    fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
+    if data is not None:
+        _cache['pla_flag'] = {'data': data, 'fetched_at': fetched_at, 'slot': slot}
+    elif cached:
+        # All stages failed — keep serving the last cached result rather than dropping to None
+        print("ERROR [pla_flag]: all sources failed, serving stale cache")
+        return cached['data'], cached['fetched_at']
+
+    return data, fetched_at
 
 
 # ---------------------------------------------------------------------------
