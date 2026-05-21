@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HAMMERSMITH TIDES</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
 
@@ -35,37 +36,41 @@
             .logo-portrait { display: block; }
         }
 
-@media (orientation: landscape) {
-    .grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
-        gap: clamp(12px, 2vw, 28px);
-        padding: 0 clamp(10px, 2vw, 20px);
-    }
-    .cal-event { font-size: clamp(12px, 1.4vw, 20px) !important; }
-    .logo-landscape { display: block; }
-    .logo-portrait { display: none; }
-    .logo-landscape .logo-img { width: clamp(96px, 24vw, 192px); }
+        @media (orientation: landscape) {
+            .grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr 1fr;
+                gap: clamp(12px, 2vw, 28px);
+                padding: 0 clamp(10px, 2vw, 20px);
+            }
+            .cal-event { font-size: clamp(12px, 1.4vw, 20px) !important; }
+            .logo-landscape { display: block; }
+            .logo-portrait { display: none; }
 
-    /* Column 2: use flex so logo is pushed to the bottom */
-    .grid > div:nth-child(2) {
-        display: flex;
-        flex-direction: column;
-    }
+            /* Column 1: flex so logo sits at the bottom */
+            .grid > div:nth-child(1) {
+                display: flex;
+                flex-direction: column;
+            }
 
-    /* Diary column: cap to viewport so it never overflows */
-    .grid > div:last-child {
-        display: flex;
-        flex-direction: column;
-        max-height: calc(100vh - 60px);
-    }
-    .cal-list {
-        overflow: hidden;
-        flex: 1 1 auto;
-        min-height: 0;
-        position: relative;
-    }
-}
+            /* Diary column: cap to viewport so it never overflows */
+            .grid > div:last-child {
+                display: flex;
+                flex-direction: column;
+                max-height: calc(100vh - 60px);
+            }
+            .cal-list {
+                overflow: hidden;
+                flex: 1 1 auto;
+                min-height: 0;
+                position: relative;
+            }
+
+            /* Logo in column 1: 25% larger than original */
+            .logo-landscape .logo-img {
+                width: clamp(150px, 40vw, 320px);
+            }
+        }
 
         h3 {
             border-bottom: 1px solid #333;
@@ -104,7 +109,7 @@
         .tide-hi { color: #FFD700; }
         .tide-lo { color: #00CED1; }
 
-.warn-active {
+        .warn-active {
             color: #FFFF00;
             font-weight: bold;
             margin-top: 10px;
@@ -135,6 +140,58 @@
             height: clamp(120px, 16vw, 240px);
             margin: 10px 0;
             border: 1px solid #333;
+            flex-shrink: 0;
+        }
+
+        .pla-flag-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+        }
+
+        .pla-flag-text {
+            font-size: clamp(12px, 1.4vw, 20px);
+            color: #ccc;
+            line-height: 1.45;
+        }
+
+        @media (orientation: landscape) {
+            .pla-flag-text {
+                max-height: clamp(120px, 16vw, 240px);
+                overflow: hidden;
+                position: relative;
+            }
+            @keyframes flag-scroll {
+                0%   { transform: translateY(0); }
+                10%  { transform: translateY(0); }
+                80%  { transform: translateY(var(--scroll-dist, -60px)); }
+                90%  { transform: translateY(var(--scroll-dist, -60px)); }
+                100% { transform: translateY(0); }
+            }
+            .pla-flag-text-inner.needs-scroll {
+                animation: flag-scroll 14s ease-in-out infinite;
+            }
+        }
+
+        @media (orientation: portrait) {
+            .pla-flag-text-inner {
+                animation: none;
+            }
+        }
+
+        .flag-footnote {
+            font-size: clamp(12px, 1.4vw, 20px);
+            color: #fff;
+            margin-top: 6px;
+            animation: blink 1.5s infinite;
+        }
+
+        .flag-error {
+            font-size: clamp(13px, 1.5vw, 20px);
+            color: #FF4B4B;
+            font-weight: bold;
+            margin-top: 10px;
+            animation: blink 1.5s infinite;
         }
 
         .flow-value {
@@ -217,6 +274,75 @@
         .c-black  { color: #ffffff; }
         .c-dim    { color: #888; }
         .c-white  { color: #fff; }
+
+        .wind-arrow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+        }
+        /* Rain radar map */
+        .radar-wrap {
+            position: relative;
+            width: 100%;
+            margin-bottom: 6px;
+        }
+
+        #radar-map {
+            width: 100%;
+            border: 1px solid #333;
+            height: clamp(160px, 18vw, 280px);
+        }
+
+        @media (orientation: portrait) {
+            #radar-map {
+                height: 40vw;
+            }
+        }
+
+        .radar-legend {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            z-index: 1000;
+            background: rgba(0,0,0,0.65);
+            border: 1px solid #444;
+            border-radius: 5px;
+            padding: 5px 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            pointer-events: none;
+        }
+
+        .radar-legend-row {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font-size: clamp(9px, 0.85vw, 12px);
+            color: #bbb;
+        }
+
+        .radar-legend-label {
+            color: #777;
+            font-size: clamp(8px, 0.75vw, 11px);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            min-width: 44px;
+        }
+
+        .radar-legend-swatch {
+            width: 18px;
+            height: 8px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .radar-legend-seg {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+        }
     </style>
 </head>
 <body>
@@ -227,13 +353,13 @@
 <div>
     <h3>HAMMERSMITH TIDES <span class="updated">Updated {{ d.tides.updated }}</span></h3>
 
-   {% if d.tides.last_tide %}
+    {% if d.tides.last_tide %}
         <div style="font-size:calc(var(--fs-data) * 0.95); color:#fff; margin-bottom:4px;">
             Last {{ d.tides.last_tide.label }} {{ d.tides.last_tide.time }} {{ d.tides.last_tide.height }}
         </div>
     {% endif %}
 
-   <div class="metric" {% if d.richmond_lw %}style="color:{% if d.richmond_lw.flag == 'RED' %}#FF4B4B{% elif d.richmond_lw.flag == 'YELLOW' %}#FFFF00{% elif d.richmond_lw.flag == 'GREEN' %}#33FF57{% else %}#ffffff{% endif %};"{% endif %}>
+    <div class="metric" {% if d.richmond_lw %}style="color:{% if d.richmond_lw.flag == 'RED' %}#FF4B4B{% elif d.richmond_lw.flag == 'YELLOW' %}#FFFF00{% elif d.richmond_lw.flag == 'GREEN' %}#33FF57{% else %}#ffffff{% endif %};"{% endif %}>
         {% if d.tides.direction %}
             {{ d.tides.direction }} UNTIL {{ d.tides.until }} {{ d.tides.current_target_height }}
         {% else %}
@@ -246,21 +372,59 @@
             Next {{ d.tides.next_tide.label }} {{ d.tides.next_tide.time }} {{ d.tides.next_tide.height }}
         </div>
     {% endif %}
-    
+
     <h3>PLA EBB FLAG <span class="updated">Updated {{ d.pla_updated }}</span></h3>
     <div class="pla-flag">
-        {% if d.pla_flag %}
-            <img src="{{ d.pla_flag }}" alt="PLA Flag"
-                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-            <p class="c-amber" style="display:none; font-size:var(--fs-data);">Broken link, please check flag with PLA</p>
-        {% else %}
-            <p class="c-dim" style="font-size:var(--fs-data);">Flag status unavailable</p>
-        {% endif %}
+    {% if d.pla_flag %}
+        {% set fc = d.pla_flag.colour %}
+        <div class="pla-flag-row">
+            <img src="{{ d.pla_flag.image_url }}" alt="PLA {{ fc | capitalize }} Flag">
+            <div>
+                <div class="pla-flag-text">
+                    <div class="pla-flag-text-inner" id="flagTextInner">
+                    {% if fc == 'red' %}
+                        <strong>Red &mdash; Very Strong Fluvial Flows</strong><br>
+                        Conditions are difficult and dangerous.<br>
+                        All man-powered vessels are advised not to go afloat.
+                    {% elif fc == 'yellow' %}
+                        <strong>Yellow &mdash; Strong Fluvial Flows</strong><br>
+                        PLA advise man-powered vessels:<br>
+                        Beginners, novices, younger juniors (J15s and younger), or any weaker crews, and those that do not usually navigate on the tidal section of the River Thames not to go afloat on the ebb tide.<br>
+                        All river users of man-powered vessels should navigate with extreme caution and consider whether it is safe for them to go afloat on the ebb tide.
+                    {% elif fc == 'green' %}
+                        <strong>Green &mdash; Average Fluvial Flows</strong><br>
+                        All river users to navigate with caution and maintain a proper look out.
+                    {% elif fc == 'black' %}
+                        <strong>Black &mdash; Low Fluvial Flows</strong><br>
+                        Fluvial flow is lower than usual. River users should expect lower than predicted tides, especially around low water.
+                    {% endif %}
+                    </div>
+                </div>
+                {% if d.pla_flag.source in ('json', 'richmond') %}
+                <p class="flag-footnote">&#9888; Double check flag status with PLA</p>
+                {% endif %}
+            </div>
+        </div>
+        <script>
+        window.addEventListener('load', function() {
+            var inner = document.getElementById('flagTextInner');
+            if (!inner) return;
+            var container = inner.parentElement;
+            var dist = inner.scrollHeight - container.clientHeight;
+            if (dist > 4) {
+                inner.style.setProperty('--scroll-dist', '-' + dist + 'px');
+                inner.classList.add('needs-scroll');
+            }
+        });
+        </script>
+    {% else %}
+        <p class="flag-error">&#9888; Error: check flag status with PLA</p>
+    {% endif %}
     </div>
 
     <h3>RICHMOND LOW TIDE <span class="updated">Updated {{ d.richmond_lw_updated }}</span></h3>
     {% if d.richmond_lw %}
-       <div style="white-space:normal; font-size:calc(var(--fs-data) * 0.95);">
+        <div style="white-space:normal; font-size:calc(var(--fs-data) * 0.95);">
             {{ d.richmond_lw.time }}
             is {{ "%.2f"|format(d.richmond_lw.metres) }}m &mdash;
             <span class="c-{{ d.richmond_lw.flag|lower }}">{{ d.richmond_lw.flag_word }}</span>
@@ -280,11 +444,15 @@
             {% set fcol = '#ffffff' %}
         {% endif %}
         <div class="flow-value" style="color:{{ fcol }}; font-size:calc(var(--fs-data) * 0.95);">
-            {{ d.kingston_flow.flow }} <span style="font-size:calc(var(--fs-data) * 0.95); color:{{ fcol }};">{{ d.kingston_flow.unit }}</span>        </div>
+            {{ d.kingston_flow.flow }} <span style="font-size:calc(var(--fs-data) * 0.95); color:{{ fcol }};">{{ d.kingston_flow.unit }}</span>
+        </div>
     {% else %}
         <p class="c-dim" style="font-size:var(--fs-data);">Flow data unavailable</p>
     {% endif %}
 
+    <div class="logo-landscape" style="margin-top: auto; padding-top: 10px;">
+        <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
+    </div>
 </div>
 
 <!-- COLUMN 2 -->
@@ -493,9 +661,27 @@
     <p class="nswws-headline c-dim">No Met Office Warnings in Hammersmith{% if d.nswws_updated %}, NSWWS updated at {{ d.nswws_updated }}{% endif %}</p>
     {% endif %}
 
-<div class="logo-landscape" style="margin-top: auto; padding-top: 10px;">
-        <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
+    <h3>RAIN AND WIND RADAR</h3>
+    <div class="radar-wrap">
+        <div id="radar-map"></div>
+        <div class="radar-legend">
+            <div class="radar-legend-row">
+                <span class="radar-legend-label">Rainfall</span>
+                <div class="radar-legend-seg"><div class="radar-legend-swatch" style="background:#3bba3b;"></div><span>Light</span></div>
+                <div class="radar-legend-seg"><div class="radar-legend-swatch" style="background:#f0d040;"></div><span>Moderate</span></div>
+                <div class="radar-legend-seg"><div class="radar-legend-swatch" style="background:#e03b3b;"></div><span>Heavy</span></div>
+            </div>
+            <div class="radar-legend-row">
+                <span class="radar-legend-label">Wind</span>
+                <div class="radar-legend-seg"><span style="color:#22c55e;">➤</span><span>&lt;15 km/h</span></div>
+                <div class="radar-legend-seg"><span style="color:#eab308;">➤</span><span>15–30</span></div>
+                <div class="radar-legend-seg"><span style="color:#f97316;">➤</span><span>30–45</span></div>
+                <div class="radar-legend-seg"><span style="color:#ef4444;">➤</span><span>&gt;45</span></div>
+            </div>
+        </div>
     </div>
+    <p class="wx-source" id="radar-updated">Loading radar...</p>
+
 </div>
 
 <!-- COLUMN 3 -->
@@ -504,22 +690,21 @@
         {{ d.cal.day_label }} <span id="liveclock"></span>
         <span class="updated">Updated {{ d.cal.updated }}</span>
     </h3>
-<div class="cal-list" id="calList">
-    <div id="calListInner">
-    {% if d.cal.list %}
-        {% for e in d.cal.list %}
-            {% set is_past = e.time != 'All Day' and e.time.split('-')|last < d.last_updated[:5] %}
-            <div class="cal-event" style="{{ 'opacity:0.35;' if is_past else '' }}">
-                <span class="cal-time">{{ e.time }}</span><br>{{ e.summary }}
-            </div>
-        {% endfor %}
-    {% else %}
-        <p class="c-dim" style="font-size:var(--fs-data);">No sessions scheduled for {{ d.cal.day_label.lower() }}.</p>
-    {% endif %}
+    <div class="cal-list" id="calList">
+        <div id="calListInner">
+        {% if d.cal.list %}
+            {% for e in d.cal.list %}
+                {% set is_past = e.time != 'All Day' and e.time.split('-')|last < d.last_updated[:5] %}
+                <div class="cal-event" style="{{ 'opacity:0.35;' if is_past else '' }}">
+                    <span class="cal-time">{{ e.time }}</span><br>{{ e.summary }}
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="c-dim" style="font-size:var(--fs-data);">No sessions scheduled for {{ d.cal.day_label.lower() }}.</p>
+        {% endif %}
+        </div>
     </div>
 </div>
-
-   </div>
 
 </div>
 
@@ -532,6 +717,7 @@
     <span>{{ d.last_updated }}</span>
 </footer>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
     function autoRefresh() {
         fetch('/data')
@@ -543,22 +729,16 @@
     // Landscape diary: shrink font to fit, then auto-scroll if still overflowing
     function fitDiary() {
         if (window.matchMedia('(orientation: portrait)').matches) return;
-
         var container = document.getElementById('calList');
         var inner = document.getElementById('calListInner');
         if (!container || !inner) return;
-
         var events = inner.querySelectorAll('.cal-event');
         if (!events.length) return;
-
-        // Step 1: shrink font size down until it fits (min 10px)
         var currentSize = parseFloat(window.getComputedStyle(events[0]).fontSize);
         while (inner.scrollHeight > container.clientHeight && currentSize > 10) {
             currentSize -= 0.5;
             events.forEach(function(e) { e.style.fontSize = currentSize + 'px'; });
         }
-
-        // Step 2: if still overflowing after minimum font, start auto-scroll loop
         if (inner.scrollHeight > container.clientHeight) {
             startScroll(container, inner);
         }
@@ -566,47 +746,39 @@
 
     var scrollInterval = null;
     function startScroll(container, inner) {
-    if (scrollInterval) return;
-
-    var pos = 0;
-    var speed = 0.3;
-    var pauseDuration = 3000; // ms
-    var lastPauseTime = Date.now() + pauseDuration; // extra initial delay
-    var isPaused = true;
-
-    scrollInterval = setInterval(function () {
-        var now = Date.now();
-
-        if (isPaused) {
-            if (now - lastPauseTime >= pauseDuration) {
-                isPaused = false;
-            } else {
+        if (scrollInterval) return;
+        var pos = 0;
+        var speed = 0.3;
+        var pauseDuration = 3000;
+        var lastPauseTime = Date.now() + pauseDuration;
+        var isPaused = true;
+        scrollInterval = setInterval(function () {
+            var now = Date.now();
+            if (isPaused) {
+                if (now - lastPauseTime >= pauseDuration) { isPaused = false; } else { return; }
+            }
+            pos += speed;
+            var maxScroll = inner.scrollHeight - container.clientHeight;
+            if (pos >= maxScroll) {
+                pos = maxScroll;
+                isPaused = true;
+                lastPauseTime = Date.now();
+                setTimeout(function () {
+                    pos = 0;
+                    inner.style.transform = 'translateY(0px)';
+                    lastPauseTime = Date.now();
+                }, pauseDuration);
                 return;
             }
-        }
+            inner.style.transform = 'translateY(-' + pos + 'px)';
+        }, 20);
+    }
 
-        pos += speed;
-        var maxScroll = inner.scrollHeight - container.clientHeight;
+    window.addEventListener('load', function() {
+        fitDiary();
+        initRadar();
+    });
 
-        if (pos >= maxScroll) {
-            pos = maxScroll;
-            isPaused = true;
-            lastPauseTime = Date.now();
-
-            setTimeout(function () {
-                pos = 0;
-                inner.style.transform = 'translateY(0px)';
-                lastPauseTime = Date.now();
-            }, pauseDuration);
-
-            return;
-        }
-
-        inner.style.transform = 'translateY(-' + pos + 'px)';
-    }, 20);
-}
-
-    window.addEventListener('load', fitDiary);
     window.addEventListener('resize', function() {
         if (scrollInterval) { clearInterval(scrollInterval); scrollInterval = null; }
         var inner = document.getElementById('calListInner');
@@ -615,21 +787,146 @@
             inner.querySelectorAll('.cal-event').forEach(function(e) { e.style.fontSize = ''; });
         }
         fitDiary();
+        if (radarMap) radarMap.invalidateSize();
     });
-    // Live clock in TODAY header
+
+    // Live clock
     function updateClock() {
         var el = document.getElementById('liveclock');
         if (!el) return;
         var now = new Date();
         var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-        var day = days[now.getDay()];
         var h = String(now.getHours()).padStart(2, '0');
         var m = String(now.getMinutes()).padStart(2, '0');
         var s = String(now.getSeconds()).padStart(2, '0');
-        el.textContent = day + ' ' + h + ':' + m + ':' + s;
+        el.textContent = days[now.getDay()] + ' ' + h + ':' + m + ':' + s;
     }
     updateClock();
     setInterval(updateClock, 1000);
+
+    // Rain radar
+    var radarMap = null;
+    var radarLayer = null;
+
+    function initRadar() {
+        radarMap = L.map('radar-map', {
+            center: [51.49, -0.23],
+            zoom: 7,
+            zoomControl: false,
+            attributionControl: false,
+            dragging: false,
+            scrollWheelZoom: false,
+            doubleClickZoom: false,
+            touchZoom: false
+        });
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            opacity: 0.8
+        }).addTo(radarMap);
+
+        loadRadar();
+        setInterval(loadRadar, 300000);
+    }
+
+    function loadRadar() {
+        fetch('https://api.rainviewer.com/public/weather-maps.json')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var frames = data.radar && data.radar.past;
+                if (!frames || !frames.length) return;
+                var latest = frames[frames.length - 1];
+                // colour=2 (green→yellow→red), tileSize=512, smooth=1, snow=0
+                var url = data.host + latest.path + '/256/{z}/{x}/{y}/2/1_1.png';
+                if (radarLayer) radarMap.removeLayer(radarLayer);
+                radarLayer = L.tileLayer(url, {
+                    opacity: 0.8,
+                    tileSize: 256
+                }).addTo(radarMap);
+                var d = new Date(latest.time * 1000);
+                var h = String(d.getHours()).padStart(2,'0');
+                var mn = String(d.getMinutes()).padStart(2,'0');
+                document.getElementById('radar-updated').textContent = 'Radar: ' + h + ':' + mn;
+            })
+            .catch(function() {
+                document.getElementById('radar-updated').textContent = 'Radar unavailable';
+            });
+    }
+    // ---------------------------------------------------------------------------
+// Wind arrows overlay
+// ---------------------------------------------------------------------------
+var windLayer = null;
+
+function loadWindArrows() {
+    fetch('/api/wind')
+        .then(r => r.json())
+        .then(data => {
+            if (data.error || !data.points) {
+                console.log('Wind data unavailable:', data.error);
+                return;
+            }
+            
+            // Remove existing wind layer
+            if (windLayer) {
+                radarMap.removeLayer(windLayer);
+            }
+            
+            // Create arrow markers for each point
+            var arrows = [];
+            data.points.forEach(function(p) {
+                if (p.speed === null || p.direction === null) return;
+                
+                // Create arrow icon - rotated by wind direction
+                // Wind direction is where wind comes FROM, arrow shows where it goes TO
+                var arrowDirection = (p.direction + 90) % 360;
+                
+                // Scale arrow size by wind speed (min 20px, max 40px)
+                var size = Math.min(40, Math.max(20, 15 + p.speed / 2));
+                
+                // Color by speed: green < 15, yellow 15-30, orange 30-45, red > 45 km/h
+                var color;
+                if (p.speed < 15) color = '#22c55e';      // green
+                else if (p.speed < 30) color = '#eab308'; // yellow  
+                else if (p.speed < 45) color = '#f97316'; // orange
+                else color = '#ef4444';                    // red
+                
+                var arrowIcon = L.divIcon({
+                    className: 'wind-arrow',
+                    html: '<div style="transform: rotate(' + arrowDirection + 'deg); font-size: ' + size + 'px; color: ' + color + '; opacity: 0.5; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">➤</div>',
+                    iconSize: [size, size],
+                    iconAnchor: [size/2, size/2]
+                });
+                
+                var marker = L.marker([p.lat, p.lon], {
+                    icon: arrowIcon,
+                    interactive: true
+                });
+                
+                // Tooltip with details
+                marker.bindTooltip(
+                    '<b>' + Math.round(p.speed) + ' km/h</b><br>' +
+                    'Gusts: ' + Math.round(p.gusts || p.speed) + ' km/h<br>' +
+                    'From: ' + getCardinalDirection(p.direction),
+                    { direction: 'top', offset: [0, -10] }
+                );
+                
+                arrows.push(marker);
+            });
+            
+            windLayer = L.layerGroup(arrows).addTo(radarMap);
+            console.log('Wind arrows loaded:', data.points.length, 'points');
+        })
+        .catch(err => console.error('Wind fetch error:', err));
+}
+
+function getCardinalDirection(deg) {
+    var dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+                'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    return dirs[Math.round((deg % 360) / 22.5) % 16];
+}
+
+// Load wind arrows after radar loads, refresh every hour
+setTimeout(loadWindArrows, 2000);
+setInterval(loadWindArrows, 3600000);
 </script>
 
 </body>
