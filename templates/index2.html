@@ -282,10 +282,15 @@
             pointer-events: auto;
         }
         /* Rain radar map */
+        .radar-wrap {
+            position: relative;
+            width: 100%;
+            margin-bottom: 6px;
+        }
+
         #radar-map {
             width: 100%;
             border: 1px solid #333;
-            margin-bottom: 6px;
             height: clamp(160px, 18vw, 280px);
         }
 
@@ -293,6 +298,50 @@
             #radar-map {
                 height: 40vw;
             }
+        }
+
+        .radar-legend {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            z-index: 1000;
+            background: rgba(0,0,0,0.65);
+            border: 1px solid #444;
+            border-radius: 5px;
+            padding: 5px 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            pointer-events: none;
+        }
+
+        .radar-legend-row {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font-size: clamp(9px, 0.85vw, 12px);
+            color: #bbb;
+        }
+
+        .radar-legend-label {
+            color: #777;
+            font-size: clamp(8px, 0.75vw, 11px);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            min-width: 44px;
+        }
+
+        .radar-legend-swatch {
+            width: 18px;
+            height: 8px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .radar-legend-seg {
+            display: flex;
+            align-items: center;
+            gap: 3px;
         }
     </style>
 </head>
@@ -377,7 +426,7 @@
     {% if d.richmond_lw %}
         <div style="white-space:normal; font-size:calc(var(--fs-data) * 0.95);">
             {{ d.richmond_lw.time }}
-            is {{ "%.2f"|format(d.richmond_lw.metres) }}m &mdash;
+            was {{ "%.2f"|format(d.richmond_lw.metres) }}m &mdash;
             <span class="c-{{ d.richmond_lw.flag|lower }}">{{ d.richmond_lw.flag_word }}</span>
         </div>
     {% else %}
@@ -440,12 +489,14 @@
                 <td>Temp</td>
                 <td>
                     {% if m and m.temp_min is not none and m.temp_max is not none %}
-                        {{ m.temp_min }}-{{ m.temp_max }}c
+                        {% set air_col_m = 'c-red' if (m.temp_max >= 30 or m.temp_min < 0) else 'c-yellow' if (m.temp_max >= 25 or m.temp_min < 3) else 'c-white' %}
+                        <span class="{{ air_col_m }}">{{ m.temp_min }}-{{ m.temp_max }}c</span>
                     {% else %}&mdash;{% endif %}
                 </td>
                 <td>
                     {% if a and a.temp_min is not none and a.temp_max is not none %}
-                        {{ a.temp_min }}-{{ a.temp_max }}c
+                        {% set air_col_a = 'c-red' if (a.temp_max >= 30 or a.temp_min < 0) else 'c-yellow' if (a.temp_max >= 25 or a.temp_min < 3) else 'c-white' %}
+                        <span class="{{ air_col_a }}">{{ a.temp_min }}-{{ a.temp_max }}c</span>
                     {% else %}&mdash;{% endif %}
                 </td>
             </tr>
@@ -547,13 +598,24 @@
                 </td>
             </tr>
             <tr>
+                <td>Water Temp</td>
+                <td colspan="2">
+                    {% if d.thames_temp %}
+                        {% set wt = d.thames_temp.temperature_c|round|int %}
+                        {% set wt_col = 'c-red' if wt < 10 else 'c-yellow' if wt < 15 else 'c-white' %}
+                        <span class="{{ wt_col }}">{{ wt }}c</span>
+                    {% else %}<span class="c-dim">&mdash;</span>{% endif %}
+                </td>
+            </tr>
+            <tr>
                 <td>Air+Water Temp</td>
                 <td>
                     {% if m and m.temp_min is not none and d.thames_temp %}
                         {% set air_m = m.temp_min %}
                         {% set water_m = d.thames_temp.temperature_c|round|int %}
                         {% set total_m = (air_m + water_m) %}
-                        <small><span class="{{ 'c-red' if total_m < 14 else 'c-white' }}">{{ air_m }}c+{{ water_m }}c=<br>{{ total_m }}c</span></small>
+                        {% set aw_col_m = 'c-red' if total_m < 14 else 'c-yellow' if total_m < 20 else 'c-white' %}
+                        <small><span class="{{ aw_col_m }}">{{ air_m }}c+{{ water_m }}c=<br>{{ total_m }}c</span></small>
                     {% else %}<span class="c-dim">&mdash;</span>{% endif %}
                 </td>
                 <td>
@@ -561,7 +623,8 @@
                         {% set air_a = a.temp_min %}
                         {% set water_a = d.thames_temp.temperature_c|round|int %}
                         {% set total_a = (air_a + water_a) %}
-                        <small><span class="{{ 'c-red' if total_a < 14 else 'c-white' }}">{{ air_a }}c+{{ water_a }}c=<br>{{ total_a }}c</span></small>
+                        {% set aw_col_a = 'c-red' if total_a < 14 else 'c-yellow' if total_a < 20 else 'c-white' %}
+                        <small><span class="{{ aw_col_a }}">{{ air_a }}c+{{ water_a }}c=<br>{{ total_a }}c</span></small>
                     {% else %}<span class="c-dim">&mdash;</span>{% endif %}
                 </td>
             </tr>
@@ -613,7 +676,24 @@
     {% endif %}
 
     <h3>RAIN AND WIND RADAR</h3>
-    <div id="radar-map"></div>
+    <div class="radar-wrap">
+        <div id="radar-map"></div>
+        <div class="radar-legend">
+            <div class="radar-legend-row">
+                <span class="radar-legend-label">Rainfall</span>
+                <div class="radar-legend-seg"><div class="radar-legend-swatch" style="background:#3bba3b;"></div><span>Light</span></div>
+                <div class="radar-legend-seg"><div class="radar-legend-swatch" style="background:#f0d040;"></div><span>Moderate</span></div>
+                <div class="radar-legend-seg"><div class="radar-legend-swatch" style="background:#e03b3b;"></div><span>Heavy</span></div>
+            </div>
+            <div class="radar-legend-row">
+                <span class="radar-legend-label">Wind</span>
+                <div class="radar-legend-seg"><span style="color:#22c55e;">➤</span><span>&lt;15 km/h</span></div>
+                <div class="radar-legend-seg"><span style="color:#eab308;">➤</span><span>15–30</span></div>
+                <div class="radar-legend-seg"><span style="color:#f97316;">➤</span><span>30–45</span></div>
+                <div class="radar-legend-seg"><span style="color:#ef4444;">➤</span><span>&gt;45</span></div>
+            </div>
+        </div>
+    </div>
     <p class="wx-source" id="radar-updated">Loading radar...</p>
 
 </div>
@@ -626,14 +706,69 @@
     </h3>
     <div class="cal-list" id="calList">
         <div id="calListInner">
-        {% if d.cal.list %}
+        {% if d.cal.list or d.weather.sunrise %}
+            {% set sunrise_time = d.weather.sunrise if not d.weather.error else '' %}
+            {% set sunset_time  = d.weather.sunset  if not d.weather.error else '' %}
+            {% set sunrise_inserted = namespace(done=false) %}
+            {% set sunset_inserted  = namespace(done=false) %}
+
             {% for e in d.cal.list %}
+                {# Insert Sunrise before the first event whose start time is >= sunrise #}
+                {% if sunrise_time and not sunrise_inserted.done %}
+                    {% set e_start = e.time if e.time != 'All Day' else '00:00' %}
+                    {% if e_start >= sunrise_time %}
+                        {% set sunrise_is_past = sunrise_time < d.last_updated[:5] %}
+                        <div class="cal-event" style="border-left-color:#FFD700;{{ ' opacity:0.35;' if sunrise_is_past else '' }}">
+                            <span class="cal-time" style="color:#FFD700;">{{ sunrise_time }}</span><br>&#9728; Sunrise
+                        </div>
+                        {% set sunrise_inserted.done = true %}
+                    {% endif %}
+                {% endif %}
+
+                {# Insert Sunset before the first event that ends after sunset #}
+                {% if sunset_time and not sunset_inserted.done %}
+                    {% set e_end = e.time.split('-')|last if (e.time != 'All Day' and '-' in e.time) else e.time if e.time != 'All Day' else '23:59' %}
+                    {% if e_end > sunset_time %}
+                        {% set sunset_is_past = sunset_time < d.last_updated[:5] %}
+                        <div class="cal-event" style="border-left-color:#FF8C00;{{ ' opacity:0.35;' if sunset_is_past else '' }}">
+                            <span class="cal-time" style="color:#FF8C00;">{{ sunset_time }}</span><br>&#9790; Sunset
+                        </div>
+                        {% set sunset_inserted.done = true %}
+                    {% endif %}
+                {% endif %}
+
                 {% set is_past = e.time != 'All Day' and e.time.split('-')|last < d.last_updated[:5] %}
                 <div class="cal-event" style="{{ 'opacity:0.35;' if is_past else '' }}">
                     <span class="cal-time">{{ e.time }}</span><br>{{ e.summary }}
                 </div>
             {% endfor %}
+            {# After last event: append Sunrise if still not inserted #}
+            {% if sunrise_time and not sunrise_inserted.done %}
+                {% set sunrise_is_past = sunrise_time < d.last_updated[:5] %}
+                <div class="cal-event" style="border-left-color:#FFD700;{{ ' opacity:0.35;' if sunrise_is_past else '' }}">
+                    <span class="cal-time" style="color:#FFD700;">{{ sunrise_time }}</span><br>&#9728; Sunrise
+                </div>
+                {% set sunrise_inserted.done = true %}
+            {% endif %}
+            {# After last event: append Sunset if still not inserted #}
+            {% if sunset_time and not sunset_inserted.done %}
+                {% set sunset_is_past = sunset_time < d.last_updated[:5] %}
+                <div class="cal-event" style="border-left-color:#FF8C00;{{ ' opacity:0.35;' if sunset_is_past else '' }}">
+                    <span class="cal-time" style="color:#FF8C00;">{{ sunset_time }}</span><br>&#9790; Sunset
+                </div>
+            {% endif %}
         {% else %}
+            {# No calendar events — still show sunrise/sunset if available #}
+            {% if sunrise_time %}
+                <div class="cal-event" style="border-left-color:#FFD700;">
+                    <span class="cal-time" style="color:#FFD700;">{{ sunrise_time }}</span><br>&#9728; Sunrise
+                </div>
+            {% endif %}
+            {% if sunset_time %}
+                <div class="cal-event" style="border-left-color:#FF8C00;">
+                    <span class="cal-time" style="color:#FF8C00;">{{ sunset_time }}</span><br>&#9790; Sunset
+                </div>
+            {% endif %}
             <p class="c-dim" style="font-size:var(--fs-data);">No sessions scheduled for {{ d.cal.day_label.lower() }}.</p>
         {% endif %}
         </div>
@@ -813,8 +948,10 @@ function loadWindArrows() {
                 // Wind direction is where wind comes FROM, arrow shows where it goes TO
                 var arrowDirection = (p.direction + 90) % 360;
                 
-                // Scale arrow size by wind speed (min 20px, max 40px)
-                var size = Math.min(40, Math.max(20, 15 + p.speed / 2));
+                // Scale arrow size by wind speed — larger in landscape
+                var isLandscape = window.matchMedia("(orientation: landscape)").matches;
+                var sizeScale = isLandscape ? 1.6 : 1.0;
+                var size = Math.min(64, Math.max(20, (15 + p.speed / 2) * sizeScale));
                 
                 // Color by speed: green < 15, yellow 15-30, orange 30-45, red > 45 km/h
                 var color;
