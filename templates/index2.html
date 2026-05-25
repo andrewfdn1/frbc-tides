@@ -706,12 +706,8 @@
     </h3>
     <div class="cal-list" id="calList">
         <div id="calListInner">
-        {% if d.cal.list or d.weather.sunrise or d.tides.today_tides %}
-            {% set sunrise_time = d.weather.sunrise if not d.weather.error else '' %}
-            {% set sunset_time  = d.weather.sunset  if not d.weather.error else '' %}
-            {% set sunrise_inserted = namespace(done=false) %}
-            {% set sunset_inserted  = namespace(done=false) %}
-            {% set tide_inserted    = namespace(idx=0) %}
+        {% if d.cal.list or d.today_markers %}
+            {% set marker_inserted = namespace(idx=0) %}
 
             {# Pass 1: All Day events always first #}
             {% for e in d.cal.list %}
@@ -722,42 +718,42 @@
                 {% endif %}
             {% endfor %}
 
-            {# Pass 2: timed events, with tides/sunrise/sunset inserted at the right points #}
+            {# Pass 2: timed events, with pre-sorted markers (tides/sunrise/sunset) interleaved.
+               Insertion rules — before the first event where:
+                 tide/sunrise : event start >= marker time
+                 sunset       : event end   >  marker time  #}
             {% for e in d.cal.list %}
                 {% if e.time != 'All Day' %}
                     {% set e_start = e.time.split('-')[0] %}
                     {% set e_end   = e.time.split('-')|last %}
 
-                    {# Tides: insert any tide whose time falls before this event starts #}
-                    {% if d.tides.today_tides %}
-                        {% for tide in d.tides.today_tides %}
-                            {% if tide_inserted.idx <= loop.index0 and tide.time <= e_start %}
-                                {% set tide_is_past = tide.time < d.last_updated[:5] %}
-                                <div class="cal-event" style="border-left-color:#00CED1;{{ ' opacity:0.35;' if tide_is_past else '' }}">
-                                    <span class="cal-time" style="color:#00CED1;">{{ tide.time }}</span><br>{{ tide.label }} Tide {{ tide.height }}
+                    {# Consume all next-in-sequence markers that belong before this event #}
+                    {% set keep_going = namespace(v=true) %}
+                    {% for m in d.today_markers %}
+                        {% if keep_going.v and loop.index0 == marker_inserted.idx %}
+                            {% if m.type in ('tide', 'sunrise') and m.time <= e_start %}
+                                {% set m_is_past = m.time < d.last_updated[:5] %}
+                                {% if m.type == 'tide' %}
+                                    <div class="cal-event" style="border-left-color:#00CED1;{{ ' opacity:0.35;' if m_is_past else '' }}">
+                                        <span class="cal-time" style="color:#00CED1;">{{ m.time }}</span><br>{{ m.label }} Tide {{ m.height }}
+                                    </div>
+                                {% else %}
+                                    <div class="cal-event" style="border-left-color:#FFD700;{{ ' opacity:0.35;' if m_is_past else '' }}">
+                                        <span class="cal-time" style="color:#FFD700;">{{ m.time }}</span><br>&#9728; Sunrise
+                                    </div>
+                                {% endif %}
+                                {% set marker_inserted.idx = marker_inserted.idx + 1 %}
+                            {% elif m.type == 'sunset' and m.time <= e_end %}
+                                {% set m_is_past = m.time < d.last_updated[:5] %}
+                                <div class="cal-event" style="border-left-color:#FF8C00;{{ ' opacity:0.35;' if m_is_past else '' }}">
+                                    <span class="cal-time" style="color:#FF8C00;">{{ m.time }}</span><br>&#9790; Sunset
                                 </div>
-                                {% set tide_inserted.idx = loop.index0 + 1 %}
+                                {% set marker_inserted.idx = marker_inserted.idx + 1 %}
+                            {% else %}
+                                {% set keep_going.v = false %}
                             {% endif %}
-                        {% endfor %}
-                    {% endif %}
-
-                    {# Sunrise: before the first timed event that starts at or after sunrise #}
-                    {% if sunrise_time and not sunrise_inserted.done and e_start >= sunrise_time %}
-                        {% set sunrise_is_past = sunrise_time < d.last_updated[:5] %}
-                        <div class="cal-event" style="border-left-color:#FFD700;{{ ' opacity:0.35;' if sunrise_is_past else '' }}">
-                            <span class="cal-time" style="color:#FFD700;">{{ sunrise_time }}</span><br>&#9728; Sunrise
-                        </div>
-                        {% set sunrise_inserted.done = true %}
-                    {% endif %}
-
-                    {# Sunset: before the first timed event that ends after sunset #}
-                    {% if sunset_time and not sunset_inserted.done and e_end > sunset_time %}
-                        {% set sunset_is_past = sunset_time < d.last_updated[:5] %}
-                        <div class="cal-event" style="border-left-color:#FF8C00;{{ ' opacity:0.35;' if sunset_is_past else '' }}">
-                            <span class="cal-time" style="color:#FF8C00;">{{ sunset_time }}</span><br>&#9790; Sunset
-                        </div>
-                        {% set sunset_inserted.done = true %}
-                    {% endif %}
+                        {% endif %}
+                    {% endfor %}
 
                     {% set is_past = e_end < d.last_updated[:5] %}
                     <div class="cal-event" style="{{ 'opacity:0.35;' if is_past else '' }}">
@@ -766,44 +762,26 @@
                 {% endif %}
             {% endfor %}
 
-            {# Append any remaining tides not yet placed (after all calendar events) #}
-            {% if d.tides.today_tides %}
-                {% for tide in d.tides.today_tides %}
-                    {% if tide_inserted.idx <= loop.index0 %}
-                        {% set tide_is_past = tide.time < d.last_updated[:5] %}
-                        <div class="cal-event" style="border-left-color:#00CED1;{{ ' opacity:0.35;' if tide_is_past else '' }}">
-                            <span class="cal-time" style="color:#00CED1;">{{ tide.time }}</span><br>{{ tide.label }} Tide {{ tide.height }}
+            {# Append any markers not yet placed (after all calendar events) #}
+            {% for m in d.today_markers %}
+                {% if loop.index0 >= marker_inserted.idx %}
+                    {% set m_is_past = m.time < d.last_updated[:5] %}
+                    {% if m.type == 'tide' %}
+                        <div class="cal-event" style="border-left-color:#00CED1;{{ ' opacity:0.35;' if m_is_past else '' }}">
+                            <span class="cal-time" style="color:#00CED1;">{{ m.time }}</span><br>{{ m.label }} Tide {{ m.height }}
                         </div>
-                        {% set tide_inserted.idx = loop.index0 + 1 %}
+                    {% elif m.type == 'sunrise' %}
+                        <div class="cal-event" style="border-left-color:#FFD700;{{ ' opacity:0.35;' if m_is_past else '' }}">
+                            <span class="cal-time" style="color:#FFD700;">{{ m.time }}</span><br>&#9728; Sunrise
+                        </div>
+                    {% elif m.type == 'sunset' %}
+                        <div class="cal-event" style="border-left-color:#FF8C00;{{ ' opacity:0.35;' if m_is_past else '' }}">
+                            <span class="cal-time" style="color:#FF8C00;">{{ m.time }}</span><br>&#9790; Sunset
+                        </div>
                     {% endif %}
-                {% endfor %}
-            {% endif %}
-
-            {# Append sunrise/sunset if not yet placed (all events finish before them) #}
-            {% if sunrise_time and not sunrise_inserted.done %}
-                {% set sunrise_is_past = sunrise_time < d.last_updated[:5] %}
-                <div class="cal-event" style="border-left-color:#FFD700;{{ ' opacity:0.35;' if sunrise_is_past else '' }}">
-                    <span class="cal-time" style="color:#FFD700;">{{ sunrise_time }}</span><br>&#9728; Sunrise
-                </div>
-            {% endif %}
-            {% if sunset_time and not sunset_inserted.done %}
-                {% set sunset_is_past = sunset_time < d.last_updated[:5] %}
-                <div class="cal-event" style="border-left-color:#FF8C00;{{ ' opacity:0.35;' if sunset_is_past else '' }}">
-                    <span class="cal-time" style="color:#FF8C00;">{{ sunset_time }}</span><br>&#9790; Sunset
-                </div>
-            {% endif %}
+                {% endif %}
+            {% endfor %}
         {% else %}
-            {# No calendar events or tides — still show sunrise/sunset if available #}
-            {% if sunrise_time %}
-                <div class="cal-event" style="border-left-color:#FFD700;">
-                    <span class="cal-time" style="color:#FFD700;">{{ sunrise_time }}</span><br>&#9728; Sunrise
-                </div>
-            {% endif %}
-            {% if sunset_time %}
-                <div class="cal-event" style="border-left-color:#FF8C00;">
-                    <span class="cal-time" style="color:#FF8C00;">{{ sunset_time }}</span><br>&#9790; Sunset
-                </div>
-            {% endif %}
             <p class="c-dim" style="font-size:var(--fs-data);">No sessions scheduled for {{ d.cal.day_label.lower() }}.</p>
         {% endif %}
         </div>
