@@ -1146,6 +1146,17 @@ def build_dashboard_data():
     nswws_headlines = _nswws_headline_lines(nswws_morning, nswws_afternoon)
     lightning, _ = get_lightning_risk()
 
+    # Pre-sorted marker list for the TODAY calendar column
+    # Combines tides + sunrise + sunset into a single time-ordered list
+    _markers = []
+    for _t in t_data.get("today_tides", []):
+        _markers.append({"type": "tide", "time": _t["time"], "label": _t["label"], "height": _t["height"]})
+    if weather.get("sunrise"):
+        _markers.append({"type": "sunrise", "time": weather["sunrise"]})
+    if weather.get("sunset"):
+        _markers.append({"type": "sunset", "time": weather["sunset"]})
+    _markers.sort(key=lambda x: x["time"])
+
     return {
         "lightning":           lightning,
         "tides":               t_data,
@@ -1163,6 +1174,7 @@ def build_dashboard_data():
         "flow_updated":        flow_up,
         "last_updated":        now_lon.strftime('%H:%M:%S'),
         "tz_label":            "BST" if is_bst else "GMT",
+        "today_markers":       _markers,
         "thames_temp":         thames_temp_data,
         "thames_temp_updated": thames_temp_up,
         "nswws_morning":       nswws_morning,
