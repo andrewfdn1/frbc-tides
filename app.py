@@ -1068,6 +1068,18 @@ def build_dashboard_data():
                 "height": f"{lt['Height']:.1f}m",
                 "type":   lt['EventType']
             }
+
+        # Today's tides for the calendar column — HH:MM only, today's date only
+        today_local = now_lon.date()
+        t_data["today_tides"] = [
+            {
+                "label":  "High" if t['EventType'] == 'HighWater' else "Low",
+                "time":   (t['dt_utc'] + off).strftime('%H:%M'),
+                "height": f"{t['Height']:.1f}m",
+            }
+            for t in tides
+            if (t['dt_utc'] + off).date() == today_local
+        ]
             
     # Calendar
     cal_data, cal_up = results.get('calendar', (None, ''))
