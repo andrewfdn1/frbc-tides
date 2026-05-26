@@ -417,34 +417,44 @@ def prevailing_direction(degrees_list):
 # ---------------------------------------------------------------------------
 
 _MO_SS_BASE  = "https://data.hub.api.metoffice.gov.uk/sitespecific/v0/point/"
-_MO_OBS_BASE = "https://data.hub.api.metoffice.gov.uk/land-observations/v1/point/"
+_MO_OBS_BASE = "https://data.hub.api.metoffice.gov.uk/observation-land/1/"
 _MO_FOG_CODES = {5, 6}          # mist, fog
 _MO_STORM_CODES = {28, 29, 30}  # thunder showers / thunder
 
 # Cached geohash for the nearest observation station — fetched once per process
-_mo_obs_geohash = None
+_mo_obs_geohash      = None
+_mo_obs_geohash_fail = 0   # timestamp after which we retry a failed geohash lookup
 
 
 def _get_mo_obs_geohash():
     """Fetch and cache the nearest observation station geohash for our lat/lon."""
-    global _mo_obs_geohash
+    global _mo_obs_geohash, _mo_obs_geohash_fail
     if _mo_obs_geohash:
         return _mo_obs_geohash
+    now = datetime.now(timezone.utc).timestamp()
+    if now < _mo_obs_geohash_fail:
+        raise Exception("Met Office Observations geohash lookup in backoff")
     url = _MO_OBS_BASE + "nearest"
     headers = {"apikey": MO_OBS_KEY, "accept": "application/json"}
     params  = {"latitude": LAT, "longitude": LON}
     r = requests.get(url, headers=headers, params=params, timeout=15)
     if r.status_code in (401, 403):
+        _mo_obs_geohash_fail = now + 3600   # back off 1 hour on auth failure
         raise Exception("Met Office Observations auth failed — check METOFFICE_OBSERVATIONS key")
     if r.status_code == 429:
+        _mo_obs_geohash_fail = now + 3600
         raise Exception("Met Office Observations rate limited")
-    r.raise_for_status()
+    if not r.ok:
+        _mo_obs_geohash_fail = now + 1800   # back off 30 min on any other error
+        r.raise_for_status()
     data = r.json()
     # Response is a list with one item: [{"geohash": "gcpu1s", ...}]
     if not data or not isinstance(data, list):
+        _mo_obs_geohash_fail = now + 1800
         raise Exception("Met Office Observations nearest: unexpected response format")
     geohash = data[0].get("geohash")
     if not geohash:
+        _mo_obs_geohash_fail = now + 1800
         raise Exception("Met Office Observations nearest: no geohash in response")
     _mo_obs_geohash = geohash
     print(f"Met Office Observations geohash cached: {geohash}")
