@@ -434,10 +434,9 @@ def _get_mo_obs_geohash():
     now = datetime.now(timezone.utc).timestamp()
     if now < _mo_obs_geohash_fail:
         raise Exception("Met Office Observations geohash lookup in backoff")
-    url = _MO_OBS_BASE + "nearest"
+    url = f"{_MO_OBS_BASE}nearest/{LAT}/{LON}"
     headers = {"apikey": MO_OBS_KEY, "accept": "application/json"}
-    params  = {"latitude": LAT, "longitude": LON}
-    r = requests.get(url, headers=headers, params=params, timeout=15)
+    r = requests.get(url, headers=headers, timeout=15)
     if r.status_code in (401, 403):
         _mo_obs_geohash_fail = now + 3600   # back off 1 hour on auth failure
         raise Exception("Met Office Observations auth failed — check METOFFICE_OBSERVATIONS key")
