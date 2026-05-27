@@ -88,7 +88,9 @@ _cache_locks_mu  = threading.Lock()
 _cal_fail_until  = 0
 
 # File-based backoff — survives process restarts and is shared across workers
-_BACKOFF_FILE = pathlib.Path(tempfile.gettempdir()) / "openmeteo_backoff.json"
+_BACKOFF_FILE  = pathlib.Path(tempfile.gettempdir()) / "openmeteo_backoff.json"
+# File-based morning weather store — survives process restarts
+_MORNING_FILE  = pathlib.Path(tempfile.gettempdir()) / "morning_weather.json"
 
 
 def _get_fail_until(key):
@@ -421,43 +423,81 @@ _MO_OBS_BASE = "https://data.hub.api.metoffice.gov.uk/observation-land/1/"
 _MO_FOG_CODES = {5, 6}          # mist, fog
 _MO_STORM_CODES = {28, 29, 30}  # thunder showers / thunder
 
-# Cached geohash for the nearest observation station — fetched once per process
+# Geohash file — persists the nearest station geohash across process restarts
+_GEOHASH_FILE = pathlib.Path(tempfile.gettempdir()) / "mo_obs_geohash.json"
+# Calculated fallback for Hammersmith (51.488, -0.224) — used if nearest call fails
+_MO_OBS_FALLBACK_GEOHASH = "gcpufv"
+
+# In-process cache
 _mo_obs_geohash      = None
-_mo_obs_geohash_fail = 0   # timestamp after which we retry a failed geohash lookup
+_mo_obs_geohash_fail = 0   # timestamp after which we retry a failed nearest lookup
+
+
+def _load_geohash():
+    """Load cached geohash from file."""
+    try:
+        data = json.loads(_GEOHASH_FILE.read_text())
+        return data.get("geohash")
+    except Exception:
+        return None
+
+
+def _save_geohash(geohash):
+    """Persist geohash to file."""
+    try:
+        _GEOHASH_FILE.write_text(json.dumps({"geohash": geohash}))
+    except Exception as e:
+        print(f"Could not persist geohash: {e}")
 
 
 def _get_mo_obs_geohash():
-    """Fetch and cache the nearest observation station geohash for our lat/lon."""
+    """
+    Return the nearest observation station geohash for our lat/lon.
+    Priority: in-process cache → file cache → API call → hardcoded fallback.
+    """
     global _mo_obs_geohash, _mo_obs_geohash_fail
+
+    # 1. In-process cache (fastest)
     if _mo_obs_geohash:
         return _mo_obs_geohash
+
+    # 2. File cache (survives restarts)
+    saved = _load_geohash()
+    if saved:
+        _mo_obs_geohash = saved
+        return _mo_obs_geohash
+
+    # 3. API call — skip if in backoff
     now = datetime.now(timezone.utc).timestamp()
-    if now < _mo_obs_geohash_fail:
-        raise Exception("Met Office Observations geohash lookup in backoff")
-    url = f"{_MO_OBS_BASE}nearest/{LAT}/{LON}"
-    headers = {"apikey": MO_OBS_KEY, "accept": "application/json"}
-    r = requests.get(url, headers=headers, timeout=15)
-    if r.status_code in (401, 403):
-        _mo_obs_geohash_fail = now + 3600   # back off 1 hour on auth failure
-        raise Exception("Met Office Observations auth failed — check METOFFICE_OBSERVATIONS key")
-    if r.status_code == 429:
-        _mo_obs_geohash_fail = now + 3600
-        raise Exception("Met Office Observations rate limited")
-    if not r.ok:
-        _mo_obs_geohash_fail = now + 1800   # back off 30 min on any other error
-        r.raise_for_status()
-    data = r.json()
-    # Response is a list with one item: [{"geohash": "gcpu1s", ...}]
-    if not data or not isinstance(data, list):
-        _mo_obs_geohash_fail = now + 1800
-        raise Exception("Met Office Observations nearest: unexpected response format")
-    geohash = data[0].get("geohash")
-    if not geohash:
-        _mo_obs_geohash_fail = now + 1800
-        raise Exception("Met Office Observations nearest: no geohash in response")
-    _mo_obs_geohash = geohash
-    print(f"Met Office Observations geohash cached: {geohash}")
-    return geohash
+    if now >= _mo_obs_geohash_fail:
+        try:
+            url = f"{_MO_OBS_BASE}nearest/{LAT}/{LON}"
+            headers = {"apikey": MO_OBS_KEY, "accept": "application/json"}
+            r = requests.get(url, headers=headers, timeout=15)
+            if r.status_code in (401, 403):
+                _mo_obs_geohash_fail = now + 3600
+                raise Exception("Met Office Observations auth failed")
+            if r.status_code == 429:
+                _mo_obs_geohash_fail = now + 3600
+                raise Exception("Met Office Observations rate limited")
+            if not r.ok:
+                _mo_obs_geohash_fail = now + 1800
+                r.raise_for_status()
+            data = r.json()
+            if data and isinstance(data, list):
+                geohash = data[0].get("geohash")
+                if geohash:
+                    _mo_obs_geohash = geohash
+                    _save_geohash(geohash)
+                    print(f"Met Office Observations geohash from API: {geohash}")
+                    return _mo_obs_geohash
+            _mo_obs_geohash_fail = now + 1800
+        except Exception as e:
+            print(f"Met Office Observations nearest failed, using fallback geohash: {e}")
+
+    # 4. Hardcoded fallback — Hammersmith nearest station
+    print(f"Met Office Observations using fallback geohash: {_MO_OBS_FALLBACK_GEOHASH}")
+    return _MO_OBS_FALLBACK_GEOHASH
 
 
 def _fetch_mo_observations():
@@ -849,44 +889,69 @@ def _fetch_weather_with_fallbacks():
     raise Exception("All weather sources failed")
 
 
-_morning_store = {}   # {date: morning_dict} — persists morning data across cache refreshes
+def _load_morning_store():
+    """Load morning weather data from file, returns {date_str: morning_dict}."""
+    try:
+        return json.loads(_MORNING_FILE.read_text())
+    except Exception:
+        return {}
 
-def get_weather():
-    result, fetched_at = get_cached('weather', _fetch_weather_with_fallbacks, ttl_seconds=7200)
-    if result is None:
-        raise Exception("Weather unavailable")
 
-    today = datetime.now(LONDON_TZ).date()
-    now_lon = datetime.now(LONDON_TZ)
+def _save_morning_store(store):
+    """Persist morning weather data to file."""
+    try:
+        _MORNING_FILE.write_text(json.dumps(store))
+    except Exception as e:
+        print(f"Could not persist morning store: {e}")
 
-    # If we got morning data from forecast, store it for the day
+
+def _fetch_weather_with_observations():
+    """
+    Fetch weather, persist morning data to file, and after midday replace
+    morning forecast with actual observations if available.
+    Called inside get_cached so it only runs when the cache expires.
+    """
+    result = _fetch_weather_with_fallbacks()
+    today_str = datetime.now(LONDON_TZ).date().isoformat()
+    now_lon   = datetime.now(LONDON_TZ)
+    store     = _load_morning_store()
+
+    # Purge old dates
+    store = {k: v for k, v in store.items() if k == today_str}
+
+    # Save morning forecast data if we have it
     if result.get('morning') is not None:
-        _morning_store[today] = result['morning']
+        store[today_str] = result['morning']
+        _save_morning_store(store)
 
-    # After midday: try to replace forecast morning with actual observations
+    # After midday: try to replace with actual observations (own cache — refreshes hourly)
     if now_lon.hour >= 12 and MO_OBS_KEY:
         try:
-            obs = _fetch_mo_observations()
-            existing = _morning_store.get(today)
-            obs_morning = _parse_mo_observations_morning(obs, existing)
-            if obs_morning:
-                _morning_store[today] = obs_morning
-                print("Met Office Observations: morning data replaced with actuals")
+            obs, _ = get_cached('mo_observations', _fetch_mo_observations, ttl_seconds=3600)
+            if obs:
+                obs_morning = _parse_mo_observations_morning(obs, store.get(today_str))
+                if obs_morning:
+                    store[today_str] = obs_morning
+                    _save_morning_store(store)
+                    print("Met Office Observations: morning data updated")
         except Exception as e:
             print(f"Met Office Observations morning fetch failed, keeping forecast: {e}")
 
-    # Restore morning from store if result has none (e.g. fetched after midday)
-    if result.get('morning') is None and today in _morning_store:
+    # Restore morning from file if result has none (fetched after midday)
+    if result.get('morning') is None and today_str in store:
         result = dict(result)
-        result['morning'] = _morning_store[today]
-    elif today in _morning_store:
+        result['morning'] = store[today_str]
+    elif today_str in store:
         result = dict(result)
-        result['morning'] = _morning_store[today]
+        result['morning'] = store[today_str]
 
-    # Purge old dates
-    for d in [k for k in _morning_store if k != today]:
-        del _morning_store[d]
+    return result
 
+
+def get_weather():
+    result, fetched_at = get_cached('weather', _fetch_weather_with_observations, ttl_seconds=7200)
+    if result is None:
+        raise Exception("Weather unavailable")
     return result, fetched_at
 
 
