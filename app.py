@@ -482,6 +482,8 @@ def get_richmond_observed_low_tide():
         now_utc = datetime.now(timezone.utc)
         best = None
 
+        if not isinstance(data, (list, dict)):
+            raise ValueError(f"Unexpected Richmond chart response type: {type(data).__name__}")
         records = data if isinstance(data, list) else data.get("tpoints", [])
         for tp in records:
             if tp.get("tidal_state") != 2:
