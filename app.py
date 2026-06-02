@@ -482,7 +482,8 @@ def get_richmond_observed_low_tide():
         now_utc = datetime.now(timezone.utc)
         best = None
 
-        for tp in data.get("tpoints", []):
+        records = data if isinstance(data, list) else data.get("tpoints", [])
+        for tp in records:
             if tp.get("tidal_state") != 2:
                 continue
             observed = tp.get("observed")
