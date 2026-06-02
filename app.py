@@ -485,7 +485,11 @@ def get_richmond_observed_low_tide():
         if not isinstance(data, (list, dict)):
             raise ValueError(f"Unexpected Richmond chart response type: {type(data).__name__}")
         records = data if isinstance(data, list) else data.get("tpoints", [])
+        if not isinstance(records, list):
+            raise ValueError(f"Unexpected Richmond records type: {type(records).__name__}")
         for tp in records:
+            if not isinstance(tp, dict):
+                continue
             if tp.get("tidal_state") != 2:
                 continue
             observed = tp.get("observed")
