@@ -371,7 +371,7 @@
 <div>
     <h3>
         {% if d.tides.direction %}
-            {{ d.tides.direction }} UNTIL {{ d.tides.until }}
+            {{ d.tides.direction }} UNTIL {{ d.tides.until }}{% if d.tides.current_target_height %}, {{ d.tides.current_target_height }}{% endif %}
         {% else %}
             HAMMERSMITH TIDES
         {% endif %}
@@ -380,39 +380,59 @@
 
     {% if d.tides.bridge_tides %}
     {% set now_hhmm = d.last_updated[:5] %}
+    {% set bt = d.tides.bridge_tides[0] %}
+    {% set next_is_hw = bt.next_is_hw %}
+    {# Col A = next tide (first), Col B = later tide (second, greyed) #}
+    {% if next_is_hw %}
+        {% set col_a_label = "High" %}
+        {% set col_a_class = "tide-hi" %}
+        {% set col_b_label = "Low" %}
+        {% set col_b_class = "tide-lo" %}
+    {% else %}
+        {% set col_a_label = "Low" %}
+        {% set col_a_class = "tide-lo" %}
+        {% set col_b_label = "High" %}
+        {% set col_b_class = "tide-hi" %}
+    {% endif %}
     <table class="wx-table bridge-tides-table">
         <thead>
             <tr>
                 <th>Bridge</th>
-                <th class="tide-hi">High</th>
-                <th class="tide-lo">Low</th>
-                <th>Metres</th>
+                <th class="{{ col_a_class }}">{{ col_a_label }}</th>
+                <th class="{{ col_b_class }}" style="opacity:0.4;">{{ col_b_label }}</th>
             </tr>
         </thead>
         <tbody>
         {% for row in d.tides.bridge_tides %}
             {% set is_hm = row.name == 'Hammersmith' %}
-            <tr style="color: {% if is_hm %}#33FF57{% else %}#ffffff{% endif %};">
-                <td>{{ row.name }}</td>
-                <td class="tide-hi" {% if row.hw_time and row.hw_time < now_hhmm %}style="opacity:0.4;"{% endif %}>
-                    {{ row.hw_time if row.hw_time else '&mdash;' }}
+            {% set row_col = '#33FF57' if is_hm else '#ffffff' %}
+            {% if next_is_hw %}
+                {% set col_a_time = row.hw_time %}
+                {% set col_b_time = row.lw_time %}
+            {% else %}
+                {% set col_a_time = row.lw_time %}
+                {% set col_b_time = row.hw_time %}
+            {% endif %}
+            <tr>
+                <td style="color:{{ row_col }}; font-weight:bold;">{{ row.name }}</td>
+                <td class="{{ col_a_class }}"
+                    style="{% if col_a_time and col_a_time < now_hhmm %}opacity:0.4;{% endif %}">
+                    {{ col_a_time if col_a_time else '&mdash;' }}
                 </td>
-                <td class="tide-lo" {% if row.lw_time and row.lw_time < now_hhmm %}style="opacity:0.4;"{% endif %}>
-                    {{ row.lw_time if row.lw_time else '&mdash;' }}
-                </td>
-                <td>
-                    {% if row.next_is_hw and row.hw_height %}
-                        <span class="tide-hi">{{ row.hw_height }}</span>
-                    {% elif not row.next_is_hw and row.lw_height %}
-                        <span class="tide-lo">{{ row.lw_height }}</span>
-                    {% else %}
-                        &mdash;
-                    {% endif %}
+                <td class="{{ col_b_class }}" style="opacity:0.4;
+                    {% if col_b_time and col_b_time < now_hhmm %}filter:brightness(0.6);{% endif %}">
+                    {{ col_b_time if col_b_time else '&mdash;' }}
                 </td>
             </tr>
         {% endfor %}
         </tbody>
     </table>
+    {% if d.tides.tidal_range %}
+    {% set tr = d.tides.tidal_range %}
+    <p style="font-size:var(--fs-updated); color:#888; margin-top:6px;">
+        Tidal range {{ tr.range }}m, High {{ tr.hw }}m &ndash; Low {{ tr.lw }}m{% if tr.trend %} &mdash; Moving to {{ tr.trend }} tides{% endif %}
+    </p>
+    {% endif %}
     {% else %}
         <p class="c-dim" style="font-size:var(--fs-data);">Tide data unavailable</p>
     {% endif %}
