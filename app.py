@@ -1426,6 +1426,42 @@ def build_dashboard_data():
                 "type":   lt['EventType']
             }
 
+        # Bridge tides table — apply fixed offsets (minutes) from Hammersmith reference
+        # Offsets are approximate and based on standard Thames tidal progression
+        _BRIDGES = [
+            {"name": "Putney",        "hw_off": -5,  "lw_off": -8},
+            {"name": "Hammersmith",   "hw_off":  0,  "lw_off":  0},
+            {"name": "Chiswick",      "hw_off": +8,  "lw_off": +10},
+            {"name": "Richmond",      "hw_off": +25, "lw_off": +30},
+        ]
+        # next tide event (fut[0]) determines whether "next" is HW or LW
+        _next_is_hw = fut[0]['EventType'] == 'HighWater'
+        # Gather up to 4 future events to find next HW and next LW at Hammersmith
+        _next_hw_utc = next((t['dt_utc'] for t in fut if t['EventType'] == 'HighWater'), None)
+        _next_lw_utc = next((t['dt_utc'] for t in fut if t['EventType'] == 'LowWater'),  None)
+        _next_hw_h   = next((t['Height'] for t in fut if t['EventType'] == 'HighWater'), None)
+        _next_lw_h   = next((t['Height'] for t in fut if t['EventType'] == 'LowWater'),  None)
+
+        def _fmt_bridge_time(base_utc, offset_mins):
+            if base_utc is None:
+                return None
+            adjusted = base_utc + timedelta(minutes=offset_mins) + off
+            return adjusted.strftime('%H:%M')
+
+        _bridge_rows = []
+        for _b in _BRIDGES:
+            _bridge_rows.append({
+                "name":     _b["name"],
+                "hw_time":  _fmt_bridge_time(_next_hw_utc, _b["hw_off"]),
+                "lw_time":  _fmt_bridge_time(_next_lw_utc, _b["lw_off"]),
+                "hw_height": f"{_next_hw_h:.1f}m" if _next_hw_h is not None else None,
+                "lw_height": f"{_next_lw_h:.1f}m" if _next_lw_h is not None else None,
+                "next_is_hw": _next_is_hw,
+            })
+        t_data["bridge_tides"] = _bridge_rows
+        t_data["next_hw_utc_iso"] = _next_hw_utc.isoformat() if _next_hw_utc else None
+        t_data["next_lw_utc_iso"] = _next_lw_utc.isoformat() if _next_lw_utc else None
+
         # Today's tides for the calendar column — HH:MM only, today's date only
         today_local = now_lon.date()
         t_data["today_tides"] = [
