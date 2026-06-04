@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HAMMERSMITH TIDES</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
+
+        body {
+            background-color: #000;
+            color: #fff;
+            min-height: 100vh;
+            padding-bottom: 36px;
+        }
+
+        :root {
+            --fs-header:  clamp(20px, 2.4vw, 28px);
+            --fs-updated: clamp(11px, 1.1vw, 15px);
+            --fs-data:    clamp(15px, 1.9vw, 26px);
+            --fs-metric:  clamp(20px, 2.8vw, 38px);
+            --fs-footer:  clamp(10px, 0.9vw, 13px);
+        }
+
+        .logo-img {
+            width: 33%;
+            height: auto;
+            margin-top: 20px;
+            display: block;
+        }
+
+        @media (orientation: portrait) {
+            .grid { grid-template-columns: 1fr; }
+            .logo-landscape { display: none; }
+            .logo-portrait { display: block; }
+        }
+
+        @media (orientation: landscape) {
+            .grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr 1fr;
+                gap: clamp(12px, 2vw, 28px);
+                padding: 0 clamp(10px, 2vw, 20px);
+            }
+            .cal-event { font-size: clamp(12px, 1.4vw, 20px) !important; }
+            .logo-landscape { display: block; }
+            .logo-portrait { display: none; }
+
+            /* Column 1: flex so logo sits at the bottom */
+            .grid > div:nth-child(1) {
+                display: flex;
+                flex-direction: column;
+            }
+
+            /* Diary column: cap to viewport so it never overflows */
+            .grid > div:last-child {
+                display: flex;
+                flex-direction: column;
+                max-height: calc(100vh - 60px);
+            }
+            .cal-list {
+                overflow: hidden;
+                flex: 1 1 auto;
+                min-height: 0;
+                position: relative;
+            }
+
+            /* Logo in column 1: 25% larger than original */
+            .logo-landscape .logo-img {
+                width: clamp(150px, 40vw, 320px);
+            }
+        }
+
+        h3 {
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+            text-transform: uppercase;
+            font-size: var(--fs-header);
+            margin-bottom: 10px;
+            margin-top: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+
+        .updated {
+            font-size: var(--fs-updated);
+            color: #fff;
+            font-weight: normal;
+            text-transform: none;
+        }
+
+        .metric {
+            color: #33FF57;
+            font-weight: bold;
+            font-size: var(--fs-data);
+            line-height: 1.35;
+            margin-bottom: 10px;
+        }
+
+        .tide-row {
+            font-size: var(--fs-data);
+            line-height: 1.4;
+            white-space: pre;
+            font-weight: bold;
+        }
+
+        .tide-hi { color: #FFD700; }
+        .tide-lo { color: #00CED1; }
+
+        .warn-active {
+            color: #FFFF00;
+            font-weight: bold;
+            margin-top: 10px;
+            font-size: var(--fs-data);
+            animation: blink 2s infinite;
+        }
+
+        .lightning-flash {
+            font-weight: bold;
+            animation: lightning-blink 0.8s infinite;
+        }
+
+        @keyframes lightning-blink {
+            0%   { opacity: 1; }
+            45%  { opacity: 1; }
+            50%  { opacity: 0; }
+            95%  { opacity: 0; }
+            100% { opacity: 1; }
+        }
+
+        @keyframes blink {
+            0%   { opacity: 1; }
+            50%  { opacity: 0.3; }
+            100% { opacity: 1; }
+        }
+
+        .pla-flag img {
+            height: clamp(120px, 16vw, 240px);
+            margin: 10px 0;
+            border: 1px solid #333;
+            flex-shrink: 0;
+        }
+
+        .pla-flag-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+        }
+
+        .pla-flag-text {
+            font-size: clamp(12px, 1.4vw, 20px);
+            color: #ccc;
+            line-height: 1.45;
+        }
+
+        @media (orientation: landscape) {
+            .pla-flag-text {
+                max-height: clamp(120px, 16vw, 240px);
+                overflow: hidden;
+                position: relative;
+            }
+            @keyframes flag-scroll {
+                0%   { transform: translateY(0); }
+                10%  { transform: translateY(0); }
+                80%  { transform: translateY(var(--scroll-dist, -60px)); }
+                90%  { transform: translateY(var(--scroll-dist, -60px)); }
+                100% { transform: translateY(0); }
+            }
+            .pla-flag-text-inner.needs-scroll {
+                animation: flag-scroll 14s ease-in-out infinite;
+            }
+        }
+
+        @media (orientation: portrait) {
+            .pla-flag-text-inner {
+                animation: none;
+            }
+        }
+
+        .flag-footnote {
+            font-size: clamp(12px, 1.4vw, 20px);
+            color: #fff;
+            margin-top: 6px;
+            animation: blink 1.5s infinite;
+        }
+
+        .flag-error {
+            font-size: clamp(13px, 1.5vw, 20px);
+            color: #FF4B4B;
+            font-weight: bold;
+            margin-top: 10px;
+            animation: blink 1.5s infinite;
+        }
+
+        .flow-value {
+            font-size: var(--fs-metric);
+            font-weight: bold;
+            margin: 6px 0 2px;
+        }
+
+        .wx-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: calc(var(--fs-data) * 0.75);
+        }
+
+        .wx-table th {
+            font-size: calc(var(--fs-data) * 0.75);
+            font-weight: bold;
+            text-align: left;
+            padding: clamp(2px, 0.4vw, 5px) clamp(4px, 0.5vw, 8px) clamp(2px, 0.4vw, 5px) 0;
+            border-bottom: 1px solid #333;
+            color: #aaa;
+        }
+
+        .wx-table th:first-child { min-width: 5em; }
+
+        .wx-table td {
+            text-align: left;
+            padding: clamp(2px, 0.4vw, 5px) clamp(4px, 0.5vw, 8px) clamp(2px, 0.4vw, 5px) 0;
+            vertical-align: top;
+        }
+
+        .cal-event {
+            margin-bottom: clamp(3px, 0.4vw, 6px);
+            font-size: var(--fs-data);
+            border-left: 3px solid #33FF57;
+            padding-left: 8px;
+            line-height: 1.4;
+        }
+
+        .cal-time { color: #33FF57; }
+
+        .bridge-tides-table td,
+        .bridge-tides-table th {
+            color: inherit;
+        }
+
+        .bridge-tides-table tbody tr td:first-child {
+            font-weight: bold;
+        }
+
+        .wx-source {
+            font-size: var(--fs-updated);
+            color: #555;
+            margin-top: 4px;
+        }
+
+        .wx-source.fallback {
+            color: #FFAA00;
+        }
+
+        .nswws-headline {
+            font-size: var(--fs-updated);
+            line-height: 1.35;
+            margin-top: 8px;
+        }
+
+        .nswws-headline strong {
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        footer {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            border-top: 1px solid #333;
+            padding: 6px 16px;
+            font-size: var(--fs-footer);
+            color: #666;
+            display: flex;
+            justify-content: space-between;
+            background: #000;
+        }
+
+        .c-red    { color: #FF4B4B; }
+        .c-amber  { color: #FFAA00; }
+        .c-yellow { color: #FFFF00; }
+        .c-green  { color: #33FF57; }
+        .c-black  { color: #ffffff; }
+        .c-dim    { color: #888; }
+        .c-white  { color: #fff; }
+
+        .wind-arrow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+        }
+        /* Rain radar map */
+        .radar-wrap {
+            position: relative;
+            width: 100%;
+            margin-bottom: 6px;
+        }
+
+        #radar-map {
+            width: 100%;
+            border: 1px solid #333;
+            height: clamp(160px, 18vw, 280px);
+        }
+
+        @media (orientation: portrait) {
+            #radar-map {
+                height: 40vw;
+            }
+        }
+
+        .radar-legend {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            z-index: 1000;
+            background: rgba(0,0,0,0.65);
+            border: 1px solid #444;
+            border-radius: 5px;
+            padding: 5px 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            pointer-events: none;
+        }
+
+        .radar-legend-row {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font-size: clamp(9px, 0.85vw, 12px);
+            color: #bbb;
+        }
+
+        .radar-legend-label {
+            color: #777;
+            font-size: clamp(8px, 0.75vw, 11px);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            min-width: 44px;
+        }
+
+        .radar-legend-swatch {
+            width: 18px;
+            height: 8px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .radar-legend-seg {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+        }
+
+        /* Lightning strike markers */
+        .lightning-marker {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="grid">
+
+<!-- COLUMN 1 -->
+<div>
+    <h3>
+        {% if d.tides.direction %}
+            {{ d.tides.direction }} UNTIL {{ d.tides.until }}
+        {% else %}
+            HAMMERSMITH TIDES
+        {% endif %}
+        <span class="updated">Updated {{ d.tides.updated }}</span>
+    </h3>
+
+    {% if d.tides.bridge_tides %}
+    {% set now_hhmm = d.last_updated[:5] %}
+    <table class="wx-table bridge-tides-table">
+        <thead>
+            <tr>
+                <th>Bridge</th>
+                <th class="tide-hi">High</th>
+                <th class="tide-lo">Low</th>
+                <th>Metres</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in d.tides.bridge_tides %}
+            {% set is_hm = row.name == 'Hammersmith' %}
+            <tr style="color: {% if is_hm %}#33FF57{% else %}#ffffff{% endif %};">
+                <td>{{ row.name }}</td>
+                <td class="tide-hi" {% if row.hw_time and row.hw_time < now_hhmm %}style="opacity:0.4;"{% endif %}>
+                    {{ row.hw_time if row.hw_time else '&mdash;' }}
+                </td>
+                <td class="tide-lo" {% if row.lw_time and row.lw_time < now_hhmm %}style="opacity:0.4;"{% endif %}>
+                    {{ row.lw_time if row.lw_time else '&mdash;' }}
+                </td>
+                <td>
+                    {% if row.next_is_hw and row.hw_height %}
+                        <span class="tide-hi">{{ row.hw_height }}</span>
+                    {% elif not row.next_is_hw and row.lw_height %}
+                        <span class="tide-lo">{{ row.lw_height }}</span>
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <p class="c-dim" style="font-size:var(--fs-data);">Tide data unavailable</p>
+    {% endif %}
+
+    <h3>PLA EBB FLAG <span class="updated">Updated {{ d.pla_updated }}</span></h3>
+    <div class="pla-flag">
+    {% if d.pla_flag %}
+        {% set fc = d.pla_flag.colour %}
+        <div class="pla-flag-row">
+            <img src="{{ d.pla_flag.image_url }}" alt="PLA {{ fc | capitalize }} Flag">
+            <div>
+                <div class="pla-flag-text">
+                    <div class="pla-flag-text-inner" id="flagTextInner">
+                    {% if fc == 'red' %}
+                        <strong>Red &mdash; Very Strong Fluvial Flows</strong><br>
+                        Conditions are difficult and dangerous.<br>
+                        All man-powered vessels are advised not to go afloat.
+                    {% elif fc == 'yellow' %}
+                        <strong>Yellow &mdash; Strong Fluvial Flows</strong><br>
+                        PLA advise man-powered vessels:<br>
+                        Beginners, novices, younger juniors (J15s and younger), or any weaker crews, and those that do not usually navigate on the tidal section of the River Thames not to go afloat on the ebb tide.<br>
+                        All river users of man-powered vessels should navigate with extreme caution and consider whether it is safe for them to go afloat on the ebb tide.
+                    {% elif fc == 'green' %}
+                        <strong>Green &mdash; Average Fluvial Flows</strong><br>
+                        All river users to navigate with caution and maintain a proper look out.
+                    {% elif fc == 'black' %}
+                        <strong>Black &mdash; Low Fluvial Flows</strong><br>
+                        Fluvial flow is lower than usual. River users should expect lower than predicted tides, especially around low water.
+                    {% endif %}
+                    </div>
+                </div>
+                {% if d.pla_flag.source in ('json', 'richmond') %}
+                <p class="flag-footnote">&#9888; Double check flag status with PLA</p>
+                {% endif %}
+            </div>
+        </div>
+        <script>
+        window.addEventListener('load', function() {
+            var inner = document.getElementById('flagTextInner');
+            if (!inner) return;
+            var container = inner.parentElement;
+            var dist = inner.scrollHeight - container.clientHeight;
+            if (dist > 4) {
+                inner.style.setProperty('--scroll-dist', '-' + dist + 'px');
+                inner.classList.add('needs-scroll');
+            }
+        });
+        </script>
+    {% else %}
+        <p class="flag-error">&#9888; Error: check flag status with PLA</p>
+    {% endif %}
+    </div>
+
+    <h3>RICHMOND LOW TIDE <span class="updated">Updated {{ d.richmond_lw_updated }}</span></h3>
+    {% if d.richmond_lw %}
+        <div style="white-space:normal; font-size:calc(var(--fs-data) * 0.95);">
+            {{ d.richmond_lw.time }}
+            was {{ "%.2f"|format(d.richmond_lw.metres) }}m &mdash;
+            <span class="c-{{ d.richmond_lw.flag|lower }}">{{ d.richmond_lw.flag_word }}</span>
+        </div>
+    {% else %}
+        <p class="c-dim" style="font-size:var(--fs-data);">Richmond tide data unavailable</p>
+    {% endif %}
+
+    <h3>KINGSTON FLOW <span class="updated">Updated {{ d.flow_updated }}</span></h3>
+    {% if d.kingston_flow %}
+        {% set fraw = d.kingston_flow.raw %}
+        {% if fraw > 120 %}
+            {% set fcol = '#FF4B4B' %}
+        {% elif fraw >= 80 %}
+            {% set fcol = '#FFFF00' %}
+        {% else %}
+            {% set fcol = '#ffffff' %}
+        {% endif %}
+        <div class="flow-value" style="color:{{ fcol }}; font-size:calc(var(--fs-data) * 0.95);">
+            {{ d.kingston_flow.flow }} <span style="font-size:calc(var(--fs-data) * 0.95); color:{{ fcol }};">{{ d.kingston_flow.unit }}</span>
+        </div>
+    {% else %}
+        <p class="c-dim" style="font-size:var(--fs-data);">Flow data unavailable</p>
+    {% endif %}
+
+    <div class="logo-landscape" style="margin-top: auto; padding-top: 10px;">
+        <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
+    </div>
+</div>
+
+<!-- COLUMN 2 -->
+<div>
+    <h3>WEATHER</h3>
+
+    {% if d.weather.error %}
+        <p class="c-red" style="font-size:var(--fs-data);">Weather forecast unavailable</p>
+    {% endif %}
+    {% if d.nswws_status == 'no_key' %}
+        <p class="c-yellow" style="font-size:var(--fs-data);">Met Office warnings: set METOFFICE_NSWWS in Render environment</p>
+    {% elif d.nswws_status == 'error' %}
+        <p class="c-yellow" style="font-size:var(--fs-data);">Met Office warnings temporarily unavailable{% if d.nswws_error %}: {{ d.nswws_error[:120] }}{% endif %}</p>
+    {% endif %}
+
+    {% set m = d.weather.morning if not d.weather.error else none %}
+    {% set a = d.weather.afternoon if not d.weather.error else none %}
+
+    {% set morning_past = d.last_updated[:2]|int >= 12 %}
+    <table class="wx-table">
+        <thead>
+            <tr>
+                <th></th>
+                <th style="{{ 'opacity:0.35;' if morning_past else '' }}">0600&ndash;1200</th>
+                <th>1200&ndash;2000</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Sunrise/set</td>
+                <td>{% if not d.weather.error %}{{ d.weather.sunrise }}{% else %}&mdash;{% endif %}</td>
+                <td>{% if not d.weather.error %}{{ d.weather.sunset }}{% else %}&mdash;{% endif %}</td>
+            </tr>
+            <tr>
+                <td>Temp</td>
+                <td style="{{ 'opacity:0.35;' if morning_past else '' }}">
+                    {% if m and m.temp_min is not none and m.temp_max is not none %}
+                        {% set air_col_m = 'c-red' if (m.temp_max >= 30 or m.temp_min < 0) else 'c-yellow' if (m.temp_max >= 25 or m.temp_min < 3) else 'c-white' %}
+                        <span class="{{ air_col_m }}">{{ m.temp_min }}-{{ m.temp_max }}c</span>
+                    {% else %}&mdash;{% endif %}
+                </td>
+                <td>
+                    {% if a and a.temp_min is not none and a.temp_max is not none %}
+                        {% set air_col_a = 'c-red' if (a.temp_max >= 30 or a.temp_min < 0) else 'c-yellow' if (a.temp_max >= 25 or a.temp_min < 3) else 'c-white' %}
+                        <span class="{{ air_col_a }}">{{ a.temp_min }}-{{ a.temp_max }}c</span>
+                    {% else %}&mdash;{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Wind</td>
+                <td style="{{ 'opacity:0.35;' if morning_past else '' }}">
+                    {% if m and m.wind_min is not none %}
+                        <span class="{{ 'c-red' if m.wind_min > 20 else 'c-yellow' if m.wind_min > 10 else 'c-white' }}">
+                            {{ m.wind_min }}-{{ m.wind_max }} km/h
+                        </span>
+                    {% else %}&mdash;{% endif %}
+                </td>
+                <td>
+                    {% if a and a.wind_min is not none %}
+                        <span class="{{ 'c-red' if a.wind_min > 20 else 'c-yellow' if a.wind_min > 10 else 'c-white' }}">
+                            {{ a.wind_min }}-{{ a.wind_max }} km/h
+                        </span>
+                    {% else %}&mdash;{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Gusts</td>
+                <td style="{{ 'opacity:0.35;' if morning_past else '' }}">
+                    {% if m and m.gust_min is not none %}
+                        <span class="{{ 'c-red' if m.gust_min > 20 else 'c-yellow' if m.gust_min > 10 else 'c-white' }}">
+                            {{ m.gust_min }}-{{ m.gust_max }} km/h
+                        </span>
+                    {% else %}&mdash;{% endif %}
+                </td>
+                <td>
+                    {% if a and a.gust_min is not none %}
+                        <span class="{{ 'c-red' if a.gust_min > 20 else 'c-yellow' if a.gust_min > 10 else 'c-white' }}">
+                            {{ a.gust_min }}-{{ a.gust_max }} km/h
+                        </span>
+                    {% else %}&mdash;{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Wind Dir</td>
+                <td style="{{ 'opacity:0.35;' if morning_past else '' }}">{% if m and m.direction %}{{ m.direction }}{% else %}&mdash;{% endif %}</td>
+                <td>{% if a and a.direction %}{{ a.direction }}{% else %}&mdash;{% endif %}</td>
+            </tr>
+            <tr>
+                <td>Rain</td>
+                <td style="{{ 'opacity:0.35;' if morning_past else '' }}">
+                    {% if m and m.rain_min is not none %}
+                        {% if m.rain_max == 0 %}0%{% elif m.rain_min == m.rain_max %}{{ m.rain_max }}%{% else %}{{ m.rain_min }}-{{ m.rain_max }}%{% endif %}
+                    {% else %}&mdash;{% endif %}
+                </td>
+                <td>
+                    {% if a and a.rain_min is not none %}
+                        {% if a.rain_max == 0 %}0%{% elif a.rain_min == a.rain_max %}{{ a.rain_max }}%{% else %}{{ a.rain_min }}-{{ a.rain_max }}%{% endif %}
+                    {% else %}&mdash;{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>UV</td>
+                <td style="{{ 'opacity:0.35;' if morning_past else '' }}">
+                    {% if m and m.uv_max is not none %}
+                        {% if m.uv_max < 3 %}Low
+                        {% elif m.uv_max < 6 %}<span class="c-yellow">Medium</span>
+                        {% else %}<span class="c-red">High</span>
+                        {% endif %}
+                    {% else %}&mdash;{% endif %}
+                </td>
+                <td>
+                    {% if a and a.uv_max is not none %}
+                        {% if a.uv_max < 3 %}Low
+                        {% elif a.uv_max < 6 %}<span class="c-yellow">Medium</span>
+                        {% else %}<span class="c-red">High</span>
+                        {% endif %}
+                    {% else %}&mdash;{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Fog</td>
+                <td style="{{ 'opacity:0.35;' if morning_past else '' }}">
+                    {% if d.nswws_morning and 'fog' in (d.nswws_morning.weather_types or '')|lower %}<span class="c-{{ d.nswws_morning.level|lower }}">{{ d.nswws_morning.level }} Fog</span>
+                    {% elif m and m.fog %}<span class="c-yellow">Forecast</span>
+                    {% else %}<span class="c-dim">None</span>{% endif %}
+                </td>
+                <td>
+                    {% if d.nswws_afternoon and 'fog' in (d.nswws_afternoon.weather_types or '')|lower %}<span class="c-{{ d.nswws_afternoon.level|lower }}">{{ d.nswws_afternoon.level }} Fog</span>
+                    {% elif a and a.fog %}<span class="c-yellow">Forecast</span>
+                    {% else %}<span class="c-dim">None</span>{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Storm</td>
+                <td style="{{ 'opacity:0.35;' if morning_past else '' }}">
+                    {% if d.nswws_morning and 'thunderstorm' in (d.nswws_morning.weather_types or '')|lower %}<span class="c-{{ d.nswws_morning.level|lower }}">{{ d.nswws_morning.level }} Storm</span>
+                    {% elif m and m.storm %}<span class="c-red">Forecast</span>
+                    {% else %}<span class="c-dim">None</span>{% endif %}
+                </td>
+                <td>
+                    {% if d.nswws_afternoon and 'thunderstorm' in (d.nswws_afternoon.weather_types or '')|lower %}<span class="c-{{ d.nswws_afternoon.level|lower }}">{{ d.nswws_afternoon.level }} Storm</span>
+                    {% elif a and a.storm %}<span class="c-red">Forecast</span>
+                    {% else %}<span class="c-dim">None</span>{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Water Temp</td>
+                <td colspan="2">
+                    {% if d.thames_temp %}
+                        {% set wt = d.thames_temp.temperature_c|round|int %}
+                        {% set wt_col = 'c-red' if wt < 10 else 'c-yellow' if wt < 15 else 'c-white' %}
+                        <span class="{{ wt_col }}">{{ wt }}c</span>
+                    {% else %}<span class="c-dim">&mdash;</span>{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Air+Water Temp</td>
+                <td style="{{ 'opacity:0.35;' if morning_past else '' }}">
+                    {% if m and m.temp_min is not none and d.thames_temp %}
+                        {% set air_m = m.temp_min %}
+                        {% set water_m = d.thames_temp.temperature_c|round|int %}
+                        {% set total_m = (air_m + water_m) %}
+                        {% set aw_col_m = 'c-red' if total_m < 14 else 'c-yellow' if total_m < 20 else 'c-white' %}
+                        <small><span class="{{ aw_col_m }}">{{ air_m }}c+{{ water_m }}c=<br>{{ total_m }}c</span></small>
+                    {% else %}<span class="c-dim">&mdash;</span>{% endif %}
+                </td>
+                <td>
+                    {% if a and a.temp_min is not none and d.thames_temp %}
+                        {% set air_a = a.temp_min %}
+                        {% set water_a = d.thames_temp.temperature_c|round|int %}
+                        {% set total_a = (air_a + water_a) %}
+                        {% set aw_col_a = 'c-red' if total_a < 14 else 'c-yellow' if total_a < 20 else 'c-white' %}
+                        <small><span class="{{ aw_col_a }}">{{ air_a }}c+{{ water_a }}c=<br>{{ total_a }}c</span></small>
+                    {% else %}<span class="c-dim">&mdash;</span>{% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Met Office Warning</td>
+                <td style="{{ 'opacity:0.35;' if morning_past else '' }}">
+                    {% if d.nswws_morning and d.nswws_morning.level == 'RED' %}<span class="c-red">Red</span>
+                    {% elif d.nswws_morning and d.nswws_morning.level == 'AMBER' %}<span class="c-yellow">Amber</span>
+                    {% elif d.nswws_morning and d.nswws_morning.level == 'YELLOW' %}<span class="c-yellow">Yellow</span>
+                    {% else %}<span class="c-dim">None</span>{% endif %}
+                </td>
+                <td>
+                    {% if d.nswws_afternoon and d.nswws_afternoon.level == 'RED' %}<span class="c-red">Red</span>
+                    {% elif d.nswws_afternoon and d.nswws_afternoon.level == 'AMBER' %}<span class="c-yellow">Amber</span>
+                    {% elif d.nswws_afternoon and d.nswws_afternoon.level == 'YELLOW' %}<span class="c-yellow">Yellow</span>
+                    {% else %}<span class="c-dim">None</span>{% endif %}
+                </td>
+            </tr>
+
+        </tbody>
+    </table>
+
+    {% if not d.weather.error %}
+        <p class="wx-source">Forecast: {{ d.weather.source }}, Updated {{ d.weather.updated }}</p>
+    {% endif %}
+
+    {% for line in d.nswws_headlines %}
+    <p class="nswws-headline {% if line.level == 'RED' %}c-red{% elif line.level in ('AMBER', 'YELLOW') %}c-yellow{% else %}c-white{% endif %}">
+        <strong>{{ line.period }}</strong> &mdash; {{ line.headline }}
+    </p>
+    {% endfor %}
+    {% if d.nswws_status == 'ok' and not d.nswws_headlines %}
+    <p class="nswws-headline c-dim">No Met Office Warnings in Hammersmith{% if d.nswws_updated %}, NSWWS updated at {{ d.nswws_updated }}{% endif %}</p>
+    {% endif %}
+
+    <h3>RADAR</h3>
+    <div class="radar-wrap">
+        <div id="radar-map"></div>
+        <div class="radar-legend">
+            <div class="radar-legend-row">
+                <span class="radar-legend-label">Rainfall</span>
+                <div class="radar-legend-seg"><div class="radar-legend-swatch" style="background:#3bba3b;"></div><span>Light</span></div>
+                <div class="radar-legend-seg"><div class="radar-legend-swatch" style="background:#f0d040;"></div><span>Moderate</span></div>
+                <div class="radar-legend-seg"><div class="radar-legend-swatch" style="background:#e03b3b;"></div><span>Heavy</span></div>
+            </div>
+            <div class="radar-legend-row">
+                <span class="radar-legend-label">Wind</span>
+                <div class="radar-legend-seg"><span style="color:#22c55e;">➤</span><span>&lt;15 km/h</span></div>
+                <div class="radar-legend-seg"><span style="color:#eab308;">➤</span><span>15–30</span></div>
+                <div class="radar-legend-seg"><span style="color:#f97316;">➤</span><span>30–45</span></div>
+                <div class="radar-legend-seg"><span style="color:#ef4444;">➤</span><span>&gt;45</span></div>
+            </div>
+            <div class="radar-legend-row">
+                <span class="radar-legend-label">Lightning</span>
+                <div class="radar-legend-seg"><span style="color:#ef4444;">⚡</span><span>&lt;10m</span></div>
+                <div class="radar-legend-seg"><span style="color:#f97316;">⚡</span><span>10–30m</span></div>
+                <div class="radar-legend-seg"><span style="color:#eab308;">⚡</span><span>30–60m</span></div>
+                <div class="radar-legend-seg"><span style="color:#888888;">⚡</span><span>1–2hr</span></div>
+            </div>
+            <div class="radar-legend-row" id="lightning-overlay-status" style="color:#666;">&#9889; Loading strikes...</div>
+        </div>
+    </div>
+    <p class="wx-source" id="radar-updated">Loading radar...</p>
+
+</div>
+
+<!-- COLUMN 3 -->
+<div>
+    <h3>
+        {{ d.cal.day_label }} <span id="liveclock"></span>
+        <span class="updated">Updated {{ d.cal.updated }}</span>
+    </h3>
+    <div class="cal-list" id="calList">
+        <div id="calListInner">
+        {% if d.cal.list or d.today_markers %}
+            {% set marker_inserted = namespace(idx=0) %}
+
+            {# Pass 1: All Day events always first #}
+            {% for e in d.cal.list %}
+                {% if e.time == 'All Day' %}
+                    <div class="cal-event">
+                        <span class="cal-time">All Day</span><br>{{ e.summary }}
+                    </div>
+                {% endif %}
+            {% endfor %}
+
+            {# Pass 2: timed events, with pre-sorted markers (tides/sunrise/sunset) interleaved.
+               Insertion rules — before the first event where:
+                 tide/sunrise : event start >= marker time
+                 sunset       : event end   >  marker time  #}
+            {% for e in d.cal.list %}
+                {% if e.time != 'All Day' %}
+                    {% set e_start = e.time.split('-')[0] %}
+                    {% set e_end   = e.time.split('-')|last %}
+
+                    {# Consume all next-in-sequence markers that belong before this event #}
+                    {% set keep_going = namespace(v=true) %}
+                    {% for m in d.today_markers %}
+                        {% if keep_going.v and loop.index0 == marker_inserted.idx %}
+                            {% if m.type in ('tide', 'sunrise') and m.time <= e_start %}
+                                {% set m_is_past = m.time < d.last_updated[:5] %}
+                                {% if m.type == 'tide' %}
+                                    <div class="cal-event" style="border-left-color:#00CED1;{{ ' opacity:0.35;' if m_is_past else '' }}">
+                                        <span class="cal-time" style="color:#00CED1;">{{ m.time }}</span><br>{{ m.label }} Tide {{ m.height }}
+                                    </div>
+                                {% else %}
+                                    <div class="cal-event" style="border-left-color:#FFD700;{{ ' opacity:0.35;' if m_is_past else '' }}">
+                                        <span class="cal-time" style="color:#FFD700;">{{ m.time }}</span><br>&#9728; Sunrise
+                                    </div>
+                                {% endif %}
+                                {% set marker_inserted.idx = marker_inserted.idx + 1 %}
+                            {% elif m.type == 'sunset' and m.time <= e_end %}
+                                {% set m_is_past = m.time < d.last_updated[:5] %}
+                                <div class="cal-event" style="border-left-color:#FF8C00;{{ ' opacity:0.35;' if m_is_past else '' }}">
+                                    <span class="cal-time" style="color:#FF8C00;">{{ m.time }}</span><br>&#9790; Sunset
+                                </div>
+                                {% set marker_inserted.idx = marker_inserted.idx + 1 %}
+                            {% else %}
+                                {% set keep_going.v = false %}
+                            {% endif %}
+                        {% endif %}
+                    {% endfor %}
+
+                    {% set is_past = e_end < d.last_updated[:5] %}
+                    <div class="cal-event" style="{{ 'opacity:0.35;' if is_past else '' }}">
+                        <span class="cal-time">{{ e.time }}</span><br>{{ e.summary }}
+                    </div>
+                {% endif %}
+            {% endfor %}
+
+            {# Append any markers not yet placed (after all calendar events) #}
+            {% for m in d.today_markers %}
+                {% if loop.index0 >= marker_inserted.idx %}
+                    {% set m_is_past = m.time < d.last_updated[:5] %}
+                    {% if m.type == 'tide' %}
+                        <div class="cal-event" style="border-left-color:#00CED1;{{ ' opacity:0.35;' if m_is_past else '' }}">
+                            <span class="cal-time" style="color:#00CED1;">{{ m.time }}</span><br>{{ m.label }} Tide {{ m.height }}
+                        </div>
+                    {% elif m.type == 'sunrise' %}
+                        <div class="cal-event" style="border-left-color:#FFD700;{{ ' opacity:0.35;' if m_is_past else '' }}">
+                            <span class="cal-time" style="color:#FFD700;">{{ m.time }}</span><br>&#9728; Sunrise
+                        </div>
+                    {% elif m.type == 'sunset' %}
+                        <div class="cal-event" style="border-left-color:#FF8C00;{{ ' opacity:0.35;' if m_is_past else '' }}">
+                            <span class="cal-time" style="color:#FF8C00;">{{ m.time }}</span><br>&#9790; Sunset
+                        </div>
+                    {% endif %}
+                {% endif %}
+            {% endfor %}
+        {% else %}
+            <p class="c-dim" style="font-size:var(--fs-data);">No sessions scheduled for {{ d.cal.day_label.lower() }}.</p>
+        {% endif %}
+        </div>
+    </div>
+</div>
+
+</div>
+
+<div class="logo-portrait" style="text-align: center; padding: 20px 0 50px;">
+    <img src="/static/FRBC logo White on black.png" class="logo-img" style="width: 60%; margin: 0 auto;" alt="FRBC" onerror="this.style.display='none'">
+</div>
+
+<footer>
+    <span>SYSTEM STATUS: CONNECTED ({{ d.tz_label }})</span>
+    <span>{{ d.last_updated }}</span>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+    function autoRefresh() {
+        fetch('/data')
+            .then(r => { if (r.ok) location.reload(); })
+            .catch(() => {});
+    }
+    setInterval(autoRefresh, 600000);
+
+    // Landscape diary: shrink font to fit, then auto-scroll if still overflowing
+    function fitDiary() {
+        if (window.matchMedia('(orientation: portrait)').matches) return;
+        var container = document.getElementById('calList');
+        var inner = document.getElementById('calListInner');
+        if (!container || !inner) return;
+        var events = inner.querySelectorAll('.cal-event');
+        if (!events.length) return;
+        var currentSize = parseFloat(window.getComputedStyle(events[0]).fontSize);
+        while (inner.scrollHeight > container.clientHeight && currentSize > 10) {
+            currentSize -= 0.5;
+            events.forEach(function(e) { e.style.fontSize = currentSize + 'px'; });
+        }
+        if (inner.scrollHeight > container.clientHeight) {
+            startScroll(container, inner);
+        }
+    }
+
+    var scrollInterval = null;
+    function startScroll(container, inner) {
+        if (scrollInterval) return;
+        var pos = 0;
+        var speed = 0.3;
+        var pauseDuration = 3000;
+        var lastPauseTime = Date.now() + pauseDuration;
+        var isPaused = true;
+        scrollInterval = setInterval(function () {
+            var now = Date.now();
+            if (isPaused) {
+                if (now - lastPauseTime >= pauseDuration) { isPaused = false; } else { return; }
+            }
+            pos += speed;
+            var maxScroll = inner.scrollHeight - container.clientHeight;
+            if (pos >= maxScroll) {
+                pos = maxScroll;
+                isPaused = true;
+                lastPauseTime = Date.now();
+                setTimeout(function () {
+                    pos = 0;
+                    inner.style.transform = 'translateY(0px)';
+                    lastPauseTime = Date.now();
+                }, pauseDuration);
+                return;
+            }
+            inner.style.transform = 'translateY(-' + pos + 'px)';
+        }, 20);
+    }
+
+    window.addEventListener('load', function() {
+        fitDiary();
+        initRadar();
+    });
+
+    window.addEventListener('resize', function() {
+        if (scrollInterval) { clearInterval(scrollInterval); scrollInterval = null; }
+        var inner = document.getElementById('calListInner');
+        if (inner) {
+            inner.style.transform = '';
+            inner.querySelectorAll('.cal-event').forEach(function(e) { e.style.fontSize = ''; });
+        }
+        fitDiary();
+        if (radarMap) radarMap.invalidateSize();
+    });
+
+    // Live clock
+    function updateClock() {
+        var el = document.getElementById('liveclock');
+        if (!el) return;
+        var now = new Date();
+        var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        var h = String(now.getHours()).padStart(2, '0');
+        var m = String(now.getMinutes()).padStart(2, '0');
+        var s = String(now.getSeconds()).padStart(2, '0');
+        el.textContent = days[now.getDay()] + ' ' + h + ':' + m + ':' + s;
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    // Rain radar
+    var radarMap = null;
+    var radarLayer = null;
+
+    function initRadar() {
+        radarMap = L.map('radar-map', {
+            center: [51.49, -0.23],
+            zoom: 7,
+            zoomControl: false,
+            attributionControl: false,
+            dragging: false,
+            scrollWheelZoom: false,
+            doubleClickZoom: false,
+            touchZoom: false
+        });
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            opacity: 0.8
+        }).addTo(radarMap);
+
+        loadRadar();
+        setInterval(loadRadar, 300000);
+    }
+
+    function loadRadar() {
+        fetch('https://api.rainviewer.com/public/weather-maps.json')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var frames = data.radar && data.radar.past;
+                if (!frames || !frames.length) return;
+                var latest = frames[frames.length - 1];
+                // colour=2 (green→yellow→red), tileSize=512, smooth=1, snow=0
+                var url = data.host + latest.path + '/256/{z}/{x}/{y}/2/1_1.png';
+                if (radarLayer) radarMap.removeLayer(radarLayer);
+                radarLayer = L.tileLayer(url, {
+                    opacity: 0.8,
+                    tileSize: 256
+                }).addTo(radarMap);
+                var d = new Date(latest.time * 1000);
+                var h = String(d.getHours()).padStart(2,'0');
+                var mn = String(d.getMinutes()).padStart(2,'0');
+                document.getElementById('radar-updated').textContent = 'Radar: ' + h + ':' + mn;
+            })
+            .catch(function() {
+                document.getElementById('radar-updated').textContent = 'Radar unavailable';
+            });
+    }
+    // ---------------------------------------------------------------------------
+// Wind arrows overlay
+// ---------------------------------------------------------------------------
+var windLayer = null;
+
+function loadWindArrows() {
+    fetch('/api/wind')
+        .then(r => r.json())
+        .then(data => {
+            if (data.error || !data.points) {
+                console.log('Wind data unavailable:', data.error);
+                return;
+            }
+            
+            // Remove existing wind layer
+            if (windLayer) {
+                radarMap.removeLayer(windLayer);
+            }
+            
+            // Create arrow markers for each point
+            var arrows = [];
+            data.points.forEach(function(p) {
+                if (p.speed === null || p.direction === null) return;
+                
+                // Create arrow icon - rotated by wind direction
+                // Wind direction is where wind comes FROM, arrow shows where it goes TO
+                var arrowDirection = (p.direction + 90) % 360;
+                
+                // Scale arrow size by wind speed — larger in landscape
+                var isLandscape = window.matchMedia("(orientation: landscape)").matches;
+                var sizeScale = isLandscape ? 1.6 : 1.0;
+                var size = Math.min(64, Math.max(20, (15 + p.speed / 2) * sizeScale));
+                
+                // Color by speed: green < 15, yellow 15-30, orange 30-45, red > 45 km/h
+                var color;
+                if (p.speed < 15) color = '#22c55e';      // green
+                else if (p.speed < 30) color = '#eab308'; // yellow  
+                else if (p.speed < 45) color = '#f97316'; // orange
+                else color = '#ef4444';                    // red
+                
+                var arrowIcon = L.divIcon({
+                    className: 'wind-arrow',
+                    html: '<div style="transform: rotate(' + arrowDirection + 'deg); font-size: ' + size + 'px; color: ' + color + '; opacity: 0.5; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">➤</div>',
+                    iconSize: [size, size],
+                    iconAnchor: [size/2, size/2]
+                });
+                
+                var marker = L.marker([p.lat, p.lon], {
+                    icon: arrowIcon,
+                    interactive: true
+                });
+                
+                // Tooltip with details
+                marker.bindTooltip(
+                    '<b>' + Math.round(p.speed) + ' km/h</b><br>' +
+                    'Gusts: ' + Math.round(p.gusts || p.speed) + ' km/h<br>' +
+                    'From: ' + getCardinalDirection(p.direction),
+                    { direction: 'top', offset: [0, -10] }
+                );
+                
+                arrows.push(marker);
+            });
+            
+            windLayer = L.layerGroup(arrows).addTo(radarMap);
+            console.log('Wind arrows loaded:', data.points.length, 'points');
+        })
+        .catch(err => console.error('Wind fetch error:', err));
+}
+
+function getCardinalDirection(deg) {
+    var dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+                'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    return dirs[Math.round((deg % 360) / 22.5) % 16];
+}
+
+// Load wind arrows after radar loads, refresh every hour
+setTimeout(loadWindArrows, 2000);
+setInterval(loadWindArrows, 3600000);
+
+// ---------------------------------------------------------------------------
+// Lightning strikes overlay
+// ---------------------------------------------------------------------------
+var lightningLayer = null;
+var lightningMarkers = [];
+
+var CLUB_LAT = 51.4915, CLUB_LON = -0.2247;
+
+function loadLightningStrikes() {
+    fetch('/api/lightning-strikes')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var statusEl = document.getElementById('lightning-overlay-status');
+
+            if (!data.active) {
+                if (statusEl) { statusEl.style.color = '#666'; statusEl.textContent = '⚡ Lightning feed offline'; }
+                return;
+            }
+
+            var b = data.buckets || {t10:0, t30:0, t60:0, t120:0};
+            var total = b.t10 + b.t30 + b.t60 + b.t120;
+
+            if (statusEl) {
+                if (b.t10 > 0) {
+                    statusEl.style.color = '#ef4444';
+                    statusEl.textContent = '⚡ ' + b.t10 + ' strike' + (b.t10 > 1 ? 's' : '') + ' in last 10 min';
+                } else if (b.t30 > 0) {
+                    statusEl.style.color = '#f97316';
+                    statusEl.textContent = '⚡ ' + b.t30 + ' strike' + (b.t30 > 1 ? 's' : '') + ' in last 10–30 min';
+                } else if (b.t60 > 0) {
+                    statusEl.style.color = '#eab308';
+                    statusEl.textContent = '⚡ ' + b.t60 + ' strike' + (b.t60 > 1 ? 's' : '') + ' in last 30–60 min';
+                } else if (b.t120 > 0) {
+                    statusEl.style.color = '#888888';
+                    statusEl.textContent = '⚡ ' + b.t120 + ' strike' + (b.t120 > 1 ? 's' : '') + ' in last 1–2 hr';
+                } else {
+                    statusEl.style.color = '#666';
+                    statusEl.textContent = '⚡ No strikes within ' + data.radius_km + 'km / 2hr';
+                }
+            }
+
+            if (!radarMap) return;
+
+            if (lightningLayer) radarMap.removeLayer(lightningLayer);
+            lightningLayer = L.layerGroup().addTo(radarMap);
+            lightningMarkers = [];
+
+            var bucketDefs = [
+                { color: '#ef4444', count: b.t10  },
+                { color: '#f97316', count: b.t30  },
+                { color: '#eab308', count: b.t60  },
+                { color: '#888888', count: b.t120 },
+            ];
+
+            var markerIdx = 0;
+            var now = Date.now();
+            bucketDefs.forEach(function(bd) {
+                for (var s = 0; s < bd.count; s++) {
+                    var angle = (markerIdx * 137.5 + (now / 60000)) % 360;
+                    var r = data.radius_km * 0.011 * Math.sqrt((markerIdx + 0.5) / Math.max(total, 1));
+                    var lat = CLUB_LAT + r * Math.cos(angle * Math.PI / 180);
+                    var lon = CLUB_LON + r * Math.sin(angle * Math.PI / 180) / Math.cos(CLUB_LAT * Math.PI / 180);
+
+                    var icon = L.divIcon({
+                        className: 'lightning-marker',
+                        html: '<span style="color:' + bd.color + '; font-size:14px; text-shadow: 0 0 6px ' + bd.color + ';">⚡</span>',
+                        iconSize: [18, 18],
+                        iconAnchor: [9, 9]
+                    });
+
+                    L.marker([lat, lon], { icon: icon, interactive: false }).addTo(lightningLayer);
+                    markerIdx++;
+                }
+            });
+        })
+        .catch(function(err) {
+            var statusEl = document.getElementById('lightning-overlay-status');
+            if (statusEl) { statusEl.style.color = '#666'; statusEl.textContent = '⚡ Strike data unavailable'; }
+            console.error('Lightning fetch error:', err);
+        });
+}
+
+setTimeout(loadLightningStrikes, 3000);
+setInterval(loadLightningStrikes, 300000);
+</script>
+
+</body>
+</html>
