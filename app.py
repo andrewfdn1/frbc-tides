@@ -77,6 +77,8 @@ def get_lightning_risk():
 # Non-commercial / personal use only per Blitzortung terms.
 # ---------------------------------------------------------------------------
 
+LAT, LON = 51.488, -0.224   # Hammersmith / FRBC (also defined later with other constants)
+
 LIGHTNING_STRIKE_RADIUS_KM = 25
 LIGHTNING_STRIKE_WINDOW_SECS = 7200  # 2 hours
 
