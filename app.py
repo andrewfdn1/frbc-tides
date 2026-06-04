@@ -1462,6 +1462,64 @@ def build_dashboard_data():
         t_data["next_hw_utc_iso"] = _next_hw_utc.isoformat() if _next_hw_utc else None
         t_data["next_lw_utc_iso"] = _next_lw_utc.isoformat() if _next_lw_utc else None
 
+        # Spring/Neap indicator — use all API data (7 days) to compute daily ranges
+        # and derive both current type and multi-day trend
+        _tidal_range_info = None
+        if _next_hw_h is not None and _next_lw_h is not None:
+            _cur_range = round(_next_hw_h - _next_lw_h, 1)
+
+            # Thresholds (approximate Hammersmith values): spring >5.5m, neap <4.0m
+            _SPRING_THRESHOLD = 5.5
+            _NEAP_THRESHOLD   = 4.0
+            if _cur_range >= _SPRING_THRESHOLD:
+                _tide_type = "Spring"
+            elif _cur_range <= _NEAP_THRESHOLD:
+                _tide_type = "Neap"
+            else:
+                _tide_type = "Moderate"
+
+            # Build daily tidal ranges from the full dataset (all tides, past and future)
+            from collections import defaultdict as _dd
+            _daily_heights = _dd(list)
+            for _t in tides:
+                _day = (_t['dt_utc'] + off).strftime('%Y-%m-%d')
+                _daily_heights[_day].append(_t['Height'])
+            _daily_ranges = {
+                _d: round(max(_h) - min(_h), 2)
+                for _d, _h in _daily_heights.items()
+                if len(_h) >= 2   # need at least one HW + one LW
+            }
+
+            # Trend: look at the last 3 days of range data and fit a direction.
+            # We use a simple sign-of-slope on the sorted daily ranges.
+            _today_str = now_lon.strftime('%Y-%m-%d')
+            _sorted_days = sorted(_daily_ranges.keys())
+            # Use days up to and including today + the next 2 for a short window
+            _window = [_d for _d in _sorted_days if _d <= _today_str][-2:] + \
+                      [_d for _d in _sorted_days if _d > _today_str][:2]
+            _window = sorted(set(_window))
+
+            _trend = None
+            if len(_window) >= 2:
+                _range_vals = [_daily_ranges[_d] for _d in _window]
+                # Count increasing vs decreasing steps
+                _up   = sum(1 for i in range(len(_range_vals)-1) if _range_vals[i+1] > _range_vals[i])
+                _down = sum(1 for i in range(len(_range_vals)-1) if _range_vals[i+1] < _range_vals[i])
+                if _up > _down:
+                    _trend = "Spring"
+                elif _down > _up:
+                    _trend = "Neap"
+                # tie → _trend stays None (transitioning / at peak)
+
+            _tidal_range_info = {
+                "range":     _cur_range,
+                "hw":        round(_next_hw_h, 1),
+                "lw":        round(_next_lw_h, 1),
+                "tide_type": _tide_type,
+                "trend":     _trend,   # "Spring", "Neap", or None
+            }
+        t_data["tidal_range"] = _tidal_range_info
+
         # Today's tides for the calendar column — HH:MM only, today's date only
         today_local = now_lon.date()
         t_data["today_tides"] = [
