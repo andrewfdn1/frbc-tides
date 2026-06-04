@@ -233,6 +233,15 @@
 
         .cal-time { color: #33FF57; }
 
+        .bridge-tides-table td,
+        .bridge-tides-table th {
+            color: inherit;
+        }
+
+        .bridge-tides-table tbody tr td:first-child {
+            font-weight: bold;
+        }
+
         .wx-source {
             font-size: var(--fs-updated);
             color: #555;
@@ -360,26 +369,72 @@
 
 <!-- COLUMN 1 -->
 <div>
-    <h3>HAMMERSMITH TIDES <span class="updated">Updated {{ d.tides.updated }}</span></h3>
-
-    {% if d.tides.last_tide %}
-        <div style="font-size:calc(var(--fs-data) * 0.95); color:#fff; margin-bottom:4px;">
-            Last {{ d.tides.last_tide.label }} {{ d.tides.last_tide.time }} {{ d.tides.last_tide.height }}
-        </div>
-    {% endif %}
-
-    <div class="metric" {% if d.richmond_lw %}style="color:{% if d.richmond_lw.flag == 'RED' %}#FF4B4B{% elif d.richmond_lw.flag == 'YELLOW' %}#FFFF00{% elif d.richmond_lw.flag == 'GREEN' %}#33FF57{% else %}#ffffff{% endif %};"{% endif %}>
+    <h3>
         {% if d.tides.direction %}
-            {{ d.tides.direction }} UNTIL {{ d.tides.until }} {{ d.tides.current_target_height }}
+            {{ d.tides.direction }} UNTIL {{ d.tides.until }}{% if d.tides.current_target_height %}, {{ d.tides.current_target_height }}{% endif %}
         {% else %}
-            DATA UNAVAILABLE
+            HAMMERSMITH TIDES
         {% endif %}
-    </div>
+        <span class="updated">Updated {{ d.tides.updated }}</span>
+    </h3>
 
-    {% if d.tides.next_tide %}
-        <div style="font-size:calc(var(--fs-data) * 0.95); color:#fff; margin-top:4px;">
-            Next {{ d.tides.next_tide.label }} {{ d.tides.next_tide.time }} {{ d.tides.next_tide.height }}
-        </div>
+    {% if d.tides.bridge_tides %}
+    {% set now_hhmm = d.last_updated[:5] %}
+    {% set bt = d.tides.bridge_tides[0] %}
+    {% set next_is_hw = bt.next_is_hw %}
+    {# Col A = next tide (first), Col B = later tide (second, greyed) #}
+    {% if next_is_hw %}
+        {% set col_a_label = "High" %}
+        {% set col_a_class = "tide-hi" %}
+        {% set col_b_label = "Low" %}
+        {% set col_b_class = "tide-lo" %}
+    {% else %}
+        {% set col_a_label = "Low" %}
+        {% set col_a_class = "tide-lo" %}
+        {% set col_b_label = "High" %}
+        {% set col_b_class = "tide-hi" %}
+    {% endif %}
+    <table class="wx-table bridge-tides-table">
+        <thead>
+            <tr>
+                <th>Bridge</th>
+                <th class="{{ col_a_class }}">{{ col_a_label }}</th>
+                <th class="{{ col_b_class }}" style="opacity:0.4;">{{ col_b_label }}</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in d.tides.bridge_tides %}
+            {% set is_hm = row.name == 'Hammersmith' %}
+            {% set row_col = '#33FF57' if is_hm else '#ffffff' %}
+            {% if next_is_hw %}
+                {% set col_a_time = row.hw_time %}
+                {% set col_b_time = row.lw_time %}
+            {% else %}
+                {% set col_a_time = row.lw_time %}
+                {% set col_b_time = row.hw_time %}
+            {% endif %}
+            <tr>
+                <td style="color:{{ row_col }}; font-weight:bold;">{{ row.name }}</td>
+                <td {% if not is_hm %}class="{{ col_a_class }}"{% endif %}
+                    style="{% if is_hm %}color:#33FF57; font-weight:bold; {% endif %}{% if col_a_time and col_a_time < now_hhmm %}opacity:0.4;{% endif %}">
+                    {{ col_a_time if col_a_time else '&mdash;' }}
+                </td>
+                <td class="{{ col_b_class }}" style="opacity:0.4;
+                    {% if col_b_time and col_b_time < now_hhmm %}filter:brightness(0.6);{% endif %}">
+                    {{ col_b_time if col_b_time else '&mdash;' }}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% if d.tides.tidal_range %}
+    {% set tr = d.tides.tidal_range %}
+    <p style="font-size:var(--fs-updated); color:#888; margin-top:6px;">
+        Tidal range {{ tr.range }}m, High {{ tr.hw }}m &ndash; Low {{ tr.lw }}m{% if tr.trend %} &mdash; Moving to {{ tr.trend }} tides{% endif %}
+    </p>
+    {% endif %}
+    {% else %}
+        <p class="c-dim" style="font-size:var(--fs-data);">Tide data unavailable</p>
     {% endif %}
 
     <h3>PLA EBB FLAG <span class="updated">Updated {{ d.pla_updated }}</span></h3>
