@@ -80,6 +80,8 @@ def get_lightning_risk():
 LIGHTNING_STRIKE_RADIUS_KM = 25
 LIGHTNING_STRIKE_WINDOW_SECS = 7200  # 2 hours
 
+LAT, LON = 51.488, -0.224   # defined early so the Blitzortung thread can use it
+
 _strike_deque = deque()   # UTC timestamps of nearby strikes
 _strike_lock  = threading.Lock()
 _nearest_strike = {"dist_km": None, "lat": None, "lon": None, "ts": None}  # most recent strike seen (any distance)
