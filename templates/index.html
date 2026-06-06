@@ -663,24 +663,15 @@
                 </td>
             </tr>
             <tr>
-                <td>Water Temp</td>
-                <td colspan="2">
-                    {% if d.thames_temp %}
-                        {% set wt = d.thames_temp.temperature_c|round|int %}
-                        {% set wt_col = 'c-red' if wt < 10 else 'c-yellow' if wt < 15 else 'c-white' %}
-                        <span class="{{ wt_col }}">{{ wt }}c</span>
-                    {% else %}<span class="c-dim">&mdash;</span>{% endif %}
-                </td>
-            </tr>
-            <tr>
                 <td>Air+Water Temp</td>
                 <td style="{{ 'opacity:0.35;' if morning_past else '' }}">
                     {% if m and m.temp_min is not none and d.thames_temp %}
                         {% set air_m = m.temp_min %}
                         {% set water_m = d.thames_temp.temperature_c|round|int %}
                         {% set total_m = (air_m + water_m) %}
-                        {% set aw_col_m = 'c-red' if total_m < 14 else 'c-yellow' if total_m < 20 else 'c-white' %}
-                        <small><span class="{{ aw_col_m }}">{{ air_m }}c+{{ water_m }}c=<br>{{ total_m }}c</span></small>
+                        {% set aw_col_m = 'c-red' if total_m < 14 else 'c-white' %}
+                        {% set air_col_m = 'c-red' if air_m <= -3 or air_m >= 30 else 'c-yellow' if air_m < 0 else '' %}
+                        <small><span class="{{ aw_col_m }}"><span class="{{ air_col_m }}">{{ air_m }}c</span>+{{ water_m }}c=<br>{{ total_m }}c</span></small>
                     {% else %}<span class="c-dim">&mdash;</span>{% endif %}
                 </td>
                 <td>
@@ -688,12 +679,12 @@
                         {% set air_a = a.temp_min %}
                         {% set water_a = d.thames_temp.temperature_c|round|int %}
                         {% set total_a = (air_a + water_a) %}
-                        {% set aw_col_a = 'c-red' if total_a < 14 else 'c-yellow' if total_a < 20 else 'c-white' %}
-                        <small><span class="{{ aw_col_a }}">{{ air_a }}c+{{ water_a }}c=<br>{{ total_a }}c</span></small>
+                        {% set aw_col_a = 'c-red' if total_a < 14 else 'c-white' %}
+                        {% set air_col_a = 'c-red' if air_a <= -3 or air_a >= 30 else 'c-yellow' if air_a < 0 else '' %}
+                        <small><span class="{{ aw_col_a }}"><span class="{{ air_col_a }}">{{ air_a }}c</span>+{{ water_a }}c=<br>{{ total_a }}c</span></small>
                     {% else %}<span class="c-dim">&mdash;</span>{% endif %}
                 </td>
             </tr>
-            <tr>
                 <td>Met Office Warning</td>
                 <td style="{{ 'opacity:0.35;' if morning_past else '' }}">
                     {% if d.nswws_morning and d.nswws_morning.level == 'RED' %}<span class="c-red">Red</span>
@@ -1099,10 +1090,10 @@ function loadLightningStrikes() {
                     .then(function(r) { return r.json(); })
                     .then(function(d) {
                         var n = d.nearest_strike;
-                        if (n && n.dist_km !== null && n.age_mins <= 30) {
-                            nearestEl.textContent = 'Nearest recorded strike (last 30 min): ' + Math.round(n.dist_km) + ' km';
+                        if (n && n.dist_km !== null) {
+                            nearestEl.textContent = 'Nearest strike: ' + Math.round(n.dist_km) + ' km (' + Math.round(n.age_mins) + ' min ago)';
                         } else {
-                            nearestEl.textContent = 'No strikes recorded within 30 min';
+                            nearestEl.textContent = 'Nearest strike: no data';
                         }
                     });
             }
