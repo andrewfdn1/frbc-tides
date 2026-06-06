@@ -126,7 +126,8 @@ def _blitz_on_message(ws, message):
         now = time_mod.time()
         # Always track the nearest strike seen, regardless of radius
         with _strike_lock:
-            if _nearest_strike["dist_km"] is None or dist < _nearest_strike["dist_km"]:
+            if (_nearest_strike["dist_km"] is None or dist < _nearest_strike["dist_km"]
+                    or now - _nearest_strike["ts"] > 600):
                 _nearest_strike.update({"dist_km": dist, "lat": lat, "lon": lon, "ts": now})
             if dist <= LIGHTNING_STRIKE_RADIUS_KM:
                 _strike_deque.append(now)
