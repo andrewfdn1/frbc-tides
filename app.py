@@ -82,6 +82,7 @@ LIGHTNING_STRIKE_WINDOW_SECS = 7200  # 2 hours
 
 _strike_deque = deque()   # UTC timestamps of nearby strikes
 _strike_lock  = threading.Lock()
+_nearest_strike = {"dist_km": None, "lat": None, "lon": None, "ts": None}  # most recent strike seen (any distance)
 
 
 def _decode_blitzortung(b):
@@ -120,26 +121,29 @@ def _blitz_on_message(ws, message):
         if lat is None or lon is None:
             return
         dist = _haversine_km(LAT, LON, lat, lon)
-        if dist <= LIGHTNING_STRIKE_RADIUS_KM:
-            now = time_mod.time()
-            with _strike_lock:
+        now = time_mod.time()
+        # Always track the nearest strike seen, regardless of radius
+        with _strike_lock:
+            if _nearest_strike["dist_km"] is None or dist < _nearest_strike["dist_km"]:
+                _nearest_strike.update({"dist_km": dist, "lat": lat, "lon": lon, "ts": now})
+            if dist <= LIGHTNING_STRIKE_RADIUS_KM:
                 _strike_deque.append(now)
-            print(f"Lightning strike {dist:.1f} km away — total in window: {len(_strike_deque)}")
-    except Exception:
-        pass
+                print(f"Lightning strike {dist:.1f} km away — total in window: {len(_strike_deque)}")
+    except Exception as e:
+        print(f"Blitzortung decode error: {e} | first50={str(message)[:50]}")
 
 
 def _blitz_on_open(ws):
-    print("Blitzortung WebSocket connected")
     ws.send('{"a": 111}')
+    print("Blitzortung WebSocket connected")
 
 
 def _blitz_on_error(ws, error):
-    print(f"Blitzortung WebSocket error: {error}")
+    pass  # reconnect loop handles this
 
 
 def _blitz_on_close(ws, close_status_code, close_msg):
-    print(f"Blitzortung WebSocket closed: {close_status_code} / {close_msg}")
+    print(f"Blitzortung WebSocket closed: {close_status_code}")
 
 
 def _blitzortung_thread():
@@ -1795,6 +1799,25 @@ def lightning_strikes_endpoint():
         "source":    "Blitzortung",
         "active":    _WEBSOCKET_OK,
     })
+
+
+@app.route("/api/lightning-debug")
+def lightning_debug_endpoint():
+    """Debug: nearest strike seen since last restart, regardless of radius."""
+    import datetime
+    with _strike_lock:
+        nearest = dict(_nearest_strike)
+    if nearest["ts"]:
+        nearest["age_mins"] = round((time_mod.time() - nearest["ts"]) / 60, 1)
+        nearest["ts_utc"] = datetime.datetime.utcfromtimestamp(nearest["ts"]).strftime("%H:%M:%S UTC")
+    buckets = get_strike_buckets()
+    return jsonify({
+        "nearest_strike": nearest,
+        "radius_km": LIGHTNING_STRIKE_RADIUS_KM,
+        "active": _WEBSOCKET_OK,
+        "buckets": buckets,
+    })
+
 
 def _prewarm():
     import time
