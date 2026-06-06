@@ -164,6 +164,7 @@ def _blitzortung_thread():
                 on_message=_blitz_on_message,
                 on_error=_blitz_on_error,
                 on_close=_blitz_on_close,
+                header={"Origin": "https://www.blitzortung.org"},
             )
             ws.run_forever(ping_interval=30, ping_timeout=10)
         except Exception as e:
