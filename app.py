@@ -77,8 +77,6 @@ def get_lightning_risk():
 # Non-commercial / personal use only per Blitzortung terms.
 # ---------------------------------------------------------------------------
 
-LAT, LON = 51.488, -0.224   # Hammersmith / FRBC (also defined later with other constants)
-
 LIGHTNING_STRIKE_RADIUS_KM = 25
 LIGHTNING_STRIKE_WINDOW_SECS = 7200  # 2 hours
 
@@ -127,21 +125,21 @@ def _blitz_on_message(ws, message):
             with _strike_lock:
                 _strike_deque.append(now)
             print(f"Lightning strike {dist:.1f} km away — total in window: {len(_strike_deque)}")
-    except Exception as e:
-        print(f"Blitzortung decode error: {e} | raw type={type(message).__name__} len={len(message) if message else 0} | first50={str(message)[:50]}")
+    except Exception:
+        pass
 
 
 def _blitz_on_open(ws):
-    ws.send('{"a": 111}')
     print("Blitzortung WebSocket connected")
+    ws.send('{"a": 111}')
 
 
 def _blitz_on_error(ws, error):
-    pass  # reconnect loop handles this
+    print(f"Blitzortung WebSocket error: {error}")
 
 
 def _blitz_on_close(ws, close_status_code, close_msg):
-    print(f"Blitzortung WebSocket closed: {close_status_code}")
+    print(f"Blitzortung WebSocket closed: {close_status_code} / {close_msg}")
 
 
 def _blitzortung_thread():
@@ -164,7 +162,6 @@ def _blitzortung_thread():
                 on_message=_blitz_on_message,
                 on_error=_blitz_on_error,
                 on_close=_blitz_on_close,
-                header={"Origin": "https://www.blitzortung.org"},
             )
             ws.run_forever(ping_interval=30, ping_timeout=10)
         except Exception as e:
