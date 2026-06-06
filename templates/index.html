@@ -1092,6 +1092,21 @@ function loadLightningStrikes() {
             var b = data.buckets || {t10:0, t30:0, t60:0, t120:0};
             var total = b.t10 + b.t30 + b.t60 + b.t120;
 
+            // Update nearest strike footnote
+            var nearestEl = document.getElementById('lightning-nearest');
+            if (nearestEl) {
+                fetch('/api/lightning-debug')
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        var n = d.nearest_strike;
+                        if (n && n.dist_km !== null && n.age_mins <= 30) {
+                            nearestEl.textContent = 'Nearest recorded strike (last 30 min): ' + Math.round(n.dist_km) + ' km';
+                        } else {
+                            nearestEl.textContent = 'No strikes recorded within 30 min';
+                        }
+                    });
+            }
+
             if (statusEl) {
                 if (b.t10 > 0) {
                     statusEl.style.color = '#ef4444';
