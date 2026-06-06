@@ -416,7 +416,7 @@
             <tr>
                 <td style="color:{{ row_col }}; font-weight:bold;">{{ row.name }}</td>
                 <td {% if not is_hm %}class="{{ col_a_class }}"{% endif %}
-                    style="{% if is_hm %}color:#33FF57; font-weight:bold; {% endif %}{% if col_a_time and col_a_time < now_hhmm %}opacity:0.4;{% endif %}">
+                    style="{% if is_hm %}color:#33FF57; font-weight:bold; {% endif %}">
                     {{ col_a_time if col_a_time else '&mdash;' }}
                 </td>
                 <td class="{{ col_b_class }}" style="opacity:0.4;
@@ -744,7 +744,6 @@
         </div>
     </div>
     <p class="wx-source" id="radar-updated">Loading radar...</p>
-    <p class="wx-source" id="lightning-nearest"></p>
 </div>
 
 <!-- COLUMN 3 -->
@@ -1082,21 +1081,6 @@ function loadLightningStrikes() {
 
             var b = data.buckets || {t10:0, t30:0, t60:0, t120:0};
             var total = b.t10 + b.t30 + b.t60 + b.t120;
-
-            // Update nearest strike footnote
-            var nearestEl = document.getElementById('lightning-nearest');
-            if (nearestEl) {
-                fetch('/api/lightning-debug')
-                    .then(function(r) { return r.json(); })
-                    .then(function(d) {
-                        var n = d.nearest_strike;
-                        if (n && n.dist_km !== null) {
-                            nearestEl.textContent = 'Nearest strike: ' + Math.round(n.dist_km) + ' km (' + Math.round(n.age_mins) + ' min ago)';
-                        } else {
-                            nearestEl.textContent = 'Nearest strike: no data';
-                        }
-                    });
-            }
 
             if (statusEl) {
                 if (b.t10 > 0) {
