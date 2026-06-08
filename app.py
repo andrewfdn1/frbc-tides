@@ -449,8 +449,8 @@ def get_pla_flag():
         return cached['data'], cached['fetched_at']
 
     # Work through the fallback chain
-    # NOTE: _pla_flag_from_embed() removed from chain — PLA embed page img src
-    # can serve a stale/incorrect colour while the JSON endpoint stays correct.
+    # NOTE: _pla_flag_from_embed() removed — PLA embed page img src can serve a
+    # stale/incorrect colour while the JSON endpoint stays correct.
     data = None
     for fn in (_pla_flag_from_json, _pla_flag_from_richmond):
         try:
@@ -1346,14 +1346,29 @@ def get_kingston_flow():
         return None
     return get_cached('kingston_flow', fetch, ttl_seconds=900)
 
+_thames_temp_fail_until = 0
+
 def get_thames_temperature():
+    global _thames_temp_fail_until
+    now_ts = datetime.now(timezone.utc).timestamp()
+    if now_ts < _thames_temp_fail_until:
+        if 'thames_temp' in _cache:
+            return _cache['thames_temp']['data'], _cache['thames_temp']['fetched_at']
+        return None, ''
+
     def fetch():
+        global _thames_temp_fail_until
         url = (
             "https://environment.data.gov.uk/hydrology/id/measures/"
             "GPRSD8A-temp-i-subdaily-C/readings?latest"
         )
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
+        try:
+            r = requests.get(url, timeout=5)
+            r.raise_for_status()
+        except Exception as e:
+            _thames_temp_fail_until = datetime.now(timezone.utc).timestamp() + 900
+            print(f"thames_temp backing off 900s: {e}")
+            raise
         items = r.json().get('items', [])
         if items:
             reading = items[0]
