@@ -404,7 +404,8 @@ def _pla_flag_from_json():
 
 def _pla_flag_from_richmond():
     """Stage 3: derive flag colour from cached Richmond low tide height using PLA thresholds."""
-    lw_data, _ = get_richmond_observed_low_tide()
+    result = get_richmond_observed_low_tide()
+    lw_data = result[0] if isinstance(result, tuple) else result
     if lw_data is None:
         return None
     metres = lw_data["metres"]
@@ -448,8 +449,10 @@ def get_pla_flag():
         return cached['data'], cached['fetched_at']
 
     # Work through the fallback chain
+    # NOTE: _pla_flag_from_embed() removed from chain — PLA embed page img src
+    # can serve a stale/incorrect colour while the JSON endpoint stays correct.
     data = None
-    for fn in (_pla_flag_from_embed, _pla_flag_from_json, _pla_flag_from_richmond):
+    for fn in (_pla_flag_from_json, _pla_flag_from_richmond):
         try:
             data = fn()
         except Exception as e:
