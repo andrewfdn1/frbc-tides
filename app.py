@@ -1791,36 +1791,7 @@ def wind_endpoint():
 
 @app.route("/api/overlay")
 def api_overlay():
-    """Lightweight endpoint for the camera kiosk overlay updater."""
     now = datetime.now(timezone.utc)
-
-    # Reuse existing data pipeline
-    tides_data = get_cached('tides', get_tides, ttl_seconds=7200)
-
-    # Next tide turn — find first future event
-    next_tide_label = None
-    next_tide_time = None
-    try:
-        for e in tides_data:
-            if e['dt_utc'] > now:
-                next_tide_label = "High" if "High" in e['EventType'] else "Low"
-                next_tide_time = e['dt_utc'].astimezone(LONDON_TZ).strftime("%H:%M")
-                break
-    except Exception:
-        pass
-
-    # Low tide warning — within 60 mins after low tide
-    pontoon_warning = False
-    try:
-        past_lows = [
-            e for e in tides_data
-            if "Low" in e['EventType'] and e['dt_utc'] < now
-        ]
-        if past_lows:
-            diff = (now - past_lows[-1]['dt_utc']).total_seconds()
-            pontoon_warning = 0 <= diff <= 3600
-    except Exception:
-        pass
 
     # PLA flag
     flag_colour = "UNKNOWN"
@@ -1830,13 +1801,55 @@ def api_overlay():
     except Exception:
         pass
 
+    # Next tide — compare next HW and LW UTC times, take whichever is sooner
+    next_tide_label = None
+    next_tide_time = None
+    try:
+        tides = get_cached('tides', get_tides, ttl_seconds=7200)
+        hw_iso = None
+        lw_iso = None
+        # Find next HW and LW
+        for e in tides:
+            if e['dt_utc'] > now:
+                if "High" in e['EventType'] and hw_iso is None:
+                    hw_iso = e['dt_utc']
+                if "Low" in e['EventType'] and lw_iso is None:
+                    lw_iso = e['dt_utc']
+                if hw_iso and lw_iso:
+                    break
+        if hw_iso and lw_iso:
+            if hw_iso < lw_iso:
+                next_tide_label = "High"
+                next_tide_time = hw_iso.astimezone(LONDON_TZ).strftime("%H:%M")
+            else:
+                next_tide_label = "Low"
+                next_tide_time = lw_iso.astimezone(LONDON_TZ).strftime("%H:%M")
+        elif hw_iso:
+            next_tide_label = "High"
+            next_tide_time = hw_iso.astimezone(LONDON_TZ).strftime("%H:%M")
+        elif lw_iso:
+            next_tide_label = "Low"
+            next_tide_time = lw_iso.astimezone(LONDON_TZ).strftime("%H:%M")
+    except Exception:
+        pass
+
+    # Pontoon warning — within 60 mins after low tide
+    pontoon_warning = False
+    try:
+        tides = get_cached('tides', get_tides, ttl_seconds=7200)
+        past_lows = [e for e in tides if "Low" in e['EventType'] and e['dt_utc'] < now]
+        if past_lows:
+            diff = (now - past_lows[-1]['dt_utc']).total_seconds()
+            pontoon_warning = 0 <= diff <= 3600
+    except Exception:
+        pass
+
     return jsonify({
         "flag":            flag_colour,
         "next_tide_label": next_tide_label,
         "next_tide_time":  next_tide_time,
         "pontoon_warning": pontoon_warning,
     })
-
 def get_strike_buckets():
     """Return strike counts in recency buckets: 0-10min, 10-30min, 30-60min, 1-2hr."""
     now = time_mod.time()
