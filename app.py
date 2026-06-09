@@ -1805,7 +1805,7 @@ def api_overlay():
     next_tide_label = None
     next_tide_time = None
     try:
-        tides = get_cached('tides', get_tides, ttl_seconds=7200)
+        tides, _ = get_cached('tides', get_tides, ttl_seconds=7200)
         hw_iso = None
         lw_iso = None
         # Find next HW and LW
