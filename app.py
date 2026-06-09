@@ -1792,16 +1792,16 @@ def wind_endpoint():
 @app.route("/api/overlay")
 def api_overlay():
     """Lightweight endpoint for the camera kiosk overlay updater."""
-    from datetime import timezone as _tz
     now = datetime.now(timezone.utc)
 
-    # Next tide turn
-    tides, _ = get_tides(), None
+    # Reuse existing data pipeline
+    tides_data = get_cached('tides', get_tides, ttl_seconds=7200)
+
+    # Next tide turn — find first future event
     next_tide_label = None
     next_tide_time = None
     try:
-        events = get_tides()
-        for e in events:
+        for e in tides_data:
             if e['dt_utc'] > now:
                 next_tide_label = "High" if "High" in e['EventType'] else "Low"
                 next_tide_time = e['dt_utc'].astimezone(LONDON_TZ).strftime("%H:%M")
@@ -1809,17 +1809,15 @@ def api_overlay():
     except Exception:
         pass
 
-    # Low tide warning — within 60 mins after low tide at Hammersmith
+    # Low tide warning — within 60 mins after low tide
     pontoon_warning = False
     try:
-        events = get_tides()
         past_lows = [
-            e for e in events
+            e for e in tides_data
             if "Low" in e['EventType'] and e['dt_utc'] < now
         ]
         if past_lows:
-            last_low = past_lows[-1]
-            diff = (now - last_low['dt_utc']).total_seconds()
+            diff = (now - past_lows[-1]['dt_utc']).total_seconds()
             pontoon_warning = 0 <= diff <= 3600
     except Exception:
         pass
