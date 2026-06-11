@@ -905,9 +905,10 @@
     updateClock();
     setInterval(updateClock, 1000);
 
-    // Rain radar
+    // Rain radar + wind arrows
     var radarMap = null;
     var radarLayer = null;
+    var windMarkers = [];
 
     function initRadar() {
         radarMap = L.map('radar-map', {
@@ -926,7 +927,9 @@
         }).addTo(radarMap);
 
         loadRadar();
-        setInterval(loadRadar, 300000);
+        loadWindArrows();
+        setInterval(loadRadar, 300000);        // refresh radar every 5 min
+        setInterval(loadWindArrows, 3600000);  // refresh wind every 1 hour (matches server cache)
     }
 
     function loadRadar() {
@@ -936,7 +939,7 @@
                 var frames = data.radar && data.radar.past;
                 if (!frames || !frames.length) return;
                 var latest = frames[frames.length - 1];
-                // colour=2 (green→yellow→red), tileSize=512, smooth=1, snow=0
+                // colour=2 (green→yellow→red), tileSize=256, smooth=1, snow=0
                 var url = data.host + latest.path + '/256/{z}/{x}/{y}/2/1_1.png';
                 if (radarLayer) radarMap.removeLayer(radarLayer);
                 radarLayer = L.tileLayer(url, {
@@ -950,6 +953,57 @@
             })
             .catch(function() {
                 document.getElementById('radar-updated').textContent = 'Radar unavailable';
+            });
+    }
+
+    function windArrowColour(speed) {
+        if (speed === null || speed === undefined) return '#888888';
+        if (speed >= 45) return '#ef4444';
+        if (speed >= 30) return '#f97316';
+        if (speed >= 15) return '#eab308';
+        return '#22c55e';
+    }
+
+    function makeArrowIcon(speed, direction) {
+        var colour = windArrowColour(speed);
+        // direction is meteorological: where wind comes FROM — rotate arrow to point in travel direction
+        var rotateDeg = (direction + 180) % 360;
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">'
+            + '<g transform="rotate(' + rotateDeg + ' 14 14)">'
+            + '<polygon points="14,3 20,22 14,18 8,22" fill="' + colour + '" opacity="0.92"/>'
+            + '</g>'
+            + '</svg>';
+        return L.divIcon({
+            html: svg,
+            className: 'wind-arrow',
+            iconSize: [28, 28],
+            iconAnchor: [14, 14]
+        });
+    }
+
+    function loadWindArrows() {
+        fetch('/api/wind')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                // Clear existing arrows
+                windMarkers.forEach(function(m) { radarMap.removeLayer(m); });
+                windMarkers = [];
+
+                var points = data.points || [];
+                points.forEach(function(pt) {
+                    if (pt.speed === null || pt.direction === null) return;
+                    var icon = makeArrowIcon(pt.speed, pt.direction);
+                    var marker = L.marker([pt.lat, pt.lon], {
+                        icon: icon,
+                        interactive: false,
+                        zIndexOffset: 500
+                    });
+                    marker.addTo(radarMap);
+                    windMarkers.push(marker);
+                });
+            })
+            .catch(function(e) {
+                console.warn('Wind arrows unavailable:', e);
             });
     }
 </script>
