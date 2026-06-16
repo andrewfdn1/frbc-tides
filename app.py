@@ -1655,7 +1655,7 @@ def api_overlay():
     # Pontoon warning — within 60 mins after low tide
     pontoon_warning = False
     try:
-        tides = get_cached('tides', get_tides, ttl_seconds=7200)
+        tides, _ = get_cached('tides', get_tides, ttl_seconds=7200)
         past_lows = [e for e in tides if "Low" in e['EventType'] and e['dt_utc'] < now]
         if past_lows:
             diff = (now - past_lows[-1]['dt_utc']).total_seconds()
