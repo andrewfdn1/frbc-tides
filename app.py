@@ -75,6 +75,7 @@ def _get_lock(key):
         return _cache_locks[key]
 
 def get_cached(key, fetch_fn, ttl_seconds):
+    global _nswws_last_error
     now = datetime.now(timezone.utc).timestamp()
     if key in _cache and now - _cache[key]['ts'] < ttl_seconds:
         return _cache[key]['data'], _cache[key]['fetched_at']
@@ -90,7 +91,6 @@ def get_cached(key, fetch_fn, ttl_seconds):
         except Exception as e:
             print(f"Error fetching {key}: {e}")
             if key == "nswws":
-                global _nswws_last_error
                 _nswws_last_error = str(e)
             if key in _cache:
                 return _cache[key]['data'], _cache[key]['fetched_at']
@@ -730,7 +730,7 @@ def _parse_weatherapi(data):
                 'gust_min':  round(min(gusts)),
                 'gust_max':  round(max(gusts)),
                 'direction': prevailing_direction(dirs),
-                'rain_min':  round(max(rains)),
+                'rain_min':  round(min(rains)),
                 'rain_max':  round(max(rains)),
                 'uv_max':    round(max(uvs), 1) if uvs else None,
                 'fog':       any(c in FOG_CODES   for c in codes),
@@ -796,7 +796,8 @@ def _fetch_openmeteo():
     times  = hourly['time']
 
     def window(start_h, end_h):
-        indices = [i for i, t in enumerate(times) if start_h <= int(t[11:13]) < end_h]
+        today_str = datetime.now(LONDON_TZ).strftime('%Y-%m-%d')
+        indices = [i for i, t in enumerate(times) if t[:10] == today_str and start_h <= int(t[11:13]) < end_h]
         if not indices:
             return None
 
@@ -901,11 +902,8 @@ def _fetch_weather_with_observations():
         except Exception as e:
             print(f"Met Office Observations morning fetch failed, keeping forecast: {e}")
 
-    # Restore morning from file if result has none (fetched after midday)
-    if result.get('morning') is None and today_str in store:
-        result = dict(result)
-        result['morning'] = store[today_str]
-    elif today_str in store:
+    # Restore morning from file (covers both: no morning in result, and always-prefer-observed)
+    if today_str in store:
         result = dict(result)
         result['morning'] = store[today_str]
 
@@ -930,7 +928,7 @@ _NSWWS_FEED_URL  = os.environ.get(
 )
 _NSWWS_ATOM_NS   = "{http://www.w3.org/2005/Atom}"
 _LEVEL_ORDER     = {"RED": 3, "AMBER": 2, "YELLOW": 1}
-_nsws_last_error = ""
+_nswws_last_error = ""
 
 # London bounding box for a quick pre-filter before shapely
 _LON_BBOX = (-0.51, 51.28, 0.33, 51.70)   # (min_lon, min_lat, max_lon, max_lat)
@@ -1389,18 +1387,6 @@ def build_dashboard_data():
         m = w_res.get('morning')
         a = w_res.get('afternoon')
 
-        def wvt(window_data, hour):
-            if not window_data or not tides:
-                return False
-            check = now_utc.replace(hour=hour, minute=0, second=0, microsecond=0)
-            dirn  = tide_direction_at(tides, check)
-            wd    = window_data['direction']
-            spd   = window_data['wind_max'] or 0
-            return spd > 10 and (
-                (dirn == "EBB TIDE"   and wd in ["S", "SE", "SW"]) or
-                (dirn == "FLOOD TIDE" and wd in ["N", "NE", "NW"])
-            )
-
         weather.update({
             "error":     False,
             "updated":   w_up,
@@ -1624,8 +1610,7 @@ def api_overlay():
     next_tide_label = None
     next_tide_time = None
     try:
-        tides, _ = get_cached('tides', get_tides, ttl_seconds=7200)
-        hw_iso = None
+        tides, _ = get_tides()
         lw_iso = None
         # Find next HW and LW
         for e in tides:
@@ -1655,7 +1640,7 @@ def api_overlay():
     # Pontoon warning — within 60 mins after low tide
     pontoon_warning = False
     try:
-        tides, _ = get_cached('tides', get_tides, ttl_seconds=7200)
+        tides, _ = get_tides()
         past_lows = [e for e in tides if "Low" in e['EventType'] and e['dt_utc'] < now]
         if past_lows:
             diff = (now - past_lows[-1]['dt_utc']).total_seconds()
@@ -1686,4 +1671,4 @@ def _prewarm():
 
 if __name__ == "__main__":
     threading.Thread(target=_prewarm, daemon=True).start()
-    app.run(debug=True)
+    app.run(debug=os.environ.get("FLASK_DEBUG", "0") == "1")
