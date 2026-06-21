@@ -699,6 +699,11 @@
     {% if d.nswws_status == 'ok' and not d.nswws_headlines %}
     <p class="nswws-headline c-dim">No Met Office Warnings in Hammersmith{% if d.nswws_updated %}, NSWWS updated at {{ d.nswws_updated }}{% endif %}</p>
     {% endif %}
+    {% for line in d.nswws_upcoming %}
+    <p class="nswws-headline {% if line.level == 'RED' %}c-red{% elif line.level in ('AMBER', 'YELLOW') %}c-yellow{% else %}c-white{% endif %}">
+        <strong>Upcoming {{ line.period }}</strong> &mdash; {{ line.headline }}
+    </p>
+    {% endfor %}
 
     <h3>RADAR</h3>
     <div class="radar-wrap">
