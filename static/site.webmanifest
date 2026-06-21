@@ -1,6 +1,6 @@
 {
-  "name": "Hammersmith Tides",
-  "short_name": "FRBC Tides",
+  "name": "Dashboard",
+  "short_name": "Dashboard",
   "icons": [
     {
       "src": "/static/web-app-manifest-192x192.png",
