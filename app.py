@@ -1131,9 +1131,11 @@ def _nswws_upcoming_lines(warnings):
     today_end   = today_start + timedelta(days=1)
     lookahead   = today_start + timedelta(days=7)
 
+    warnings_sorted = sorted(warnings, key=lambda w: w.get("valid_from") or "")
+
     lines = []
     seen_headlines = set()
-    for w in warnings:
+    for w in warnings_sorted:
         try:
             vf = datetime.fromisoformat(w["valid_from"].replace("Z", "+00:00")).astimezone(LONDON_TZ) if w["valid_from"] else None
             vt = datetime.fromisoformat(w["valid_to"].replace("Z", "+00:00")).astimezone(LONDON_TZ)   if w["valid_to"]   else None
