@@ -1121,6 +1121,61 @@ def _nswws_headline_lines(morning, afternoon):
     return lines
 
 
+def _nswws_upcoming_lines(warnings):
+    """
+    Return warning lines for warnings that start in the next 7 days but are
+    not active today. Each line includes a human-readable day-range label.
+    """
+    now_local   = datetime.now(LONDON_TZ)
+    today_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end   = today_start + timedelta(days=1)
+    lookahead   = today_start + timedelta(days=7)
+
+    lines = []
+    seen_headlines = set()
+    for w in warnings:
+        try:
+            vf = datetime.fromisoformat(w["valid_from"].replace("Z", "+00:00")).astimezone(LONDON_TZ) if w["valid_from"] else None
+            vt = datetime.fromisoformat(w["valid_to"].replace("Z", "+00:00")).astimezone(LONDON_TZ)   if w["valid_to"]   else None
+        except Exception:
+            vf, vt = None, None
+
+        # Skip if active today (covered by nswws_headlines)
+        active_today = (vf is None or vf < today_end) and (vt is None or vt > today_start)
+        if active_today:
+            continue
+
+        # Only include if starts within lookahead
+        if vf is None or not (today_end <= vf <= lookahead):
+            continue
+
+        headline = w.get("headline", "").strip()
+        if not headline or headline in seen_headlines:
+            continue
+        seen_headlines.add(headline)
+
+        # Format day range: "Wed 25 Jun" or "Wed 25 Jun – Fri 27 Jun"
+        from_label = vf.strftime("%-d %b")
+        from_day   = vf.strftime("%a")
+        if vt:
+            to_label = vt.strftime("%-d %b")
+            to_day   = vt.strftime("%a")
+            if from_label == to_label:
+                period = f"{from_day} {from_label}"
+            else:
+                period = f"{from_day} {from_label} \u2013 {to_day} {to_label}"
+        else:
+            period = f"From {from_day} {from_label}"
+
+        lines.append({
+            "period":   period,
+            "headline": headline,
+            "level":    w["level"],
+        })
+
+    return lines
+
+
 def _warning_for_window(warnings, window_start_h, window_end_h):
     """
     Return the highest-severity warning active during the given local-time
@@ -1427,6 +1482,7 @@ def build_dashboard_data():
     nswws_morning   = _warning_for_window(nswws_all, 6,  12)
     nswws_afternoon = _warning_for_window(nswws_all, 12, 20)
     nswws_headlines = _nswws_headline_lines(nswws_morning, nswws_afternoon)
+    nswws_upcoming  = _nswws_upcoming_lines(nswws_all)
 
     # Pre-sorted marker list for the TODAY calendar column
     # Combines tides + sunrise + sunset into a single time-ordered list
@@ -1461,6 +1517,7 @@ def build_dashboard_data():
         "nswws_morning":       nswws_morning,
         "nswws_afternoon":     nswws_afternoon,
         "nswws_headlines":     nswws_headlines,
+        "nswws_upcoming":      nswws_upcoming,
         "nswws_updated":       nswws_up,
         "nswws_status":        nswws_status,
         "nswws_count":         len(nswws_all),
