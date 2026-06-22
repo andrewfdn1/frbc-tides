@@ -1131,10 +1131,14 @@ def _nswws_upcoming_lines(warnings):
     today_end   = today_start + timedelta(days=1)
     lookahead   = today_start + timedelta(days=7)
 
-    warnings_sorted = sorted(warnings, key=lambda w: w.get("valid_from") or "")
+    _sev = {"RED": 0, "AMBER": 1, "YELLOW": 2}
+    warnings_sorted = sorted(
+        warnings,
+        key=lambda w: (w.get("valid_from") or "", _sev.get((w.get("level") or "").upper(), 9))
+    )
 
     lines = []
-    seen_headlines = set()
+    seen_periods = set()
     for w in warnings_sorted:
         try:
             vf = datetime.fromisoformat(w["valid_from"].replace("Z", "+00:00")).astimezone(LONDON_TZ) if w["valid_from"] else None
@@ -1152,9 +1156,14 @@ def _nswws_upcoming_lines(warnings):
             continue
 
         headline = w.get("headline", "").strip()
-        if not headline or headline in seen_headlines:
+        if not headline:
             continue
-        seen_headlines.add(headline)
+
+        # Deduplicate by date range — keep highest severity (first encountered after sort)
+        period_key = (vf.date() if vf else None, vt.date() if vt else None)
+        if period_key in seen_periods:
+            continue
+        seen_periods.add(period_key)
 
         # Format day range: "Wed 25 Jun" or "Wed 25 Jun – Fri 27 Jun"
         from_label = vf.strftime("%-d %b")
