@@ -1131,15 +1131,12 @@ def _nswws_upcoming_lines(warnings):
     today_end   = today_start + timedelta(days=1)
     lookahead   = today_start + timedelta(days=7)
 
-    _sev = {"RED": 0, "AMBER": 1, "YELLOW": 2}
-    warnings_sorted = sorted(
-        warnings,
-        key=lambda w: (w.get("valid_from") or "", _sev.get((w.get("level") or "").upper(), 9))
-    )
-
+    # warnings already arrive severity-first (RED→AMBER→YELLOW) from _fetch_nswws.
+    # Iterate in that order so the highest-severity warning wins each date-range slot,
+    # then sort the output lines by date for display.
     lines = []
     seen_periods = set()
-    for w in warnings_sorted:
+    for w in warnings:
         try:
             vf = datetime.fromisoformat(w["valid_from"].replace("Z", "+00:00")).astimezone(LONDON_TZ) if w["valid_from"] else None
             vt = datetime.fromisoformat(w["valid_to"].replace("Z", "+00:00")).astimezone(LONDON_TZ)   if w["valid_to"]   else None
@@ -1182,8 +1179,12 @@ def _nswws_upcoming_lines(warnings):
             "period":   period,
             "headline": headline,
             "level":    w["level"],
+            "_vf":      vf,
         })
 
+    lines.sort(key=lambda l: l["_vf"] or datetime.max.replace(tzinfo=LONDON_TZ))
+    for l in lines:
+        l.pop("_vf", None)
     return lines
 
 
