@@ -1,4 +1,4 @@
-# Hammersmith Tide Monitor — Flask Version
+# ROWING SAFETY DASHBOARD
 
 A real-time weather and tide monitoring dashboard for Fulham Reach Boat Club, displaying critical river conditions, weather forecasts, and club events. All API calls happen server-side; the browser receives plain HTML.
 
