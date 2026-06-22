@@ -270,10 +270,11 @@ def get_pla_flag():
         return cached['data'], cached['fetched_at']
 
     # Work through the fallback chain
-    # NOTE: _pla_flag_from_embed() removed — PLA embed page img src can serve a
-    # stale/incorrect colour while the JSON endpoint stays correct.
+    # Embed page is primary — replicates exactly what the PLA website shows.
+    # JSON is fallback in case the embed page is unavailable.
+    # Richmond gauge is last resort only.
     data = None
-    for fn in (_pla_flag_from_json, _pla_flag_from_richmond):
+    for fn in (_pla_flag_from_embed, _pla_flag_from_json, _pla_flag_from_richmond):
         try:
             data = fn()
         except Exception as e:
@@ -1292,6 +1293,7 @@ def build_dashboard_data():
         threading.Thread(target=run, args=('tides',         get_tides)),
         threading.Thread(target=run, args=('calendar',      get_calendar_events)),
         threading.Thread(target=run, args=('pla_flag',      get_pla_flag)),
+        threading.Thread(target=run, args=('pla_json',       _pla_flag_from_json)),
         threading.Thread(target=run, args=('weather',       get_weather)),
         threading.Thread(target=run, args=('kingston_flow', get_kingston_flow)),
         threading.Thread(target=run, args=('richmond_lw',   get_richmond_observed_low_tide)),
@@ -1467,6 +1469,7 @@ def build_dashboard_data():
 
     # PLA Flag
     pla_f, pla_u = results.get('pla_flag', (None, ''))
+    pla_json_flag = results.get('pla_json', None)
 
     # Richmond observed low tide
     lw_data, lw_up = results.get('richmond_lw', (None, ''))
@@ -1511,6 +1514,7 @@ def build_dashboard_data():
         "tides":               t_data,
         "pla_flag":            pla_f,
         "pla_updated":         pla_u,
+        "pla_json_flag":       pla_json_flag,
         "richmond_lw":         lw_data,
         "richmond_lw_updated": lw_up,
         "weather":             weather,
