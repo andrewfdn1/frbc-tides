@@ -1123,8 +1123,8 @@ def _nswws_headline_lines(morning, afternoon):
 
 def _nswws_upcoming_lines(warnings):
     """
-    Return warning lines for warnings that start in the next 7 days but are
-    not active today. Each line includes a human-readable day-range label.
+    Return warning lines for warnings starting in the next 7 days but not
+    active today. Deduplicates by date range, keeping highest severity.
     """
     now_local   = datetime.now(LONDON_TZ)
     today_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -1156,7 +1156,7 @@ def _nswws_upcoming_lines(warnings):
         if not headline:
             continue
 
-        # Deduplicate by date range — keep highest severity (first encountered after sort)
+        # Deduplicate by date range — keep highest severity (first encountered)
         period_key = (vf.date() if vf else None, vt.date() if vt else None)
         if period_key in seen_periods:
             continue
@@ -1171,7 +1171,7 @@ def _nswws_upcoming_lines(warnings):
             if from_label == to_label:
                 period = f"{from_day} {from_label}"
             else:
-                period = f"{from_day} {from_label} \u2013 {to_day} {to_label}"
+                period = f"{from_day} {from_label} – {to_day} {to_label}"
         else:
             period = f"From {from_day} {from_label}"
 
@@ -1540,78 +1540,172 @@ def build_dashboard_data():
 # Wind grid data for radar overlay — Open-Meteo with caching
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Wind grid helper — builds a uniform grid of (lat, lon) points for map arrows
+# ---------------------------------------------------------------------------
+
+def _wind_grid_points():
+    """Return the list of (lat, lon) grid points for the wind arrow overlay."""
+    lat_min, lat_max = 51.1, 51.9
+    lon_min, lon_max = -3.2, 2.74
+    grid_size = 4  # 4x4 = 16 points
+    lats = [lat_min + i * (lat_max - lat_min) / (grid_size - 1) for i in range(grid_size)]
+    lons = [lon_min + i * (lon_max - lon_min) / (grid_size - 1) for i in range(grid_size)]
+    return [(round(lat, 3), round(lon, 3)) for lat in lats for lon in lons]
+
+
+def _wind_grid_from_single(speed_kmh, direction_deg, gusts_kmh=None):
+    """
+    Spread a single wind observation across all grid points.
+    Used when a single-point source (Met Office / WeatherAPI) is the best available.
+    """
+    points = _wind_grid_points()
+    return {
+        "points": [
+            {"lat": lat, "lon": lon,
+             "speed": speed_kmh, "direction": direction_deg, "gusts": gusts_kmh}
+            for lat, lon in points
+        ],
+        "generated_at": datetime.now(LONDON_TZ).isoformat(),
+    }
+
+
+def _fetch_wind_metoffice():
+    """
+    Fetch current wind from Met Office DataHub site-specific (hourly) API.
+    Returns (speed_kmh, direction_deg, gusts_kmh) or raises.
+    """
+    if not MO_SITE_KEY:
+        raise Exception("No MO_SITE_KEY")
+    ts = _fetch_metoffice_timeseries(MO_SITE_KEY, "hourly")
+    now_utc = datetime.now(timezone.utc)
+    # Find the entry closest to now
+    best = None
+    best_delta = None
+    for entry in ts:
+        t_str = entry.get("time", "")
+        try:
+            t = datetime.fromisoformat(t_str.replace("Z", "+00:00"))
+        except Exception:
+            continue
+        delta = abs((t - now_utc).total_seconds())
+        if best_delta is None or delta < best_delta:
+            best_delta = delta
+            best = entry
+    if not best:
+        raise Exception("Met Office timeseries: no usable entries")
+    speed_ms = best.get("windSpeed10m")
+    direction = best.get("windDirectionFrom10m")
+    gust_ms   = best.get("max10mWindGust") or best.get("windGustSpeed10m")
+    if speed_ms is None or direction is None:
+        raise Exception("Met Office timeseries: missing wind fields")
+    return (
+        round(_ms_to_kmh(speed_ms), 1),
+        round(float(direction)),
+        round(_ms_to_kmh(gust_ms), 1) if gust_ms is not None else None,
+    )
+
+
+def _fetch_wind_weatherapi():
+    """
+    Fetch current wind from WeatherAPI.
+    Returns (speed_kmh, direction_deg, gusts_kmh) or raises.
+    """
+    if not WEATHERAPI_KEY:
+        raise Exception("No WEATHERAPI_KEY")
+    url = (
+        f"https://api.weatherapi.com/v1/current.json"
+        f"?key={WEATHERAPI_KEY}&q={LAT},{LON}&aqi=no"
+    )
+    r = requests.get(url, timeout=10)
+    if r.status_code == 429:
+        raise Exception("WeatherAPI rate limited")
+    r.raise_for_status()
+    current = r.json().get("current", {})
+    speed   = current.get("wind_kph")
+    dirn    = current.get("wind_degree")
+    gusts   = current.get("gust_kph")
+    if speed is None or dirn is None:
+        raise Exception("WeatherAPI: missing wind fields")
+    return (round(float(speed), 1), round(float(dirn)), round(float(gusts), 1) if gusts else None)
+
+
+def _fetch_wind_openmeteo():
+    """
+    Fetch wind grid from Open-Meteo (16-point batch).
+    Returns wind_data list or raises (including backoff).
+    """
+    now_ts = datetime.now(timezone.utc).timestamp()
+    if now_ts < _get_fail_until('wind_grid'):
+        raise Exception("Wind grid in backoff")
+
+    points = _wind_grid_points()
+    lat_str = ",".join(str(p[0]) for p in points)
+    lon_str = ",".join(str(p[1]) for p in points)
+    url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={lat_str}&longitude={lon_str}"
+        "&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m"
+        "&timezone=Europe%2FLondon"
+    )
+    r = requests.get(url, timeout=15)
+    if r.status_code == 429:
+        retry_after = int(r.headers.get("Retry-After", 3600))
+        _set_fail_until('wind_grid', retry_after)
+        raise Exception(f"Open-Meteo rate limited, retry after {retry_after}s")
+    r.raise_for_status()
+    locations = r.json() if isinstance(r.json(), list) else [r.json()]
+    wind_data = []
+    for i, loc in enumerate(locations):
+        current = loc.get("current", {})
+        wind_data.append({
+            "lat": points[i][0],
+            "lon": points[i][1],
+            "speed":     current.get("wind_speed_10m"),
+            "direction": current.get("wind_direction_10m"),
+            "gusts":     current.get("wind_gusts_10m"),
+        })
+    return wind_data
+
+
 def get_wind_grid():
     """
-    Fetch wind data for a grid around the map center.
-    Returns a sparse grid of points with wind speed/direction for arrow overlay.
-    Cached for 1 hour to minimize API calls.
+    Fetch wind data for the map arrow overlay.
+    Fallback chain: Met Office DataHub → WeatherAPI → Open-Meteo.
+    Met Office and WeatherAPI return a single point spread across the grid.
+    Open-Meteo returns a true 16-point grid when available.
+    Cached for 1 hour.
     """
     def fetch():
-        now_ts = datetime.now(timezone.utc).timestamp()
-        
-        # Honour backoff
-        if now_ts < _get_fail_until('wind_grid'):
-            raise Exception("Wind grid in backoff")
-        
-        # Grid: | `grid_size = 2` | 4 | Very sparse
-        # `grid_size = 3` | 9 arrows | Few
-        # `grid_size = 4` | 16 arrows | Moderate
-        # `grid_size = 5` | 25 arrows | Dense
-        # Centered on Hammersmith, spanning ~0.5 degrees
-        lat_min, lat_max = 51.1, 51.9   
-        lon_min, lon_max = -3.2, 2.74
-        grid_size = 4
-        
-        lats = [lat_min + i * (lat_max - lat_min) / (grid_size - 1) for i in range(grid_size)]
-        lons = [lon_min + i * (lon_max - lon_min) / (grid_size - 1) for i in range(grid_size)]
-        
-        points = []
-        for lat in lats:
-            for lon in lons:
-                points.append((round(lat, 3), round(lon, 3)))
-        
-        # Batch request - Open-Meteo supports multiple locations
-        lat_str = ",".join(str(p[0]) for p in points)
-        lon_str = ",".join(str(p[1]) for p in points)
-        
-        url = (
-            f"https://api.open-meteo.com/v1/forecast"
-            f"?latitude={lat_str}&longitude={lon_str}"
-            "&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m"
-            "&timezone=Europe%2FLondon"
-        )
-        
-        r = requests.get(url, timeout=15)
-        if r.status_code == 429:
-            retry_after = int(r.headers.get("Retry-After", 3600))
-            _set_fail_until('wind_grid', retry_after)
-            raise Exception(f"Open-Meteo rate limited, retry after {retry_after}s")
-        r.raise_for_status()
-        
-        data = r.json()
-        
-        # Handle both single-location and multi-location responses
-        if isinstance(data, list):
-            locations = data
-        else:
-            locations = [data]
-        
-        wind_data = []
-        for i, loc in enumerate(locations):
-            current = loc.get("current", {})
-            wind_data.append({
-                "lat": points[i][0],
-                "lon": points[i][1],
-                "speed": current.get("wind_speed_10m"),  # km/h
-                "direction": current.get("wind_direction_10m"),  # degrees
-                "gusts": current.get("wind_gusts_10m"),
-            })
-        
-        return {
-            "points": wind_data,
-            "generated_at": datetime.now(LONDON_TZ).isoformat(),
-        }
-    
+        # 1. Met Office DataHub (site-specific hourly) — single point
+        if MO_SITE_KEY:
+            try:
+                speed, dirn, gusts = _fetch_wind_metoffice()
+                print(f"Wind grid: Met Office ({speed} km/h, {dirn}°)")
+                return _wind_grid_from_single(speed, dirn, gusts)
+            except Exception as e:
+                print(f"Wind grid: Met Office failed ({e}), trying WeatherAPI")
+
+        # 2. WeatherAPI — single point
+        if WEATHERAPI_KEY:
+            try:
+                speed, dirn, gusts = _fetch_wind_weatherapi()
+                print(f"Wind grid: WeatherAPI ({speed} km/h, {dirn}°)")
+                return _wind_grid_from_single(speed, dirn, gusts)
+            except Exception as e:
+                print(f"Wind grid: WeatherAPI failed ({e}), trying Open-Meteo")
+
+        # 3. Open-Meteo — full 16-point grid (may be in backoff)
+        try:
+            wind_data = _fetch_wind_openmeteo()
+            print("Wind grid: Open-Meteo (full grid)")
+            return {
+                "points": wind_data,
+                "generated_at": datetime.now(LONDON_TZ).isoformat(),
+            }
+        except Exception as e:
+            raise Exception(f"All wind sources failed. Last error: {e}")
+
     return get_cached('wind_grid', fetch, ttl_seconds=3600)  # 1 hour cache
 
 @app.route("/")
