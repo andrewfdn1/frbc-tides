@@ -475,6 +475,9 @@
             {{ d.richmond_lw.time }}
             was {{ "%.2f"|format(d.richmond_lw.metres) }}m &mdash;
             <span class="c-{{ d.richmond_lw.flag|lower }}">{{ d.richmond_lw.flag_word }}</span>
+            {% if d.pla_json_flag %}
+            <span class="c-dim">(JSON: {{ d.pla_json_flag.colour | capitalize }})</span>
+            {% endif %}
         </div>
     {% else %}
         <p class="c-dim" style="font-size:var(--fs-data);">Richmond tide data unavailable</p>
