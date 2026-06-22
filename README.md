@@ -21,7 +21,7 @@ The dashboard displays real-time information in a three-column layout (landscape
   - Fog and storm indicators
   - Air + Water temperature sum (cold water risk)
 - **Met Office Warnings** - NSWWS severe weather warnings by time period
-- **Lightning Risk** - Open-Meteo lightning potential index with flashing alert
+
 
 **Column 3 - Club Diary:**
 - **Calendar Events** - Today's (or tomorrow's after 22:00) club sessions with times
@@ -71,7 +71,6 @@ All API responses are cached in memory with per-source TTL (time-to-live):
 | Kingston Flow | 15 minutes | River conditions change moderately |
 | Thames Temp | 15 minutes | Water temperature changes slowly |
 | NSWWS Warnings | 15 minutes | Warnings updated regularly |
-| Lightning Risk | 30 minutes | Short-term forecast |
 
 A file-based backoff system (`openmeteo_backoff.json`) persists rate-limit state across process restarts for Open-Meteo.
 
@@ -98,7 +97,7 @@ All sources return normalised data with morning/afternoon windows.
 ### Richmond Flag Logic
 
 Observed low tide height determines flag colour:
-- **Red**: ≥ 2.6m (dangerous low water)
+- **Red**: ≥ 2.6m (dangerous fast water)
 - **Yellow**: ≥ 1.7m (caution)
 - **Green**: ≥ 0m (normal)
 - **Black**: < 0m (extreme low)
@@ -120,12 +119,6 @@ River flow colour coding:
    - Location (point-in-polygon check using shapely, or London bbox fallback)
    - Time window (overlaps with morning 0600-1200 or afternoon 1200-2000)
 4. Sorts by severity (RED > AMBER > YELLOW)
-
-### Lightning Risk
-
-- Fetches hourly lightning potential index from Open-Meteo (ICON Seamless model)
-- Extracts current hour value (0-100 scale)
-- Displays with flashing animation if ≥ 20, red if ≥ 50
 
 ### Cold Water Risk
 
