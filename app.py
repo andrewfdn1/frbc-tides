@@ -274,7 +274,8 @@ def get_pla_flag():
     # JSON is fallback in case the embed page is unavailable.
     # Richmond gauge is last resort only.
     data = None
-    for fn in (_pla_flag_from_embed, _pla_flag_from_json, _pla_flag_from_richmond):
+    # Embed scrape removed: page is JS-rendered, requests gets stale default img src.
+    for fn in (_pla_flag_from_json, _pla_flag_from_richmond):
         try:
             data = fn()
         except Exception as e:
