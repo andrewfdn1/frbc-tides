@@ -212,10 +212,29 @@ def _flag_result(colour, source):
 
 
 def _pla_flag_from_json():
-    """Stage 2: fetch the PLA JSON endpoint and map letter code to colour."""
+    """Fetch the PLA JSON endpoint and map letter code to colour.
+    Also checks last_updated against the current flag slot — if the endpoint is still
+    serving the previous slot's value (e.g. showing 06:00 at 18:02), returns None so
+    the fallback chain can serve a more accurate result from the Richmond gauge."""
     r = requests.get(_PLA_FLAG_JSON_URL, timeout=5)
     r.raise_for_status()
     data = r.json()
+
+    # Staleness check: compare last_updated hour to current flag slot
+    last_updated_str = data.get("last_updated", "")
+    if last_updated_str:
+        try:
+            last_updated = datetime.fromisoformat(last_updated_str)
+            now_london   = datetime.now(LONDON_TZ)
+            # Current flag slot started at 6am or 6pm
+            current_slot_hour = 6 if 6 <= now_london.hour < 18 else 18
+            if last_updated.hour != current_slot_hour:
+                print(f"WARN [pla_flag]: JSON last_updated {last_updated_str} does not match "
+                      f"current slot hour {current_slot_hour:02d}:00 — treating as stale")
+                return None
+        except ValueError:
+            print(f"WARN [pla_flag]: could not parse last_updated '{last_updated_str}'")
+
     letter = data.get("flag_colour", "").strip().upper()
     colour = _PLA_LETTER_MAP.get(letter)
     if not colour:
@@ -367,7 +386,11 @@ def get_richmond_observed_low_tide():
         if not isinstance(records, list):
             raise ValueError(f"Unexpected Richmond records type: {type(records).__name__}")
 
-        before_flag = None  # most recent low tide before the flag slot
+        # PLA rule: flag is set using the LOWEST tide reading in the 12 hours
+        # preceding 6am or 6pm. So before_flag tracks lowest metres, not most recent.
+        window_start_utc = flag_slot_utc - timedelta(hours=12)
+
+        before_flag = None  # lowest low tide in the 12 hours before the flag slot
         after_flag  = None  # most recent low tide after the flag slot
 
         for tp in records:
@@ -396,9 +419,10 @@ def get_richmond_observed_low_tide():
             }
 
             if dt_utc < flag_slot_utc:
-                # Before current flag slot — keep the most recent
-                if before_flag is None or dt_utc > before_flag["dt_utc"]:
-                    before_flag = candidate
+                # Within the 12-hour window before the flag slot — keep the lowest
+                if dt_utc >= window_start_utc:
+                    if before_flag is None or candidate["metres"] < before_flag["metres"]:
+                        before_flag = candidate
             else:
                 # After current flag slot — keep the most recent
                 if after_flag is None or dt_utc > after_flag["dt_utc"]:
