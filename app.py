@@ -1525,16 +1525,16 @@ def build_dashboard_data():
     lw_before = lw_raw.get("before_flag") if lw_raw else None
     lw_after  = lw_raw.get("after_flag")  if lw_raw else None
 
-    # Display the before_flag low tide in the Richmond section (what the PLA saw)
-    lw_data = lw_before
+    # Current flag slot label and next slot label
+    now_h = now_lon.hour
+    current_slot_label = "6am" if 6 <= now_h < 18 else "6pm"
+    next_slot_label    = "6pm" if 6 <= now_h < 18 else "6am"
 
     # Next-flag prediction: if a low tide was recorded after the current flag was set,
     # it is new data the PLA has not acted on yet and predicts the next flag.
     # If lw_after is None, no low tide has occurred since the flag was set — no prediction.
     richmond_next_flag = None
     if lw_after:
-        now_h = now_lon.hour
-        next_slot_label = "6pm" if 6 <= now_h < 18 else "6am"
         richmond_next_flag = {
             "colour":    lw_after["flag_word"],
             "css_class": lw_after["flag"].lower(),
@@ -1582,8 +1582,11 @@ def build_dashboard_data():
         "pla_flag":            pla_f,
         "pla_updated":         pla_u,
         "pla_json_flag":       pla_json_flag,
-        "richmond_lw":         lw_data,
+        "richmond_lw_before":  lw_before,
+        "richmond_lw_after":   lw_after,
         "richmond_lw_updated": lw_up,
+        "current_slot_label":  current_slot_label,
+        "next_slot_label":     next_slot_label,
         "richmond_next_flag":  richmond_next_flag,
         "weather":             weather,
         "cal": {
