@@ -179,7 +179,7 @@ def get_calendar_events():
 # PLA Ebb Flag
 # ---------------------------------------------------------------------------
 
-_PLA_FLAG_EMBED_URL  = "https://pla.co.uk/pla-api-integration/ebb-tide-widget-embed"
+# _PLA_FLAG_EMBED_URL = "https://pla.co.uk/pla-api-integration/ebb-tide-widget-embed"  # unused — see commented _pla_flag_from_embed below
 _PLA_FLAG_JSON_URL   = "https://pla.co.uk/pla-proxy/five-minute?url=tides/ebb-flag"
 _PLA_FLAG_IMAGE_BASE = "https://pla.co.uk/modules/custom/pla_api_integration/assets/flag_{colour}.png"
 
@@ -191,22 +191,24 @@ def _flag_result(colour, source):
     return {"colour": colour, "image_url": _PLA_FLAG_IMAGE_BASE.format(colour=colour), "source": source}
 
 
-def _pla_flag_from_embed():
-    """Stage 1: scrape the PLA embed page and extract colour from the img src."""
-    r = requests.get(_PLA_FLAG_EMBED_URL, timeout=5)
-    r.raise_for_status()
-    soup = BeautifulSoup(r.text, 'html.parser')
-    img = soup.find('img')
-    if not img:
-        print("ERROR [pla_flag]: no <img> tag in embed page")
-        return None
-    src = img.get('src', '')
-    for colour in ('green', 'yellow', 'red', 'black'):
-        if f'flag_{colour}' in src:
-            print(f"INFO [pla_flag]: embed → {colour}")
-            return _flag_result(colour, 'embed')
-    print(f"ERROR [pla_flag]: unrecognised img src '{src}'")
-    return None
+# def _pla_flag_from_embed():
+#     """Disabled: the embed page is JS-rendered so requests only ever gets a static
+#     default <img src>, not the live flag. This function never returned useful data
+#     and is not called anywhere in the app."""
+#     r = requests.get(_PLA_FLAG_EMBED_URL, timeout=5)
+#     r.raise_for_status()
+#     soup = BeautifulSoup(r.text, 'html.parser')
+#     img = soup.find('img')
+#     if not img:
+#         print("ERROR [pla_flag]: no <img> tag in embed page")
+#         return None
+#     src = img.get('src', '')
+#     for colour in ('green', 'yellow', 'red', 'black'):
+#         if f'flag_{colour}' in src:
+#             print(f"INFO [pla_flag]: embed → {colour}")
+#             return _flag_result(colour, 'embed')
+#     print(f"ERROR [pla_flag]: unrecognised img src '{src}'")
+#     return None
 
 
 def _pla_flag_from_json():
@@ -224,16 +226,19 @@ def _pla_flag_from_json():
 
 
 def _pla_flag_from_richmond():
-    """Stage 3: derive flag colour from cached Richmond low tide height using PLA thresholds."""
+    """Stage 2 fallback: derive flag colour from the Richmond low tide that occurred
+    BEFORE the current flag slot time — i.e. the data the PLA would have used when
+    setting the flag. Uses before_flag from get_richmond_observed_low_tide()."""
     result = get_richmond_observed_low_tide()
     lw_data = result[0] if isinstance(result, tuple) else result
     if lw_data is None:
         return None
-    metres = lw_data["metres"]
-    if   metres >= 2.6: colour = "red"
-    elif metres >= 1.7: colour = "yellow"
-    elif metres >= 0:   colour = "green"
-    else:               colour = "black"
+    before = lw_data.get("before_flag")
+    if before is None:
+        print("INFO [pla_flag]: Richmond fallback — no low tide found before current flag slot")
+        return None
+    metres = before["metres"]
+    colour = before["flag"].lower()
     print(f"INFO [pla_flag]: Richmond fallback {metres}m → {colour}")
     return _flag_result(colour, 'richmond')
 
@@ -302,7 +307,38 @@ _PLA_RICHMOND_CHART_URL = (
     "https://pla.co.uk/pla-proxy/one-minute?url=tides/chart/14541"
 )
 
+def _lw_flag_colour(metres):
+    """Map observed low tide height in metres to PLA flag colour strings."""
+    if   metres >= 2.6: return "RED",    "Red"
+    elif metres >= 1.7: return "YELLOW", "Yellow"
+    elif metres >= 0:   return "GREEN",  "Green"
+    else:               return "BLACK",  "Black"
+
+
+def _lw_dict(best):
+    """Build a display dict from a low tide candidate dict."""
+    dt = best["dt_london"]
+    d  = dt.day
+    suffix = "th" if 11 <= d % 100 <= 13 else {1:"st",2:"nd",3:"rd"}.get(d % 10, "th")
+    metres = best["metres"]
+    flag, flag_word = _lw_flag_colour(metres)
+    return {
+        "time":      dt.strftime(f"%H:%M {d}{suffix} %b"),
+        "metres":    metres,
+        "flag":      flag,
+        "flag_word": flag_word,
+    }
+
+
 def get_richmond_observed_low_tide():
+    """Fetch Richmond chart data and return two low tide results from a single API call:
+      - before_flag: the most recent low tide BEFORE the current flag slot time (6am or 6pm).
+                     This is what the PLA would have used when setting the current flag,
+                     and is used by the Richmond fallback in _pla_flag_from_richmond().
+      - after_flag:  the most recent low tide AFTER the current flag slot time, if any.
+                     This is new data the PLA has not acted on yet, used to predict the
+                     next flag. None if no low tide has occurred since the flag was set.
+    """
     def fetch():
         r = requests.get(
             _PLA_RICHMOND_CHART_URL,
@@ -312,14 +348,28 @@ def get_richmond_observed_low_tide():
         r.raise_for_status()
         data = r.json()
 
-        now_utc = datetime.now(timezone.utc)
-        best = None
+        now_utc    = datetime.now(timezone.utc)
+        now_london = now_utc.astimezone(LONDON_TZ)
+
+        # Determine the current flag slot time in London time (6am or 6pm today)
+        if 6 <= now_london.hour < 18:
+            flag_slot_london = now_london.replace(hour=6,  minute=0, second=0, microsecond=0)
+        else:
+            flag_slot_london = now_london.replace(hour=18, minute=0, second=0, microsecond=0)
+            # If it is before 6am, the active flag slot was 6pm yesterday
+            if now_london.hour < 6:
+                flag_slot_london -= timedelta(days=1)
+        flag_slot_utc = flag_slot_london.astimezone(timezone.utc)
 
         if not isinstance(data, (list, dict)):
             raise ValueError(f"Unexpected Richmond chart response type: {type(data).__name__}")
         records = data if isinstance(data, list) else data.get("tpoints", [])
         if not isinstance(records, list):
             raise ValueError(f"Unexpected Richmond records type: {type(records).__name__}")
+
+        before_flag = None  # most recent low tide before the flag slot
+        after_flag  = None  # most recent low tide after the flag slot
+
         for tp in records:
             if not isinstance(tp, dict):
                 continue
@@ -335,33 +385,28 @@ def get_richmond_observed_low_tide():
             dt_utc    = datetime.fromisoformat(tstamp[:19]).replace(tzinfo=timezone.utc)
             dt_london = dt_utc.astimezone(LONDON_TZ)
 
+            # Ignore future readings (allow small buffer for near-real-time data)
             if dt_utc > now_utc + timedelta(minutes=30):
                 continue
 
-            if best is None or dt_utc > best["dt_utc"]:
-                best = {
-                    "dt_utc":    dt_utc,
-                    "dt_london": dt_london,
-                    "metres":    float(observed),
-                }
+            candidate = {
+                "dt_utc":    dt_utc,
+                "dt_london": dt_london,
+                "metres":    float(observed),
+            }
 
-        if best is None:
-            return None
-
-        d      = best["dt_london"].day
-        suffix = "th" if 11 <= d % 100 <= 13 else {1:"st",2:"nd",3:"rd"}.get(d % 10, "th")
-        metres = best["metres"]
-
-        if   metres >= 2.6: flag, flag_word = "RED",    "Red"
-        elif metres >= 1.7: flag, flag_word = "YELLOW", "Yellow"
-        elif metres >= 0:   flag, flag_word = "GREEN",  "Green"
-        else:               flag, flag_word = "BLACK",  "Black"
+            if dt_utc < flag_slot_utc:
+                # Before current flag slot — keep the most recent
+                if before_flag is None or dt_utc > before_flag["dt_utc"]:
+                    before_flag = candidate
+            else:
+                # After current flag slot — keep the most recent
+                if after_flag is None or dt_utc > after_flag["dt_utc"]:
+                    after_flag = candidate
 
         return {
-            "time":      best["dt_london"].strftime(f"%H:%M {d}{suffix} %b"),
-            "metres":    metres,
-            "flag":      flag,
-            "flag_word": flag_word,
+            "before_flag": _lw_dict(before_flag) if before_flag else None,
+            "after_flag":  _lw_dict(after_flag)  if after_flag  else None,
         }
 
     return get_cached("richmond_observed_lw", fetch, ttl_seconds=60)
@@ -1473,7 +1518,28 @@ def build_dashboard_data():
     pla_json_flag = results.get('pla_json', None)
 
     # Richmond observed low tide
-    lw_data, lw_up = results.get('richmond_lw', (None, ''))
+    # get_richmond_observed_low_tide() returns a dict with two keys:
+    #   before_flag — most recent low tide before the current flag slot (6am or 6pm)
+    #   after_flag  — most recent low tide after the current flag slot, or None
+    lw_raw, lw_up = results.get('richmond_lw', (None, ''))
+    lw_before = lw_raw.get("before_flag") if lw_raw else None
+    lw_after  = lw_raw.get("after_flag")  if lw_raw else None
+
+    # Display the before_flag low tide in the Richmond section (what the PLA saw)
+    lw_data = lw_before
+
+    # Next-flag prediction: if a low tide was recorded after the current flag was set,
+    # it is new data the PLA has not acted on yet and predicts the next flag.
+    # If lw_after is None, no low tide has occurred since the flag was set — no prediction.
+    richmond_next_flag = None
+    if lw_after:
+        now_h = now_lon.hour
+        next_slot_label = "6pm" if 6 <= now_h < 18 else "6am"
+        richmond_next_flag = {
+            "colour":    lw_after["flag_word"],
+            "css_class": lw_after["flag"].lower(),
+            "next_slot": next_slot_label,
+        }
 
     # Kingston Flow
     flow_data, flow_up = results.get('kingston_flow', (None, ''))
@@ -1518,6 +1584,7 @@ def build_dashboard_data():
         "pla_json_flag":       pla_json_flag,
         "richmond_lw":         lw_data,
         "richmond_lw_updated": lw_up,
+        "richmond_next_flag":  richmond_next_flag,
         "weather":             weather,
         "cal": {
             **(cal_data or {"day_label": "TODAY", "list": []}),
