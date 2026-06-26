@@ -452,12 +452,23 @@
                 {% endif %}
             </div>
         </div>
-        <div style="font-size:clamp(11px, 1.1vw, 14px); color:#888; margin-top:6px; line-height:1.6;">
+        <div style="font-size:clamp(11px, 1.1vw, 14px); color:#888; margin-top:6px; line-height:1.8;">
             {% if d.pla_json_flag %}
-            <div>PLA JSON &mdash; {{ d.pla_json_flag.colour | capitalize }}</div>
+            <div>PLA JSON indicates <span class="c-{{ d.pla_json_flag.colour }}">{{ d.pla_json_flag.colour | capitalize }}</span></div>
             {% endif %}
-            {% if d.richmond_lw %}
-            <div>Richmond low tide prior to flag &mdash; {{ d.richmond_lw.time[:5] }}, {{ "%.1f"|format(d.richmond_lw.metres) }}m indicated <span class="c-{{ d.richmond_lw.flag|lower }}">{{ d.richmond_lw.flag_word }}</span></div>
+            {% if d.richmond_lw_before or d.richmond_lw_after %}
+            <div style="margin-top:4px;">Richmond low tide data:</div>
+            <ul style="margin:2px 0 0 1.2em; padding:0; line-height:1.8;">
+                {% if d.richmond_lw_before %}
+                <li>Prior to this {{ d.current_slot_label }} flag, low tide at {{ d.richmond_lw_before.time[:5] }} was {{ "%.1f"|format(d.richmond_lw_before.metres) }}m indicating <span class="c-{{ d.richmond_lw_before.flag|lower }}">{{ d.richmond_lw_before.flag_word }}</span></li>
+                {% endif %}
+                {% if d.richmond_lw_after %}
+                <li>After the {{ d.current_slot_label }} flag, low tide at {{ d.richmond_lw_after.time[:5] }} was {{ "%.1f"|format(d.richmond_lw_after.metres) }}m</li>
+                {% endif %}
+                {% if d.richmond_next_flag %}
+                <li>Next flag at {{ d.richmond_next_flag.next_slot }} expected to be <span class="c-{{ d.richmond_next_flag.css_class }}">{{ d.richmond_next_flag.colour }}</span></li>
+                {% endif %}
+            </ul>
             {% endif %}
         </div>
         <script>
@@ -476,23 +487,6 @@
         <p class="flag-error">&#9888; Error: check flag status with PLA</p>
     {% endif %}
     </div>
-
-    <h3>RICHMOND LOW TIDE <span class="updated">Updated {{ d.richmond_lw_updated }}</span></h3>
-    {% if d.richmond_lw %}
-        <div style="white-space:normal; font-size:calc(var(--fs-data) * 0.95);">
-            {{ d.richmond_lw.time }}
-            was {{ "%.2f"|format(d.richmond_lw.metres) }}m &mdash;
-            <span class="c-{{ d.richmond_lw.flag|lower }}">{{ d.richmond_lw.flag_word }}</span>
-        </div>
-        {% if d.richmond_next_flag %}
-        <div style="font-size:calc(var(--fs-data) * 0.85); margin-top:4px;">
-            Next flag at {{ d.richmond_next_flag.next_slot }} expected to be
-            <span class="c-{{ d.richmond_next_flag.css_class }}">{{ d.richmond_next_flag.colour }}</span>
-        </div>
-        {% endif %}
-    {% else %}
-        <p class="c-dim" style="font-size:var(--fs-data);">Richmond tide data unavailable</p>
-    {% endif %}
 
     <h3>KINGSTON FLOW <span class="updated">Updated {{ d.flow_updated }}</span></h3>
     {% if d.kingston_flow %}
