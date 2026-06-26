@@ -8,8 +8,8 @@ The dashboard displays real-time information in a three-column layout (landscape
 
 **Column 1 - River Conditions:**
 - **Hammersmith Tides** - Current tide direction (FLOOD/EBB), time until next tide, upcoming tide schedule with heights
-- **PLA Ebb Flag** - Port of London Authority flag status image for rowing safety
-- **Richmond Low Tide** - Observed low tide level with colour-coded flag (Red/Yellow/Green/Black)
+- **PLA Ebb Flag** - Port of London Authority flag status image with associated safety text, plus two crosscheck lines: PLA JSON endpoint result and Richmond low tide prior to the flag
+- **Richmond Low Tide** - Observed low tide before the current flag slot, colour-coded by PLA thresholds; with a next-flag prediction if a low tide has been recorded since the current flag was set
 - **Kingston Flow** - River flow rate at Kingston with threshold-based colour coding
 
 **Column 2 - Weather & Hazards:**
@@ -53,7 +53,7 @@ The dashboard displays real-time information in a three-column layout (landscape
 
 | API | Purpose |
 |-----|---------|
-| **Port of London Authority** | Ebb tide flag widget, Richmond observed low tide |
+| **Port of London Authority** | Ebb tide flag (JSON endpoint), Richmond observed low tide chart |
 | **Environment Agency** | Kingston river flow, Thames water temperature |
 
 ## Data Logic and Processing
@@ -76,8 +76,8 @@ A file-based backoff system (`openmeteo_backoff.json`) persists rate-limit state
 
 ### Parallel Fetching
 
-All data sources are fetched concurrently using threads to minimise page load time. The `build_dashboard_data()` function spawns 8 threads for:
-- Tides, Calendar, PLA Flag, Weather, Kingston Flow, Richmond LW, Thames Temp, NSWWS
+All data sources are fetched concurrently using threads to minimise page load time. The `build_dashboard_data()` function spawns 9 threads for:
+- Tides, Calendar, PLA Flag, PLA JSON (crosscheck), Weather, Kingston Flow, Richmond LW, Thames Temp, NSWWS
 
 ### Weather Fallback Chain
 
@@ -94,13 +94,37 @@ All sources return normalised data with morning/afternoon windows.
 - **Time until next**: Calculated from current UTC time to next tide event
 - **BST Adjustment**: Times displayed in local time (BST/GMT) with +1 hour offset during BST
 
-### Richmond Flag Logic
+### PLA Ebb Flag Logic
 
-Observed low tide height determines flag colour:
-- **Red**: ≥ 2.6m (dangerous fast water)
-- **Yellow**: ≥ 1.7m (caution)
-- **Green**: ≥ 0m (normal)
-- **Black**: < 0m (extreme low)
+The flag image and colour are determined by a fallback chain, attempted in order when the cache slot expires:
+
+1. **PLA JSON endpoint** (primary) — `pla.co.uk/pla-proxy/five-minute?url=tides/ebb-flag` returns a single letter code (`G/Y/R/B`) which is mapped to a colour name. The flag image URL is then constructed using the PLA's fixed pattern `flag_{colour}.png`.
+
+2. **Richmond gauge fallback** — if the JSON endpoint fails, the colour is derived from the most recent Richmond observed low tide that occurred *before* the current flag slot time (06:00 or 18:00). This replicates what the PLA would have seen when setting the flag. A "double check with PLA" warning is shown when this source is used.
+
+3. **Error state** — if both sources fail and there is no stale cache, a warning message is shown in place of the flag image.
+
+The flag image is always a PLA-hosted PNG; the app determines which colour to put in the filename.
+
+Two crosscheck lines are displayed beneath the flag image:
+- **PLA JSON** — the raw result from the JSON endpoint
+- **Richmond low tide prior to flag** — the time and height of the observed low tide the PLA used when setting the current flag
+
+### Richmond Low Tide Display and Next-Flag Prediction
+
+A single API call to `pla.co.uk/pla-proxy/one-minute?url=tides/chart/14541` returns all Richmond observed tidal records. These are split into two buckets relative to the current flag slot time (06:00 or 18:00):
+
+- **before_flag** — the most recent low tide before the flag slot. Displayed in the Richmond Low Tide section as what the PLA saw, and used by the Richmond fallback if the JSON endpoint fails.
+- **after_flag** — the most recent low tide after the flag slot, if any. This is new data the PLA has not yet acted on and is used to predict the next flag colour and slot time (6am or 6pm). If no low tide has occurred since the flag was set, no prediction is shown.
+
+### Richmond Flag Colour Thresholds
+
+| Height | Flag |
+|--------|------|
+| ≥ 2.6m | Red |
+| ≥ 1.7m | Yellow |
+| ≥ 0m | Green |
+| < 0m | Black |
 
 ### Kingston Flow Thresholds
 
@@ -200,6 +224,8 @@ pip install shapely
 7. Click **Deploy** — your app will be live at `yourapp.onrender.com`
 
 Note: Render free tier spins down after 15 minutes inactivity. The first request after spin-down may be slower due to cache pre-warming.
+
+**Important deploy sequencing**: always upload `app.py` before `index.html`. The template references data keys produced by `app.py`; deploying `index.html` first against an old `app.py` can cause template rendering errors.
 
 ## API Endpoints
 
