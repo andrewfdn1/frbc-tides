@@ -457,7 +457,7 @@
             <div>PLA JSON &mdash; {{ d.pla_json_flag.colour | capitalize }}</div>
             {% endif %}
             {% if d.richmond_lw %}
-            <div>Richmond low tide prior to flag &mdash; {{ d.richmond_lw.time[:5] }}, {{ "%.1f"|format(d.richmond_lw.metres) }}m</div>
+            <div>Richmond low tide prior to flag &mdash; {{ d.richmond_lw.time[:5] }}, {{ "%.1f"|format(d.richmond_lw.metres) }}m indicated <span class="c-{{ d.richmond_lw.flag|lower }}">{{ d.richmond_lw.flag_word }}</span></div>
             {% endif %}
         </div>
         <script>
