@@ -452,6 +452,14 @@
                 {% endif %}
             </div>
         </div>
+        <div style="font-size:clamp(11px, 1.1vw, 14px); color:#888; margin-top:6px; line-height:1.6;">
+            {% if d.pla_json_flag %}
+            <div>PLA JSON &mdash; {{ d.pla_json_flag.colour | capitalize }}</div>
+            {% endif %}
+            {% if d.richmond_lw %}
+            <div>Richmond low tide prior to flag &mdash; {{ d.richmond_lw.time[:5] }}, {{ "%.1f"|format(d.richmond_lw.metres) }}m</div>
+            {% endif %}
+        </div>
         <script>
         window.addEventListener('load', function() {
             var inner = document.getElementById('flagTextInner');
@@ -475,10 +483,13 @@
             {{ d.richmond_lw.time }}
             was {{ "%.2f"|format(d.richmond_lw.metres) }}m &mdash;
             <span class="c-{{ d.richmond_lw.flag|lower }}">{{ d.richmond_lw.flag_word }}</span>
-            {% if d.pla_json_flag %}
-            <span class="c-dim">(JSON: {{ d.pla_json_flag.colour | capitalize }})</span>
-            {% endif %}
         </div>
+        {% if d.richmond_next_flag %}
+        <div style="font-size:calc(var(--fs-data) * 0.85); margin-top:4px;">
+            Next flag at {{ d.richmond_next_flag.next_slot }} expected to be
+            <span class="c-{{ d.richmond_next_flag.css_class }}">{{ d.richmond_next_flag.colour }}</span>
+        </div>
+        {% endif %}
     {% else %}
         <p class="c-dim" style="font-size:var(--fs-data);">Richmond tide data unavailable</p>
     {% endif %}
