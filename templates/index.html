@@ -128,11 +128,12 @@
             100% { opacity: 1; }
         }
 
-        .pla-flag img {
-            height: clamp(120px, 16vw, 240px);
-            margin: 10px 0;
-            border: 1px solid #333;
+        .pla-flag-iframe {
+            width: clamp(120px, 16vw, 200px);
+            height: clamp(160px, 22vw, 275px);
+            border: none;
             flex-shrink: 0;
+            display: block;
         }
 
         .pla-flag-row {
@@ -425,18 +426,21 @@
     {% if d.pla_flag %}
         {% set fc = d.pla_flag.colour %}
         <div class="pla-flag-row">
-            <img src="{{ d.pla_flag.image_url }}" alt="PLA {{ fc | capitalize }} Flag">
+            <iframe class="pla-flag-iframe"
+                src="https://pla.co.uk/pla-api-integration/ebb-tide-widget-embed"
+                scrolling="no" frameborder="0"
+                title="PLA Ebb Tide Flag"></iframe>
             <div>
                 <div class="pla-flag-text">
                     <div class="pla-flag-text-inner" id="flagTextInner">
                     {% if fc == 'red' %}
                         <strong>Red &mdash; Very Strong Fluvial Flows</strong><br>
                         Conditions are difficult and dangerous.<br>
-                        All man-powered vessels are advised not to go afloat.
+                        All man-powered vessels are advised not to go afloat on the ebb tide.
                     {% elif fc == 'yellow' %}
                         <strong>Yellow &mdash; Strong Fluvial Flows</strong><br>
                         PLA advise man-powered vessels:<br>
-                        Beginners, novices, younger juniors (J15s and younger), or any weaker crews, and those that do not usually navigate on the tidal section of the River Thames not to go afloat on[...]
+                        Beginners, novices, younger junior (J15&#39;s and younger), or any weaker crews, and those that do not usually navigate on the tidal section of the River Thames not to go afloat on the ebb tide.<br>
                         All river users of man-powered vessels should navigate with extreme caution and consider whether it is safe for them to go afloat on the ebb tide.
                     {% elif fc == 'green' %}
                         <strong>Green &mdash; Average Fluvial Flows</strong><br>
@@ -447,30 +451,47 @@
                     {% endif %}
                     </div>
                 </div>
-                {% if d.pla_flag.source in ('richmond',) %}
-                <p class="flag-footnote">&#9888; Double check flag status with PLA</p>
-                {% endif %}
             </div>
         </div>
+
+        {# ── Richmond low tide data ── #}
+        {% if d.richmond_lw_before or d.richmond_lw_after %}
         <div style="font-size:clamp(11px, 1.1vw, 14px); color:#888; margin-top:6px; line-height:1.8;">
-            {% if d.pla_json_flag %}
-            <div>PLA JSON indicates <span class="c-{{ d.pla_json_flag.colour }}">{{ d.pla_json_flag.colour | capitalize }}</span></div>
-            {% endif %}
-            {% if d.richmond_lw_before or d.richmond_lw_after %}
-            <div style="margin-top:4px;">Richmond low tide data:</div>
+            <div>Richmond low tide data:</div>
             <ul style="margin:2px 0 0 1.2em; padding:0; line-height:1.8;">
                 {% if d.richmond_lw_before %}
-                <li>Prior to this {{ d.current_slot_label }} flag, low tide at {{ d.richmond_lw_before.time[:5] }} was {{ "%.1f"|format(d.richmond_lw_before.metres) }}m indicating <span class="c-{{ d.richmond_lw_before.flag|lower }}">{{ d.richmond_lw_before.flag_word }}</span></li>
+                <li>Lowest in 12hrs before {{ d.current_slot_label }} flag: {{ d.richmond_lw_before.time[:5] }}, {{ "%.1f"|format(d.richmond_lw_before.metres) }}m &mdash; <span class="c-{{ d.richmond_lw_before.flag|lower }}">{{ d.richmond_lw_before.flag_word }}</span>{% if d.richmond_lw_before.flag|lower != fc %} <span style="color:#FF4B4B;">&#9888; differs from displayed flag</span>{% endif %}</li>
                 {% endif %}
                 {% if d.richmond_lw_after %}
-                <li>After the {{ d.current_slot_label }} flag, low tide at {{ d.richmond_lw_after.time[:5] }} was {{ "%.1f"|format(d.richmond_lw_after.metres) }}m</li>
+                <li>After the {{ d.current_slot_label }} flag: {{ d.richmond_lw_after.time[:5] }}, {{ "%.1f"|format(d.richmond_lw_after.metres) }}m</li>
                 {% endif %}
                 {% if d.richmond_next_flag %}
                 <li>Next flag at {{ d.richmond_next_flag.next_slot }} expected to be <span class="c-{{ d.richmond_next_flag.css_class }}">{{ d.richmond_next_flag.colour }}</span></li>
                 {% endif %}
             </ul>
+        </div>
+        {% endif %}
+
+        {# ── PLA JSON crosscheck ── #}
+        <div style="font-size:clamp(11px, 1.1vw, 14px); color:#888; margin-top:4px; line-height:1.8;">
+            {% if d.pla_json_flag %}
+                {% set jc = d.pla_json_flag.colour %}
+                {% set js = d.pla_json_flag.stale %}
+                <div>PLA JSON: <span class="c-{{ jc }}">{{ jc | capitalize }}</span>
+                    {% if js %}<span style="color:#888;"> (stale &mdash; {{ d.pla_json_flag.last_updated }})</span>
+                    {% else %}<span style="color:#888;"> ({{ d.pla_json_flag.last_updated }})</span>{% endif %}
+                    {% if jc != fc %} <span style="color:#FF4B4B;">&#9888; differs from displayed flag</span>{% endif %}
+                </div>
+            {% else %}
+                <div style="color:#888;">PLA JSON: unavailable</div>
             {% endif %}
         </div>
+
+        {# ── Consolidated warning ── #}
+        {% if d.flag_warning %}
+        <p class="flag-footnote">&#9888; Sources disagree &mdash; check current flag status with PLA</p>
+        {% endif %}
+
         <script>
         window.addEventListener('load', function() {
             var inner = document.getElementById('flagTextInner');
