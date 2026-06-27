@@ -492,6 +492,21 @@
         <p class="flag-footnote">&#9888; Sources disagree &mdash; check current flag status with PLA</p>
         {% endif %}
 
+        {# ── Kingston Flow footnote ── #}
+        {% if d.kingston_flow %}
+            {% set fraw = d.kingston_flow.raw %}
+            {% if fraw > 120 %}
+                {% set fcol = '#FF4B4B' %}
+            {% elif fraw >= 80 %}
+                {% set fcol = '#FFFF00' %}
+            {% else %}
+                {% set fcol = '#888' %}
+            {% endif %}
+            <div style="font-size:clamp(11px,1.1vw,13px); color:{{ fcol }}; margin-top:4px;">
+                Kingston Flow {{ d.kingston_flow.flow }}&thinsp;{{ d.kingston_flow.unit }} &middot; Updated {{ d.flow_updated }}
+            </div>
+        {% endif %}
+
         <script>
         window.addEventListener('load', function() {
             var inner = document.getElementById('flagTextInner');
@@ -509,21 +524,28 @@
     {% endif %}
     </div>
 
-    <h3>KINGSTON FLOW <span class="updated">Updated {{ d.flow_updated }}</span></h3>
-    {% if d.kingston_flow %}
-        {% set fraw = d.kingston_flow.raw %}
-        {% if fraw > 120 %}
-            {% set fcol = '#FF4B4B' %}
-        {% elif fraw >= 80 %}
-            {% set fcol = '#FFFF00' %}
-        {% else %}
-            {% set fcol = '#ffffff' %}
-        {% endif %}
-        <div class="flow-value" style="color:{{ fcol }}; font-size:calc(var(--fs-data) * 0.95);">
-            {{ d.kingston_flow.flow }} <span style="font-size:calc(var(--fs-data) * 0.95); color:{{ fcol }};">{{ d.kingston_flow.unit }}</span>
+    {# ── CSO Discharge Hours ── #}
+    <h3>CSO DISCHARGE HOURS <span class="updated">Updated {{ d.cso_updated }}</span></h3>
+    {% if d.cso_discharge %}
+    <div style="font-size:clamp(11px,1.15vw,14px); line-height:2;">
+        <div style="display:grid; grid-template-columns:1fr auto auto; gap:0 1em; align-items:baseline;">
+            {# header row #}
+            <span style="color:#888;">Zone</span>
+            <span style="color:#888; text-align:right;">Monitors</span>
+            <span style="color:#888; text-align:right;">Hours</span>
+            {# data rows #}
+            {% for z in d.cso_discharge.zones %}
+            <span style="color:#ccc;">{{ z.name }}</span>
+            <span style="color:#888; text-align:right;">{{ z.found }}/{{ z.expected }}</span>
+            <span style="text-align:right; color:{% if z.active %}#FF4B4B{% else %}#555{% endif %};">{{ z.hours }}</span>
+            {% endfor %}
         </div>
+        <div style="color:#888; margin-top:4px; font-size:0.9em;">
+            {{ d.cso_discharge.total_found }}/{{ d.cso_discharge.total_expected }} monitors &middot; 48h window
+        </div>
+    </div>
     {% else %}
-        <p class="c-dim" style="font-size:var(--fs-data);">Flow data unavailable</p>
+        <p class="c-dim" style="font-size:var(--fs-data);">CSO data unavailable</p>
     {% endif %}
 
     <div class="logo-landscape" style="margin-top: auto; padding-top: 10px;">
