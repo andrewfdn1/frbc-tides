@@ -179,134 +179,156 @@ def get_calendar_events():
 # PLA Ebb Flag
 # ---------------------------------------------------------------------------
 
-# _PLA_FLAG_EMBED_URL = "https://pla.co.uk/pla-api-integration/ebb-tide-widget-embed"  # unused — see commented _pla_flag_from_embed below
+_PLA_WIDGET_URL      = "https://pla.co.uk/pla-api-integration/ebb-tide-widget-embed"
 _PLA_FLAG_JSON_URL   = "https://pla.co.uk/pla-proxy/five-minute?url=tides/ebb-flag"
-_PLA_FLAG_IMAGE_BASE = "https://pla.co.uk/modules/custom/pla_api_integration/assets/flag_{colour}.png"
 
 _PLA_LETTER_MAP = {"G": "green", "Y": "yellow", "R": "red", "B": "black"}
 
-
-def _flag_result(colour, source):
-    """Build a normalised flag result dict from a colour name (lowercase)."""
-    return {"colour": colour, "image_url": _PLA_FLAG_IMAGE_BASE.format(colour=colour), "source": source}
-
-
-# def _pla_flag_from_embed():
-#     """Disabled: the embed page is JS-rendered so requests only ever gets a static
-#     default <img src>, not the live flag. This function never returned useful data
-#     and is not called anywhere in the app."""
-#     r = requests.get(_PLA_FLAG_EMBED_URL, timeout=5)
-#     r.raise_for_status()
-#     soup = BeautifulSoup(r.text, 'html.parser')
-#     img = soup.find('img')
-#     if not img:
-#         print("ERROR [pla_flag]: no <img> tag in embed page")
-#         return None
-#     src = img.get('src', '')
-#     for colour in ('green', 'yellow', 'red', 'black'):
-#         if f'flag_{colour}' in src:
-#             print(f"INFO [pla_flag]: embed → {colour}")
-#             return _flag_result(colour, 'embed')
-#     print(f"ERROR [pla_flag]: unrecognised img src '{src}'")
-#     return None
+# Mapping from widget image src fragment to colour name
+_PLA_IMG_COLOUR_MAP = {
+    "flag_green":  "green",
+    "flag_yellow": "yellow",
+    "flag_red":    "red",
+    "flag_black":  "black",
+}
 
 
-def _pla_flag_from_json():
-    """Fetch the PLA JSON endpoint and map letter code to colour.
-    Also checks last_updated against the current flag slot — if the endpoint is still
-    serving the previous slot's value (e.g. showing 06:00 at 18:02), returns None so
-    the fallback chain can serve a more accurate result from the Richmond gauge."""
+def _scrape_pla_widget():
+    """Scrape the PLA ebb tide widget embed page to get the current flag colour,
+    heading, and body text directly from the source the PLA use for their own widget.
+    The page returns fully populated HTML (no JS rendering needed).
+    Returns dict with colour, heading, body — or None if scrape fails."""
+    r = requests.get(
+        _PLA_WIDGET_URL,
+        headers={"User-Agent": "Mozilla/5.0", "Referer": "https://pla.co.uk/"},
+        timeout=8,
+    )
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, 'html.parser')
+
+    img = soup.find('img', class_='tideflag')
+    if not img:
+        print("ERROR [pla_widget]: no img.tideflag found")
+        return None
+
+    src = img.get('src', '')
+    colour = None
+    for fragment, name in _PLA_IMG_COLOUR_MAP.items():
+        if fragment in src:
+            colour = name
+            break
+    if not colour:
+        print(f"ERROR [pla_widget]: unrecognised img src '{src}'")
+        return None
+
+    # Extract heading and body text from the tidecont div
+    tidecont = soup.find('div', class_='tidecont')
+    inner_div = tidecont.find('div') if tidecont else None
+    texts = [t.strip() for t in inner_div.strings if t.strip()] if inner_div else []
+    heading = texts[0] if len(texts) > 0 else ""
+    body    = texts[1] if len(texts) > 1 else ""
+
+    print(f"INFO [pla_widget]: scraped → {colour} | {heading} | {body}")
+    return {"colour": colour, "heading": heading, "body": body}
+
+
+def _fetch_pla_json():
+    """Fetch the PLA JSON endpoint independently as a crosscheck.
+    Always returns the raw result regardless of staleness — staleness is
+    flagged in the returned dict so the caller can display it transparently.
+    Returns dict with colour, last_updated, stale — or None if fetch fails."""
     r = requests.get(_PLA_FLAG_JSON_URL, timeout=5)
     r.raise_for_status()
     data = r.json()
 
-    # Staleness check: compare last_updated hour to current flag slot
     last_updated_str = data.get("last_updated", "")
+    stale = False
     if last_updated_str:
         try:
-            last_updated = datetime.fromisoformat(last_updated_str)
-            now_london   = datetime.now(LONDON_TZ)
-            # Current flag slot started at 6am or 6pm
+            last_updated      = datetime.fromisoformat(last_updated_str)
+            now_london        = datetime.now(LONDON_TZ)
             current_slot_hour = 6 if 6 <= now_london.hour < 18 else 18
             if last_updated.hour != current_slot_hour:
-                print(f"WARN [pla_flag]: JSON last_updated {last_updated_str} does not match "
-                      f"current slot hour {current_slot_hour:02d}:00 — treating as stale")
-                return None
+                stale = True
+                print(f"WARN [pla_json]: last_updated {last_updated_str} does not match "
+                      f"current slot hour {current_slot_hour:02d}:00 — flagged as stale")
         except ValueError:
-            print(f"WARN [pla_flag]: could not parse last_updated '{last_updated_str}'")
+            print(f"WARN [pla_json]: could not parse last_updated '{last_updated_str}'")
 
     letter = data.get("flag_colour", "").strip().upper()
     colour = _PLA_LETTER_MAP.get(letter)
     if not colour:
-        print(f"ERROR [pla_flag]: JSON returned unrecognised flag_colour '{letter}'")
+        print(f"ERROR [pla_json]: unrecognised flag_colour '{letter}'")
         return None
-    print(f"INFO [pla_flag]: JSON → {letter} → {colour}")
-    return _flag_result(colour, 'json')
 
-
-def _pla_flag_from_richmond():
-    """Stage 2 fallback: derive flag colour from the Richmond low tide that occurred
-    BEFORE the current flag slot time — i.e. the data the PLA would have used when
-    setting the flag. Uses before_flag from get_richmond_observed_low_tide()."""
-    result = get_richmond_observed_low_tide()
-    lw_data = result[0] if isinstance(result, tuple) else result
-    if lw_data is None:
-        return None
-    before = lw_data.get("before_flag")
-    if before is None:
-        print("INFO [pla_flag]: Richmond fallback — no low tide found before current flag slot")
-        return None
-    metres = before["metres"]
-    colour = before["flag"].lower()
-    print(f"INFO [pla_flag]: Richmond fallback {metres}m → {colour}")
-    return _flag_result(colour, 'richmond')
+    print(f"INFO [pla_json]: → {letter} → {colour} (stale={stale})")
+    return {
+        "colour":       colour,
+        "last_updated": last_updated_str,
+        "stale":        stale,
+    }
 
 
 def get_pla_flag():
+    """Fetch the PLA widget page and return the current flag colour, heading and body.
+    Falls back to Richmond derivation if the scrape fails.
+    Uses slot-based caching to avoid unnecessary re-fetches mid-slot."""
     now = datetime.now(LONDON_TZ)
     h, m = now.hour, now.minute
 
     if h < 6:
         slot = (now.date(), 'pre-dawn')
     elif h == 6 and m < 15:
-        slot = (now.date(), 'am-early')       # 06:00–06:14 first fetch
+        slot = (now.date(), 'am-early')
     elif h == 6 and m < 30:
-        slot = (now.date(), 'am-mid')         # 06:15–06:29 second fetch
+        slot = (now.date(), 'am-mid')
     elif h < 7:
-        slot = (now.date(), 'am-late')        # 06:30–06:59
+        slot = (now.date(), 'am-late')
     elif h == 7 and m < 15:
-        slot = (now.date(), 'am-bst-catch')   # 07:00–07:14 BST safety fetch
+        slot = (now.date(), 'am-bst-catch')
     elif h < 18:
-        slot = (now.date(), 'midday')         # 07:15–17:59 stable
+        slot = (now.date(), 'midday')
     elif h == 18 and m < 15:
-        slot = (now.date(), 'pm-early')       # 18:00–18:14 first fetch
+        slot = (now.date(), 'pm-early')
     elif h == 18 and m < 30:
-        slot = (now.date(), 'pm-mid')         # 18:15–18:29 second fetch
+        slot = (now.date(), 'pm-mid')
     elif h < 19:
-        slot = (now.date(), 'pm-late')        # 18:30–18:59
+        slot = (now.date(), 'pm-late')
     elif h == 19 and m < 15:
-        slot = (now.date(), 'pm-bst-catch')   # 19:00–19:14 BST safety fetch
+        slot = (now.date(), 'pm-bst-catch')
     else:
-        slot = (now.date(), 'evening')        # 19:15 onward stable
+        slot = (now.date(), 'evening')
 
     cached = _cache.get('pla_flag')
     if cached and cached.get('slot') == slot and cached['data'] is not None:
         return cached['data'], cached['fetched_at']
 
-    # Work through the fallback chain
-    # Embed page is primary — replicates exactly what the PLA website shows.
-    # JSON is fallback in case the embed page is unavailable.
-    # Richmond gauge is last resort only.
+    # Primary: scrape the PLA widget page directly
     data = None
-    # Embed scrape removed: page is JS-rendered, requests gets stale default img src.
-    for fn in (_pla_flag_from_json, _pla_flag_from_richmond):
+    try:
+        scraped = _scrape_pla_widget()
+        if scraped:
+            data = {
+                "colour":  scraped["colour"],
+                "heading": scraped["heading"],
+                "body":    scraped["body"],
+                "source":  "widget",
+            }
+    except Exception as e:
+        print(f"ERROR [pla_flag]: _scrape_pla_widget raised {e}")
+
+    # Fallback: derive colour from Richmond before_flag low tide
+    if data is None:
         try:
-            data = fn()
+            lw_raw = get_richmond_observed_low_tide()
+            lw_data = lw_raw[0] if isinstance(lw_raw, tuple) else lw_raw
+            before = lw_data.get("before_flag") if lw_data else None
+            if before:
+                colour = before["flag"].lower()
+                print(f"INFO [pla_flag]: Richmond fallback {before['metres']}m → {colour}")
+                data = {"colour": colour, "heading": "", "body": "", "source": "richmond"}
         except Exception as e:
-            print(f"ERROR [pla_flag]: {fn.__name__} raised {e}")
-            data = None
-        if data is not None:
-            break
+            print(f"ERROR [pla_flag]: Richmond fallback raised {e}")
 
     fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
     if data is not None:
@@ -1363,7 +1385,7 @@ def build_dashboard_data():
         threading.Thread(target=run, args=('tides',         get_tides)),
         threading.Thread(target=run, args=('calendar',      get_calendar_events)),
         threading.Thread(target=run, args=('pla_flag',      get_pla_flag)),
-        threading.Thread(target=run, args=('pla_json',       _pla_flag_from_json)),
+        threading.Thread(target=run, args=('pla_json',       _fetch_pla_json)),
         threading.Thread(target=run, args=('weather',       get_weather)),
         threading.Thread(target=run, args=('kingston_flow', get_kingston_flow)),
         threading.Thread(target=run, args=('richmond_lw',   get_richmond_observed_low_tide)),
@@ -1537,8 +1559,10 @@ def build_dashboard_data():
         })
 
 
-    # PLA Flag
+    # PLA Flag — from widget scrape (primary) or Richmond fallback
     pla_f, pla_u = results.get('pla_flag', (None, ''))
+
+    # PLA JSON — independent crosscheck, always shown even if stale
     pla_json_flag = results.get('pla_json', None)
 
     # Richmond observed low tide
@@ -1564,6 +1588,25 @@ def build_dashboard_data():
             "css_class": lw_after["flag"].lower(),
             "next_slot": next_slot_label,
         }
+
+    # Consolidated flag warning — shown when any sources disagree or are missing.
+    # Compares widget scrape colour, Richmond before_flag colour, and JSON colour.
+    # If any two disagree, or the widget scrape failed, warn the user to check PLA.
+    _flag_colours = set()
+    _widget_colour    = pla_f.get("colour")    if pla_f           else None
+    _richmond_colour  = lw_before.get("flag").lower() if lw_before else None
+    _json_colour      = pla_json_flag.get("colour")   if pla_json_flag and not pla_json_flag.get("stale") else None
+
+    if _widget_colour:   _flag_colours.add(_widget_colour)
+    if _richmond_colour: _flag_colours.add(_richmond_colour)
+    if _json_colour:     _flag_colours.add(_json_colour)
+
+    # Warn if: widget failed, or any sources that are present disagree
+    flag_warning = (
+        pla_f is None                                    # no flag data at all
+        or (pla_f and pla_f.get("source") == "richmond") # widget scrape failed
+        or len(_flag_colours) > 1                        # sources disagree
+    )
 
     # Kingston Flow
     flow_data, flow_up = results.get('kingston_flow', (None, ''))
@@ -1606,6 +1649,7 @@ def build_dashboard_data():
         "pla_flag":            pla_f,
         "pla_updated":         pla_u,
         "pla_json_flag":       pla_json_flag,
+        "flag_warning":        flag_warning,
         "richmond_lw_before":  lw_before,
         "richmond_lw_after":   lw_after,
         "richmond_lw_updated": lw_up,
