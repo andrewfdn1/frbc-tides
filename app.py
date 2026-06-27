@@ -1312,6 +1312,138 @@ def get_nswws_warnings():
     """Cached wrapper — refreshes every 15 minutes."""
     return get_cached("nswws", _fetch_nswws, ttl_seconds=900)
 
+_CSO_ARCGIS_URL = (
+    "https://services2.arcgis.com/g6o32ZDQ33GpCIu3/arcgis/rest/services/"
+    "Thames_Water_Storm_Overflow_Activity_(Production)_view/FeatureServer/0/query"
+    "?where=1%3D1&outFields=Id,Status,LatestEventStart,LatestEventEnd,"
+    "ReceivingWaterCourse&f=json&resultRecordCount=2000"
+)
+
+_CSO_ZONE_IDS = {
+    "Hammersmith": {
+        "TWL00210", "TWL00808", "TWL00317", "TWL00280", "TWL00438"
+    },
+    "Richmond to Putney": {
+        "TWL00384", "TWL00005", "TWL00248", "TWL00338", "TWL00424",
+        "TWL00423", "TWL00179", "TWL00116", "TWL00100", "TWL00339",
+        "TWL00372", "TWL00087", "TWL00371", "TWL00440"
+    },
+    "Beyond Richmond/Putney": {
+        "TWL00258", "TWL00140", "TWL00304", "TWL00012", "TWL00452",
+        "TWL00270", "TWL00209", "TWL00191", "TWL00345", "TWL00199",
+        "TWL00220", "TWL00400", "TWL00254", "TWL00810", "TWL00596",
+        "TWL00237", "TWL00460", "TWL00809", "TWL00315", "TWL00360",
+        "TWL00312", "TWL00407", "TWL00185", "TWL00327", "TWL00200"
+    },
+}
+
+_CSO_WINDOW_MS = 48 * 3600 * 1000
+
+def _cso_is_tunnel(m):
+    wc = m.get("ReceivingWaterCourse", "") or ""
+    return "tunnel" in wc.lower()
+
+def _cso_zone_stats(monitors, now_ms):
+    """Return (found, total_duration_ms) for a list of monitor dicts."""
+    found = len(monitors)
+    total_ms = 0
+    for m in monitors:
+        status = m.get("Status")
+        if status == -1:
+            continue
+        start = m.get("LatestEventStart")
+        end   = m.get("LatestEventEnd")
+        if status == 1 and start:
+            total_ms += now_ms - start
+        elif status == 0 and end and (now_ms - end) < _CSO_WINDOW_MS and start:
+            total_ms += end - start
+    return found, total_ms
+
+def _fmt_cso_hrs(ms):
+    if ms <= 0:
+        return "0h 00m"
+    h = int(ms // 3600000)
+    m = int((ms % 3600000) // 60000)
+    return f"{h}h {m:02d}m"
+
+def get_cso_discharge():
+    def fetch():
+        r = requests.get(
+            _CSO_ARCGIS_URL,
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=15
+        )
+        r.raise_for_status()
+        features = r.json().get("features", [])
+
+        now_ms = datetime.now(timezone.utc).timestamp() * 1000
+
+        # Index all monitors by Id
+        all_monitors = {}
+        for f in features:
+            p = f.get("attributes", {})
+            mid = p.get("Id")
+            if mid:
+                all_monitors[mid] = p
+
+        # Separate tunnel monitors from river zones
+        tunnel_monitors = []
+        zones = []
+        for zone_name, zone_ids in _CSO_ZONE_IDS.items():
+            river = []
+            expected = 0
+            for mid in zone_ids:
+                m = all_monitors.get(mid)
+                if not m:
+                    continue
+                expected += 1
+                if _cso_is_tunnel(m):
+                    tunnel_monitors.append(m)
+                else:
+                    river.append(m)
+            found, total_ms = _cso_zone_stats(river, now_ms)
+            # expected for river = monitors found minus tunnel ones
+            river_expected = sum(
+                1 for mid in zone_ids
+                if mid in all_monitors and not _cso_is_tunnel(all_monitors[mid])
+            )
+            zones.append({
+                "name":     zone_name,
+                "found":    found,
+                "expected": river_expected,
+                "hours_ms": total_ms,
+                "hours":    _fmt_cso_hrs(total_ms),
+                "active":   total_ms > 0,
+            })
+
+        # Tunnel zone
+        t_found, t_ms = _cso_zone_stats(tunnel_monitors, now_ms)
+        t_expected = sum(
+            1 for ids in _CSO_ZONE_IDS.values()
+            for mid in ids
+            if mid in all_monitors and _cso_is_tunnel(all_monitors[mid])
+        )
+        zones.append({
+            "name":     "Tideway Tunnel",
+            "found":    t_found,
+            "expected": t_expected,
+            "hours_ms": t_ms,
+            "hours":    _fmt_cso_hrs(t_ms),
+            "active":   t_ms > 0,
+        })
+
+        total_found    = sum(z["found"] for z in zones)
+        total_expected = sum(len(ids) for ids in _CSO_ZONE_IDS.values())
+
+        return {
+            "zones":          zones,
+            "total_found":    total_found,
+            "total_expected": total_expected,
+        }
+
+    return get_cached("cso_discharge", fetch, ttl_seconds=1200)
+
+
 def get_kingston_flow():
     def fetch():
         url = (
@@ -1392,6 +1524,7 @@ def build_dashboard_data():
         threading.Thread(target=run, args=('pla_json',       _fetch_pla_json)),
         threading.Thread(target=run, args=('weather',       get_weather)),
         threading.Thread(target=run, args=('kingston_flow', get_kingston_flow)),
+        threading.Thread(target=run, args=('cso_discharge', get_cso_discharge)),
         threading.Thread(target=run, args=('richmond_lw',   get_richmond_observed_low_tide)),
         threading.Thread(target=run, args=('thames_temp', get_thames_temperature)),
         threading.Thread(target=run, args=('nswws',       get_nswws_warnings)),
@@ -1616,6 +1749,9 @@ def build_dashboard_data():
     # Kingston Flow
     flow_data, flow_up = results.get('kingston_flow', (None, ''))
 
+    # CSO Discharge Hours
+    cso_data, cso_up = results.get('cso_discharge', (None, ''))
+
     # Thames water temperature
     thames_temp_data, thames_temp_up = results.get('thames_temp', (None, ''))
 
@@ -1669,6 +1805,8 @@ def build_dashboard_data():
         "cal_updated":         cal_up,
         "kingston_flow":       flow_data,
         "flow_updated":        flow_up,
+        "cso_discharge":       cso_data,
+        "cso_updated":         cso_up,
         "last_updated":        now_lon.strftime('%H:%M:%S'),
         "tz_label":            "BST" if is_bst else "GMT",
         "today_markers":       _markers,
