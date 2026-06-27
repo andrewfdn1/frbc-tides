@@ -236,37 +236,41 @@ def _fetch_pla_json():
     """Fetch the PLA JSON endpoint independently as a crosscheck.
     Always returns the raw result regardless of staleness — staleness is
     flagged in the returned dict so the caller can display it transparently.
-    Returns dict with colour, last_updated, stale — or None if fetch fails."""
-    r = requests.get(_PLA_FLAG_JSON_URL, timeout=5)
-    r.raise_for_status()
-    data = r.json()
+    Returns dict with colour, last_updated, stale — or None if fetch fails.
+    Cached for 5 minutes to avoid unnecessary outbound calls on every page load."""
+    def fetch():
+        r = requests.get(_PLA_FLAG_JSON_URL, timeout=5)
+        r.raise_for_status()
+        data = r.json()
 
-    last_updated_str = data.get("last_updated", "")
-    stale = False
-    if last_updated_str:
-        try:
-            last_updated      = datetime.fromisoformat(last_updated_str)
-            now_london        = datetime.now(LONDON_TZ)
-            current_slot_hour = 6 if 6 <= now_london.hour < 18 else 18
-            if last_updated.hour != current_slot_hour:
-                stale = True
-                print(f"WARN [pla_json]: last_updated {last_updated_str} does not match "
-                      f"current slot hour {current_slot_hour:02d}:00 — flagged as stale")
-        except ValueError:
-            print(f"WARN [pla_json]: could not parse last_updated '{last_updated_str}'")
+        last_updated_str = data.get("last_updated", "")
+        stale = False
+        if last_updated_str:
+            try:
+                last_updated      = datetime.fromisoformat(last_updated_str)
+                now_london        = datetime.now(LONDON_TZ)
+                current_slot_hour = 6 if 6 <= now_london.hour < 18 else 18
+                if last_updated.hour != current_slot_hour:
+                    stale = True
+                    print(f"WARN [pla_json]: last_updated {last_updated_str} does not match "
+                          f"current slot hour {current_slot_hour:02d}:00 — flagged as stale")
+            except ValueError:
+                print(f"WARN [pla_json]: could not parse last_updated '{last_updated_str}'")
 
-    letter = data.get("flag_colour", "").strip().upper()
-    colour = _PLA_LETTER_MAP.get(letter)
-    if not colour:
-        print(f"ERROR [pla_json]: unrecognised flag_colour '{letter}'")
-        return None
+        letter = data.get("flag_colour", "").strip().upper()
+        colour = _PLA_LETTER_MAP.get(letter)
+        if not colour:
+            print(f"ERROR [pla_json]: unrecognised flag_colour '{letter}'")
+            return None
 
-    print(f"INFO [pla_json]: → {letter} → {colour} (stale={stale})")
-    return {
-        "colour":       colour,
-        "last_updated": last_updated_str,
-        "stale":        stale,
-    }
+        print(f"INFO [pla_json]: → {letter} → {colour} (stale={stale})")
+        return {
+            "colour":       colour,
+            "last_updated": last_updated_str,
+            "stale":        stale,
+        }
+
+    return get_cached("pla_json_crosscheck", fetch, ttl_seconds=300)
 
 
 def get_pla_flag():
@@ -1563,7 +1567,8 @@ def build_dashboard_data():
     pla_f, pla_u = results.get('pla_flag', (None, ''))
 
     # PLA JSON — independent crosscheck, always shown even if stale
-    pla_json_flag = results.get('pla_json', None)
+    pla_json_raw  = results.get('pla_json', None)
+    pla_json_flag = pla_json_raw[0] if isinstance(pla_json_raw, tuple) else pla_json_raw
 
     # Richmond observed low tide
     # get_richmond_observed_low_tide() returns a dict with two keys:
