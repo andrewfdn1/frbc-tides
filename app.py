@@ -1527,7 +1527,8 @@ def build_dashboard_data():
         threading.Thread(target=run, args=('cso_discharge', get_cso_discharge)),
         threading.Thread(target=run, args=('richmond_lw',   get_richmond_observed_low_tide)),
         threading.Thread(target=run, args=('thames_temp', get_thames_temperature)),
-        threading.Thread(target=run, args=('nswws',       get_nswws_warnings)),
+        threading.Thread(target=run, args=('nswws',          get_nswws_warnings)),
+        threading.Thread(target=run, args=('water_quality',  get_water_quality)),
     ]
     for t in threads: t.start()
     for t in threads: t.join(timeout=15)
@@ -1752,6 +1753,9 @@ def build_dashboard_data():
     # CSO Discharge Hours
     cso_data, cso_up = results.get('cso_discharge', (None, ''))
 
+    # Water Quality (E. coli — FRBC / PTRC)
+    wq_data, wq_up = results.get('water_quality', (None, ''))
+
     # Thames water temperature
     thames_temp_data, thames_temp_up = results.get('thames_temp', (None, ''))
 
@@ -1807,6 +1811,7 @@ def build_dashboard_data():
         "flow_updated":        flow_up,
         "cso_discharge":       cso_data,
         "cso_updated":         cso_up,
+        "water_quality":       wq_data,
         "last_updated":        now_lon.strftime('%H:%M:%S'),
         "tz_label":            "BST" if is_bst else "GMT",
         "today_markers":       _markers,
@@ -2106,7 +2111,7 @@ def api_overlay():
 def _prewarm():
     import time
     print("Pre-warming cache on startup...")
-    for fn in (get_tides, get_kingston_flow, get_pla_flag, get_calendar_events, get_nswws_warnings):
+    for fn in (get_tides, get_kingston_flow, get_pla_flag, get_calendar_events, get_nswws_warnings, get_water_quality):
         try:
             fn()
         except Exception as e:
@@ -2121,3 +2126,169 @@ def _prewarm():
 if __name__ == "__main__":
     threading.Thread(target=_prewarm, daemon=True).start()
     app.run(debug=os.environ.get("FLASK_DEBUG", "0") == "1")
+
+
+# ---------------------------------------------------------------------------
+# Water Quality — E. coli (FRBC / PTRC Google Sheets)
+# ---------------------------------------------------------------------------
+
+import csv as _csv
+import re as _re
+from datetime import date as _date
+from io import StringIO as _StringIO
+from urllib.request import urlopen as _urlopen
+from urllib.error import URLError as _URLError
+
+_WQ_FRBC_URL = (
+    "https://docs.google.com/spreadsheets/d/"
+    "1ZAzKgnACVxEM3j9eToxE9oAJpu6KZN0BNaeXd0jUmyM"
+    "/export?format=csv&gid=1799951970"
+)
+# PTRC sheet currently requires Google login — set when made public
+_WQ_PTRC_URL = None
+
+_WQ_ECOLI_EXCELLENT = 500
+_WQ_ECOLI_GOOD      = 1_000
+_WQ_STALE_DAYS      = 7
+
+
+def _wq_parse_ecoli(raw):
+    if not raw:
+        return None
+    raw = str(raw).strip()
+    if raw.lower() in ("", "void", "na", "n/a", "-"):
+        return None
+    m = _re.search(r'\((\d[\d,]*)\)', raw)
+    if m:
+        return int(m.group(1).replace(",", ""))
+    d = _re.search(r'[\d,]+', raw)
+    if d:
+        try:
+            return int(d.group(0).replace(",", ""))
+        except ValueError:
+            return None
+    return None
+
+
+def _wq_parse_date(raw):
+    if not raw:
+        return None
+    raw = str(raw).strip()
+    for fmt in ("%d/%m/%Y", "%d/%m/%y", "%m/%d/%Y", "%m/%d/%y"):
+        try:
+            return datetime.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _wq_risk_colour(ecoli_value, stale=False):
+    if stale or ecoli_value is None:
+        return "#555"
+    if ecoli_value <= _WQ_ECOLI_GOOD:
+        return "#27ae60"
+    return "#e74c3c"
+
+
+def _wq_find_col(keys, *candidates):
+    for c in candidates:
+        for k in keys:
+            if c.lower() in k.lower():
+                return k
+    return None
+
+
+def _wq_parse_sheet(raw_csv, site_label):
+    reader = _csv.DictReader(_StringIO(raw_csv))
+    rows = [{k.strip(): v.strip() for k, v in row.items() if k} for row in reader]
+    if not rows:
+        return []
+    keys = list(rows[0].keys())
+
+    ecoli_col = None
+    for k in keys:
+        kl = k.lower()
+        if ("e.coli" in kl or "ecoli" in kl or "e coli" in kl or "alert one" in kl):
+            if "additional" not in kl and "monitor 2" not in kl and "monitor 3" not in kl:
+                ecoli_col = k
+                break
+    if not ecoli_col:
+        print(f"WARNING [wq/{site_label}]: no E. coli column found")
+        return []
+
+    date_col = _wq_find_col(keys, "sample date", "date")
+    results = []
+    for row in rows:
+        ecoli_val   = _wq_parse_ecoli(row.get(ecoli_col, ""))
+        sample_date = _wq_parse_date(row.get(date_col, "") if date_col else "")
+        if sample_date is None and ecoli_val is None:
+            continue
+        d_ago = (_date.today() - sample_date).days if sample_date else None
+        stale = d_ago is not None and d_ago > _WQ_STALE_DAYS
+        results.append({
+            "date":      sample_date,
+            "date_str":  sample_date.strftime("%-d %b") if sample_date else "—",
+            "days_ago":  d_ago,
+            "stale":     stale,
+            "ecoli":     ecoli_val,
+            "colour":    _wq_risk_colour(ecoli_val, stale=stale),
+        })
+    results.sort(key=lambda r: r["date"] or _date.min, reverse=True)
+    return results
+
+
+def _wq_fetch_site(url, site_label):
+    if not url:
+        return []
+    try:
+        with _urlopen(url, timeout=15) as resp:
+            if resp.status == 403:
+                print(f"INFO [wq/{site_label}]: sheet not public (403)")
+                return []
+            return _wq_parse_sheet(resp.read().decode("utf-8"), site_label)
+    except _URLError as e:
+        print(f"ERROR [wq/{site_label}]: {e}")
+        return []
+
+
+def get_water_quality():
+    """
+    Fetch E. coli readings for FRBC and PTRC.
+    Returns dict with 'frbc' and 'ptrc' sub-dicts for template rendering.
+    Cached for 6 hours — data is updated weekly.
+    """
+    def fetch():
+        out = {}
+        for key, url, label in (
+            ("frbc", _WQ_FRBC_URL, "FRBC"),
+            ("ptrc", _WQ_PTRC_URL, "PTRC"),
+        ):
+            data = _wq_fetch_site(url, label)
+            latest = next((r for r in data if r["ecoli"] is not None), None)
+            if latest:
+                d = latest["days_ago"]
+                if d == 0:       days_str = "today"
+                elif d == 1:     days_str = "yesterday"
+                elif d is not None: days_str = f"{d} days ago"
+                else:            days_str = "date unknown"
+                out[key] = {
+                    "ecoli_str":    f"{latest['ecoli']:,}",
+                    "date_str":     latest["date_str"],
+                    "days_ago_str": days_str,
+                    "colour":       latest["colour"],
+                    "stale":        latest["stale"],
+                    "available":    True,
+                }
+            else:
+                out[key] = {
+                    "ecoli_str":    "—",
+                    "date_str":     "—",
+                    "days_ago_str": "unavailable",
+                    "colour":       "#555",
+                    "stale":        False,
+                    "available":    False,
+                }
+        return out
+
+    result, fetched_at = get_cached("water_quality", fetch, ttl_seconds=21600)
+    return result, fetched_at
