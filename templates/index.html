@@ -548,6 +548,35 @@
         <p class="c-dim" style="font-size:var(--fs-data);">CSO data unavailable</p>
     {% endif %}
 
+    {# ── Water Quality — E. coli ── #}
+    {% if d.water_quality %}
+    <h3 style="margin-top:1em;">WATER QUALITY &mdash; E. COLI (CFU/100ML)</h3>
+    <div style="font-size:clamp(11px,1.15vw,14px); line-height:2;">
+        <div style="display:grid; grid-template-columns:auto 1fr auto; gap:0 1em; align-items:baseline;">
+            {% set f = d.water_quality.frbc %}
+            {% if f.available %}
+                <span style="color:{% if f.stale %}#555{% else %}#ccc{% endif %};">FRBC</span>
+                <span style="color:{{ f.colour }}; text-align:right; font-weight:bold;">{{ f.ecoli_str }}</span>
+                <span style="color:#888; white-space:nowrap;">{{ f.date_str }}&nbsp;&nbsp;{{ f.days_ago_str }}</span>
+            {% else %}
+                <span style="color:#555;">FRBC</span>
+                <span style="color:#555; text-align:right;">&mdash;</span>
+                <span style="color:#555;">unavailable</span>
+            {% endif %}
+            {% set p = d.water_quality.ptrc %}
+            {% if p.available %}
+                <span style="color:{% if p.stale %}#555{% else %}#ccc{% endif %};">PTRC</span>
+                <span style="color:{{ p.colour }}; text-align:right; font-weight:bold;">{{ p.ecoli_str }}</span>
+                <span style="color:#888; white-space:nowrap;">{{ p.date_str }}&nbsp;&nbsp;{{ p.days_ago_str }}</span>
+            {% else %}
+                <span style="color:#555;">PTRC</span>
+                <span style="color:#555; text-align:right;">&mdash;</span>
+                <span style="color:#555;">unavailable</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     <div class="logo-landscape" style="margin-top: auto; padding-top: 10px;">
         <img src="/static/FRBC logo White on black.png" class="logo-img" alt="FRBC" onerror="this.style.display='none'">
     </div>
