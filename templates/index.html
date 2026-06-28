@@ -530,8 +530,8 @@
         <div style="display:grid; grid-template-columns:auto 1fr; gap:0 1em; align-items:baseline;">
 
             {# — CSO header — #}
+            <span style="color:#888;">CSO discharge, 48 hours</span>
             <span style="color:#888;"></span>
-            <span style="color:#888; text-align:right;">CSO discharge</span>
 
             {# — CSO rows — #}
             {% if d.cso_discharge %}
@@ -581,11 +581,7 @@
 
         </div>
 
-        {% if d.cso_discharge %}
-        <div style="color:#888; margin-top:4px; font-size:0.9em;">
-            {{ d.cso_discharge.total_found }}/{{ d.cso_discharge.total_expected }} CSO monitors &middot; 48h window
-        </div>
-        {% endif %}
+
     </div>
 
     <div class="logo-landscape" style="margin-top: auto; padding-top: 10px;">
