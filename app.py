@@ -1335,11 +1335,17 @@ _CSO_ZONE_IDS = {
         "TEMP.2837",  # Priory Lane Storm, Mortlake (Beverley Brook)
     },
     "Beyond Richmond/Putney": {
-        "TWL00258", "TWL00140", "TWL00304", "TWL00012", "TWL00452",
-        "TWL00270", "TWL00209", "TWL00191", "TWL00345", "TWL00199",
-        "TWL00220", "TWL00400", "TWL00254", "TWL00810", "TWL00596",
-        "TWL00237", "TWL00460", "TWL00809", "TWL00315", "TWL00360",
-        "TWL00312", "TWL00407", "TWL00185", "TWL00327", "TWL00200"
+        "CNTD.0085",   # Mogden STW — River Thames (major upstream works)
+        "EPRFB3198RS", # Hattchets Cricklade — Tributary of River Thames
+        "TEMP.3014",   # Windsor — River Thames
+        "TEMP.2843",   # Portsmouth Road, Uxbridge Road — River Thames
+        "UCSO.0185",   # Mornington Crescent — River Crane (joins Thames at Isleworth)
+        "UCSO.0006",   # Brent Valley Golf Course — River Brent (joins Thames at Brentford)
+        "UCSO.0227",   # Church Road/Brent Lodge Park — River Brent
+        "UCSO.0144",   # Ruislip Road East — River Brent
+        "TEMP.1929",   # South Ealing Road — River Brent
+        "UCSO.0293",   # Abbeydale Road — River Brent
+        "TEMP.2938",   # St James's Road — River Hogsmill (joins Thames at Kingston)
     },
 }
 
