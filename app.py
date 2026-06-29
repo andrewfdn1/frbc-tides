@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 import requests
 import urllib3
 import threading
+from collections import defaultdict
 import os
 import json
 import pathlib
@@ -563,7 +564,7 @@ def _get_mo_obs_geohash():
 
 def _fetch_mo_observations():
     """
-    Fetch ~48h of hourly observations for our nearest station.
+    Fetch ~7 days of hourly observations for our nearest station.
     Returns a list of hourly records as in the sample data.
     """
     geohash = _get_mo_obs_geohash()
@@ -1312,12 +1313,8 @@ def get_nswws_warnings():
     """Cached wrapper — refreshes every 15 minutes."""
     return get_cached("nswws", _fetch_nswws, ttl_seconds=900)
 
-_CSO_ARCGIS_URL = (
-    "https://services2.arcgis.com/g6o32ZDQ33GpCIu3/arcgis/rest/services/"
-    "Thames_Water_Storm_Overflow_Activity_(Production)_view/FeatureServer/0/query"
-    "?where=1%3D1&outFields=Id,Status,LatestEventStart,LatestEventEnd,"
-    "ReceivingWaterCourse&f=json&resultRecordCount=2000"
-)
+_CSO_API_BASE = "https://api.thameswater.co.uk/opendata/v2/discharge/alerts"
+_CSO_API_LIMIT = 200  # fetch in pages of 200
 
 _CSO_ZONE_IDS = {
     "Hammersmith": {
@@ -1337,111 +1334,157 @@ _CSO_ZONE_IDS = {
     },
 }
 
-_CSO_WINDOW_MS = 48 * 3600 * 1000
+# All permit numbers we care about, flat set for fast filtering
+_CSO_ALL_IDS = {mid for ids in _CSO_ZONE_IDS.values() for mid in ids}
 
-def _cso_is_tunnel(m):
-    wc = m.get("ReceivingWaterCourse", "") or ""
-    return "tunnel" in wc.lower()
+# Tunnel permit numbers (Tideway Tunnel CSOs)
+_CSO_TUNNEL_IDS = {"TWL00596", "TWL00809", "TWL00810"}
 
-def _cso_zone_stats(monitors, now_ms):
-    """Return (found, total_duration_ms) for a list of monitor dicts."""
-    found = len(monitors)
-    total_ms = 0
-    for m in monitors:
-        status = m.get("Status")
-        if status == -1:
-            continue
-        start = m.get("LatestEventStart")
-        end   = m.get("LatestEventEnd")
-        if status == 1 and start:
-            total_ms += now_ms - start
-        elif status == 0 and end and (now_ms - end) < _CSO_WINDOW_MS and start:
-            total_ms += end - start
-    return found, total_ms
-
-def _fmt_cso_hrs(ms):
-    if ms <= 0:
+def _fmt_cso_hrs(seconds):
+    if seconds <= 0:
         return "0h 00m"
-    h = int(ms // 3600000)
-    m = int((ms % 3600000) // 60000)
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
     return f"{h}h {m:02d}m"
 
 def get_cso_discharge():
     def fetch():
-        r = requests.get(
-            _CSO_ARCGIS_URL,
+        now_utc  = datetime.now(timezone.utc)
+        week_ago = now_utc - timedelta(days=7)
+        date_end   = now_utc.strftime("%Y-%m-%d")
+        date_start = week_ago.strftime("%Y-%m-%d")
+
+        # --- Collect all Start events for our permit numbers over 7 days ---
+        # Key: permitNumber → list of {"start": datetime, "stop": datetime|None}
+        # We fetch all Start alerts then pair each with its matching Stop.
+        # Strategy: fetch Start events, then fetch Stop events, match by permitNumber
+        # and proximity. Because the API returns one row per alert event, multiple
+        # discharges per monitor in the window each appear as a separate Start row.
+
+        def fetch_all(alert_type):
+            items = []
+            offset = 0
+            while True:
+                params = {
+                    "alertType": alert_type,
+                    "dateStart":  date_start,
+                    "dateEnd":    date_end,
+                    "limit":      _CSO_API_LIMIT,
+                    "offset":     offset,
+                }
+                r = requests.get(
+                    _CSO_API_BASE,
+                    params=params,
+                    headers={"User-Agent": "Mozilla/5.0"},
+                    timeout=20,
+                )
+                r.raise_for_status()
+                data = r.json()
+                page = data.get("items", [])
+                items.extend(page)
+                if len(page) < _CSO_API_LIMIT:
+                    break  # last page
+                offset += _CSO_API_LIMIT
+            return items
+
+        starts = fetch_all("Start")
+        stops  = fetch_all("Stop")
+
+        # Index stops by permitNumber → sorted list of stop datetimes
+        stops_by_permit = defaultdict(list)
+        for s in stops:
+            permit = s.get("permitNumber")
+            dt_str = s.get("datetime")
+            if permit and dt_str:
+                try:
+                    stops_by_permit[permit].append(
+                        datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                    )
+                except ValueError:
+                    pass
+        for lst in stops_by_permit.values():
+            lst.sort()
+
+        # For each Start event at a permit we care about, find the next Stop
+        # after it (or treat as still active if none found).
+        # Sum discharge seconds per permit number.
+        discharge_secs = defaultdict(float)  # permitNumber → total seconds
+
+        for item in starts:
+            permit = item.get("permitNumber")
+            if permit not in _CSO_ALL_IDS:
+                continue
+            dt_str = item.get("datetime")
+            if not dt_str:
+                continue
+            try:
+                start_dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+
+            # Find the first Stop for this permit that is >= start_dt
+            stop_dt = None
+            for candidate in stops_by_permit.get(permit, []):
+                if candidate >= start_dt:
+                    stop_dt = candidate
+                    break
+
+            if stop_dt:
+                duration = (stop_dt - start_dt).total_seconds()
+            else:
+                # Still active (or stop not yet in window): measure to now
+                duration = (now_utc - start_dt).total_seconds()
+
+            if duration > 0:
+                discharge_secs[permit] += duration
+
+        # Also fetch current status to count monitors found per zone
+        # (so the x/y monitor count stays accurate)
+        status_r = requests.get(
+            "https://api.thameswater.co.uk/opendata/v2/discharge/status",
+            params={"limit": 2000},
             headers={"User-Agent": "Mozilla/5.0"},
-            timeout=15
+            timeout=20,
         )
-        r.raise_for_status()
-        features = r.json().get("features", [])
+        found_permits = set()
+        if status_r.ok:
+            for item in status_r.json().get("items", []):
+                permit = item.get("permitNumber")
+                if permit in _CSO_ALL_IDS:
+                    found_permits.add(permit)
 
-        now_ms = datetime.now(timezone.utc).timestamp() * 1000
-
-        # Index all monitors by Id
-        all_monitors = {}
-        for f in features:
-            p = f.get("attributes", {})
-            mid = p.get("Id")
-            if mid:
-                all_monitors[mid] = p
-
-        # Separate tunnel monitors from river zones
-        tunnel_monitors = []
+        # Build zone summaries
         zones = []
         for zone_name, zone_ids in _CSO_ZONE_IDS.items():
-            river = []
-            expected = 0
-            for mid in zone_ids:
-                m = all_monitors.get(mid)
-                if not m:
-                    continue
-                expected += 1
-                if _cso_is_tunnel(m):
-                    tunnel_monitors.append(m)
-                else:
-                    river.append(m)
-            found, total_ms = _cso_zone_stats(river, now_ms)
-            # expected for river = monitors found minus tunnel ones
-            river_expected = sum(
-                1 for mid in zone_ids
-                if mid in all_monitors and not _cso_is_tunnel(all_monitors[mid])
-            )
+            river_ids = zone_ids - _CSO_TUNNEL_IDS
+            total_secs = sum(discharge_secs.get(mid, 0) for mid in river_ids)
+            found = len([mid for mid in river_ids if mid in found_permits])
             zones.append({
                 "name":     zone_name,
                 "found":    found,
-                "expected": river_expected,
-                "hours_ms": total_ms,
-                "hours":    _fmt_cso_hrs(total_ms),
-                "active":   total_ms > 0,
+                "expected": len(river_ids),
+                "hours":    _fmt_cso_hrs(total_secs),
+                "active":   total_secs > 0,
             })
 
         # Tunnel zone
-        t_found, t_ms = _cso_zone_stats(tunnel_monitors, now_ms)
-        t_expected = sum(
-            1 for ids in _CSO_ZONE_IDS.values()
-            for mid in ids
-            if mid in all_monitors and _cso_is_tunnel(all_monitors[mid])
-        )
+        tunnel_secs = sum(discharge_secs.get(mid, 0) for mid in _CSO_TUNNEL_IDS)
+        tunnel_found = len([mid for mid in _CSO_TUNNEL_IDS if mid in found_permits])
         zones.append({
             "name":     "Tideway Tunnel",
-            "found":    t_found,
-            "expected": t_expected,
-            "hours_ms": t_ms,
-            "hours":    _fmt_cso_hrs(t_ms),
-            "active":   t_ms > 0,
+            "found":    tunnel_found,
+            "expected": len(_CSO_TUNNEL_IDS),
+            "hours":    _fmt_cso_hrs(tunnel_secs),
+            "active":   tunnel_secs > 0,
         })
-
-        total_found    = sum(z["found"] for z in zones)
-        total_expected = sum(len(ids) for ids in _CSO_ZONE_IDS.values())
 
         return {
             "zones":          zones,
-            "total_found":    total_found,
-            "total_expected": total_expected,
+            "total_found":    len(found_permits),
+            "total_expected": len(_CSO_ALL_IDS),
         }
 
-    return get_cached("cso_discharge", fetch, ttl_seconds=1200)
+    return get_cached("cso_discharge", fetch, ttl_seconds=1800)
 
 
 def get_kingston_flow():
