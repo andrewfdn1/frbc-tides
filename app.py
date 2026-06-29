@@ -1319,12 +1319,20 @@ _CSO_API_LIMIT = 200  # fetch in pages of 200
 
 _CSO_ZONE_IDS = {
     "Hammersmith": {
-        "TWL00210", "TWL00808", "TWL00317", "TWL00280", "TWL00438"
+        "TWL00210", "TWL00808", "TWL00317", "TWL00280", "TWL00438",
+        "CSAB.0572",  # Hammersmith Pumping Station A
+        "CSAB.0571",  # North West Storm Relief
+        "CSAB.0534",  # Stamford Brook
     },
     "Richmond to Putney": {
         "TWL00384", "TWL00005", "TWL00248", "TWL00338", "TWL00424",
         "TWL00423", "TWL00179", "TWL00116", "TWL00100", "TWL00339",
-        "TWL00372", "TWL00087", "TWL00371", "TWL00440"
+        "TWL00372", "TWL00087", "TWL00371", "TWL00440",
+        "CSAB.0557",  # Falconbrook Pumping Station CSO
+        "CSSA.0383",  # Jews Row Pumping Station (Falconbrook Storm Relief)
+        "CSAB.0546",  # Jews Row Wandle Valley Storm Relief
+        "TEMP.2871",  # Road A3, Roehampton Vale (Beverley Brook)
+        "TEMP.2837",  # Priory Lane Storm, Mortlake (Beverley Brook)
     },
     "Beyond Richmond/Putney": {
         "TWL00258", "TWL00140", "TWL00304", "TWL00012", "TWL00452",
@@ -1335,11 +1343,20 @@ _CSO_ZONE_IDS = {
     },
 }
 
-# All permit numbers we care about, flat set for fast filtering
-_CSO_ALL_IDS = {mid for ids in _CSO_ZONE_IDS.values() for mid in ids}
+# Tunnel permit numbers (Tideway Tunnel CSOs) — excluded from river zone totals,
+# counted separately in the Tideway Tunnel row
+_CSO_TUNNEL_IDS = {
+    "TWL00596", "TWL00809", "TWL00810",
+    "TEMP.2986",    # West Putney Storm Relief CSO
+    "TEMP.2599",    # Frogmore Storm Relief (Bell Lane Creek)
+    "CSAB.0556",    # South West Storm Relief
+    "TEMP.2438",    # Frogmore Storm Relief (River Wandle)
+    "CSAB.0554",    # Brixton and Clapham Storm Relief
+    "EPRWB3295ES",  # Victoria CSO
+}
 
-# Tunnel permit numbers (Tideway Tunnel CSOs)
-_CSO_TUNNEL_IDS = {"TWL00596", "TWL00809", "TWL00810"}
+# All permit numbers we care about (zones + tunnel), flat set for fast filtering
+_CSO_ALL_IDS = {mid for ids in _CSO_ZONE_IDS.values() for mid in ids} | _CSO_TUNNEL_IDS
 
 def _fmt_cso_hrs(seconds):
     if seconds <= 0:
