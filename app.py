@@ -2387,8 +2387,12 @@ _WQ_FRBC_URL = (
     "1ZAzKgnACVxEM3j9eToxE9oAJpu6KZN0BNaeXd0jUmyM"
     "/export?format=csv&gid=1799951970"
 )
-# PTRC sheet currently requires Google login — set when made public
-_WQ_PTRC_URL = None
+# PTRC sheet — Main tab
+_WQ_PTRC_URL = (
+    "https://docs.google.com/spreadsheets/d/"
+    "14i4LMVw5OA1NvE8i14cbGo8M6nnUVlFV1pRbpjMmYnA"
+    "/export?format=csv&gid=132413204"
+)
 
 _WQ_ECOLI_EXCELLENT = 500
 _WQ_ECOLI_GOOD      = 1_000
