@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 import requests
 import urllib3
 import threading
+import time
 from collections import defaultdict
 import os
 import json
@@ -1385,9 +1386,11 @@ def get_cso_discharge():
                 if len(page) < _CSO_API_LIMIT:
                     break  # last page
                 offset += _CSO_API_LIMIT
+                time.sleep(0.5)  # stay well within 5 req/sec limit
             return items
 
         starts = fetch_all("Start")
+        time.sleep(0.5)  # pause between Start and Stop fetches
         stops  = fetch_all("Stop")
 
         # Index stops by permitNumber → sorted list of stop datetimes
