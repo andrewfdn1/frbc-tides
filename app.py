@@ -2213,17 +2213,17 @@ td.r { text-align:right; white-space:nowrap; }
 
 {% if zone.beyond_putney %}
 <h3>&#9660; Downstream of Putney Bridge</h3>
-{{ station_table(zone.beyond_putney) }}
+{{ station_table(zone.beyond_putney) | safe }}
 {% endif %}
 
 {% if zone.hb_to_putney %}
 <h3>&#9660; Hammersmith to Putney</h3>
-{{ station_table(zone.hb_to_putney) }}
+{{ station_table(zone.hb_to_putney) | safe }}
 {% endif %}
 
 {% if zone.upstream %}
 <h3>&#9650; Upstream of Hammersmith Bridge</h3>
-{{ station_table(zone.upstream) }}
+{{ station_table(zone.upstream) | safe }}
 {% endif %}
 
 {% if not zone.beyond_putney and not zone.hb_to_putney and not zone.upstream %}
