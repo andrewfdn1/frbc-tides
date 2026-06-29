@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, render_template_string
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from bs4 import BeautifulSoup
@@ -1485,29 +1485,67 @@ def get_cso_discharge():
                 if permit in _CSO_ALL_IDS:
                     found_permits.add(permit)
 
-        # Build zone summaries
+        # Build location name + coordinate lookup from alerts data
+        location_names = {}
+        location_x = {}
+        for item in starts:
+            p = item.get("permitNumber")
+            n = item.get("locationName")
+            x = item.get("x")
+            if p and n:
+                location_names[p] = n
+            if p and x:
+                location_x[p] = x
+
+        # Build zone summaries with per-station detail
         zones = []
         for zone_name, zone_ids in _CSO_ZONE_IDS.items():
             river_ids = zone_ids - _CSO_TUNNEL_IDS
             total_secs = sum(discharge_secs.get(mid, 0) for mid in river_ids)
             found = len([mid for mid in river_ids if mid in found_permits])
+            stations = [
+                {
+                    "permit":  mid,
+                    "name":    location_names.get(mid, None),
+                    "hours":   _fmt_cso_hrs(discharge_secs.get(mid, 0)),
+                    "secs":    discharge_secs.get(mid, 0),
+                    "active":  discharge_secs.get(mid, 0) > 0,
+                    "x":       location_x.get(mid, None),
+                }
+                for mid in river_ids
+                if location_names.get(mid)  # only include stations known to v2 API
+            ]
             zones.append({
                 "name":     zone_name,
                 "found":    found,
                 "expected": len(river_ids),
                 "hours":    _fmt_cso_hrs(total_secs),
                 "active":   total_secs > 0,
+                "stations": stations,
             })
 
         # Tunnel zone
         tunnel_secs = sum(discharge_secs.get(mid, 0) for mid in _CSO_TUNNEL_IDS)
         tunnel_found = len([mid for mid in _CSO_TUNNEL_IDS if mid in found_permits])
+        tunnel_stations = [
+            {
+                "permit":  mid,
+                "name":    location_names.get(mid, None),
+                "hours":   _fmt_cso_hrs(discharge_secs.get(mid, 0)),
+                "secs":    discharge_secs.get(mid, 0),
+                "active":  discharge_secs.get(mid, 0) > 0,
+                "x":       location_x.get(mid, None),
+            }
+            for mid in _CSO_TUNNEL_IDS
+            if location_names.get(mid)  # only include stations known to v2 API
+        ]
         zones.append({
             "name":     "Tideway Tunnel",
             "found":    tunnel_found,
             "expected": len(_CSO_TUNNEL_IDS),
             "hours":    _fmt_cso_hrs(tunnel_secs),
             "active":   tunnel_secs > 0,
+            "stations": tunnel_stations,
         })
 
         return {
@@ -2073,6 +2111,136 @@ def get_wind_grid():
             raise Exception(f"All wind sources failed. Last error: {e}")
 
     return get_cached('wind_grid', fetch, ttl_seconds=3600)  # 1 hour cache
+
+@app.route("/waterquality")
+def water_quality_detail():
+    cso_data, cso_up = get_cso_discharge()
+    now = datetime.now(ZoneInfo("Europe/London"))
+    week_ago = now - timedelta(days=7)
+
+    # Three geographic bands (OS National Grid eastings):
+    # Downstream beyond Putney : x > 525200
+    # Hammersmith to Putney    : 523050 < x <= 525200
+    # Upstream of Hammersmith  : x <= 523050
+    HB_X  = 523050   # Hammersmith Bridge
+    PUT_X = 525200   # Putney Bridge
+
+    zones_split = []
+    if cso_data:
+        for zone in cso_data.get("zones", []):
+            stations = zone.get("stations", [])
+            beyond_putney = sorted(
+                [s for s in stations if s.get("x") and s["x"] > PUT_X],
+                key=lambda s: -s["x"]
+            )
+            hb_to_putney = sorted(
+                [s for s in stations if s.get("x") and HB_X < s["x"] <= PUT_X],
+                key=lambda s: -s["x"]
+            )
+            upstream = sorted(
+                [s for s in stations if s.get("x") and s["x"] <= HB_X],
+                key=lambda s: -s["x"]
+            )
+            no_coord = [s for s in stations if not s.get("x")]
+            zones_split.append({
+                **zone,
+                "beyond_putney": beyond_putney,
+                "hb_to_putney":  hb_to_putney,
+                "upstream":      upstream + no_coord,
+            })
+
+    def station_table(stations):
+        if not stations:
+            return ""
+        rows = ""
+        for s in stations:
+            cls = "hrs-active" if s["active"] else "hrs-zero"
+            rows += f"""    <tr>
+      <td><a class="tw-link" href="https://www.thameswater.co.uk/edm-map" target="_blank">{s["name"]}</a></td>
+      <td class="permit">{s["permit"]}</td>
+      <td class="r {cls}">{s["hours"]}</td>
+    </tr>\n"""
+        return f"""  <table>
+    <thead><tr><th>Station</th><th>Permit</th><th class="r">Discharge hrs (7d)</th></tr></thead>
+    <tbody>
+{rows}    </tbody>
+  </table>"""
+
+    return render_template_string("""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Water Quality — FRBC</title>
+<style>
+* { box-sizing:border-box; margin:0; padding:0; font-family:'Courier New',monospace; }
+body { background:#000; color:#fff; padding:24px; max-width:900px; }
+h1 { font-size:1.3em; text-transform:uppercase; color:#33FF57; margin-bottom:4px; }
+.meta { font-size:0.78em; color:#555; margin-bottom:28px; }
+.meta a { color:#33FF57; text-decoration:none; }
+h2 { font-size:1em; text-transform:uppercase; letter-spacing:0.08em; color:#fff;
+     border-bottom:1px solid #333; padding-bottom:6px; margin:28px 0 4px; }
+.zone-total { font-size:0.8em; color:#666; margin-bottom:10px; }
+.zone-total .hrs { font-weight:bold; color:#fff; }
+.zone-total .hrs.active { color:#FF4B4B; }
+h3 { font-size:0.75em; text-transform:uppercase; letter-spacing:0.1em;
+     color:#555; margin:14px 0 4px; border-left:2px solid #333; padding-left:6px; }
+table { width:100%; border-collapse:collapse; font-size:0.8em; margin-bottom:4px; }
+th { text-align:left; color:#444; padding:3px 12px 3px 0;
+     border-bottom:1px solid #1e1e1e; white-space:nowrap; }
+th.r { text-align:right; }
+td { padding:5px 12px 5px 0; border-bottom:1px solid #141414; vertical-align:top; }
+td.r { text-align:right; white-space:nowrap; }
+.hrs-active { color:#FF4B4B; font-weight:bold; }
+.hrs-zero { color:#2a2a2a; }
+.permit { color:#444; font-size:0.85em; }
+.tw-link { color:#888; text-decoration:none; }
+.tw-link:hover { color:#33FF57; }
+.empty { color:#2a2a2a; font-size:0.78em; font-style:italic; padding:4px 0 8px; }
+</style>
+</head>
+<body>
+<h1>Water Quality — CSO Discharge Detail</h1>
+<p class="meta">
+  7-day window: {{ week_ago }} – {{ now_date }}
+  &nbsp;&middot;&nbsp; Updated {{ cso_up }}
+  &nbsp;&middot;&nbsp; Source: <a href="https://docs.api.thameswater.co.uk/" target="_blank">Thames Water Open Data API v2</a>
+  &nbsp;&middot;&nbsp; <a href="/">&#8592; Dashboard</a>
+</p>
+
+{% if zones_split %}{% for zone in zones_split %}
+<h2>{{ zone.name }} <span style="color:{% if zone.active %}#FF4B4B{% else %}#444{% endif %};font-size:0.9em;">{{ zone.hours }}</span></h2>
+
+{% if zone.beyond_putney %}
+<h3>&#9660; Downstream of Putney Bridge</h3>
+{{ station_table(zone.beyond_putney) }}
+{% endif %}
+
+{% if zone.hb_to_putney %}
+<h3>&#9660; Hammersmith to Putney</h3>
+{{ station_table(zone.hb_to_putney) }}
+{% endif %}
+
+{% if zone.upstream %}
+<h3>&#9650; Upstream of Hammersmith Bridge</h3>
+{{ station_table(zone.upstream) }}
+{% endif %}
+
+{% if not zone.beyond_putney and not zone.hb_to_putney and not zone.upstream %}
+<p class="empty">No stations with known activity in this window</p>
+{% endif %}
+
+{% endfor %}{% else %}
+<p style="color:#FF4B4B;margin-top:20px;">CSO data unavailable</p>
+{% endif %}
+</body>
+</html>""",
+        zones_split=zones_split,
+        station_table=station_table,
+        cso_up=cso_up,
+        now_date=now.strftime("%d %b %H:%M"),
+        week_ago=week_ago.strftime("%d %b"),
+    )
 
 @app.route("/")
 def index():
