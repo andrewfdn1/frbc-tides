@@ -1390,12 +1390,18 @@ def get_cso_discharge():
                     "limit":      _CSO_API_LIMIT,
                     "offset":     offset,
                 }
-                r = requests.get(
-                    _CSO_API_BASE,
-                    params=params,
-                    headers={"User-Agent": "Mozilla/5.0"},
-                    timeout=20,
-                )
+                # Retry up to 3 times on 429
+                for attempt in range(3):
+                    r = requests.get(
+                        _CSO_API_BASE,
+                        params=params,
+                        headers={"User-Agent": "Mozilla/5.0"},
+                        timeout=20,
+                    )
+                    if r.status_code == 429:
+                        time.sleep(2 ** attempt)  # 1s, 2s, 4s
+                        continue
+                    break
                 r.raise_for_status()
                 data = r.json()
                 page = data.get("items", [])
@@ -1403,11 +1409,11 @@ def get_cso_discharge():
                 if len(page) < _CSO_API_LIMIT:
                     break  # last page
                 offset += _CSO_API_LIMIT
-                time.sleep(0.5)  # stay well within 5 req/sec limit
+                time.sleep(1)  # 1 req/sec between pages
             return items
 
         starts = fetch_all("Start")
-        time.sleep(0.5)  # pause between Start and Stop fetches
+        time.sleep(1)  # pause between Start and Stop fetches
         stops  = fetch_all("Stop")
 
         # Index stops by permitNumber → sorted list of stop datetimes
