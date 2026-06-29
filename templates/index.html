@@ -536,9 +536,12 @@
             {# — CSO rows — #}
             {% if d.cso_discharge %}
                 {% for z in d.cso_discharge.zones %}
-                <span style="color:#ccc;">{{ z.name }}</span>
+                {% set is_tunnel = z.name == 'Tideway Tunnel' %}
+                <span style="color:{% if is_tunnel %}#888{% else %}#ccc{% endif %};">
+                    {% if is_tunnel %}Tideway Tunnel (not into river){% else %}{{ z.name }}{% endif %}
+                </span>
                 <span style="text-align:right; font-weight:bold;
-                      color:{% if z.active %}#FF4B4B{% else %}#555{% endif %};">
+                      color:{% if is_tunnel %}#33FF57{% elif z.active %}#FF4B4B{% else %}#555{% endif %};">
                     {{ z.hours }}
                 </span>
                 {% endfor %}
