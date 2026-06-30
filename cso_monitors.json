@@ -88,6 +88,28 @@
         "CSAB.0557"
       ]
     },
+    "Tideway Tributaries": {
+      "description": "CSOs that discharge into tributaries (not the Thames directly) which join the Thames within the Richmond-to-Putney stretch. Manually placed -- separate from the geographic river zones because these affect the same stretch via a tributary confluence rather than a direct Thames outfall.",
+      "monitors": [
+        "TEMP.2837",
+        "TEMP.2871",
+        "UCSO.0185",
+        "UCSO.0006",
+        "UCSO.0227",
+        "UCSO.0144",
+        "TEMP.1929",
+        "UCSO.0293",
+        "UCSO.0332",
+        "TEMP.2413",
+        "UCSO.0136",
+        "UCSO.0296",
+        "TEMP.2610",
+        "EPRAB3796VT",
+        "UCSO.0246",
+        "UCSO.0244",
+        "TEMP.2125"
+      ]
+    },
     "Beyond": {
       "description": "Manually placed -- upstream beyond Richmond, or downstream beyond Putney into central London. Independent of tunnel_connected status.",
       "monitors": [
@@ -141,28 +163,6 @@
         "CSAB.0577",
         "TEMP.2804",
         "CSAB.0536"
-      ]
-    },
-    "Tideway Tributaries": {
-      "description": "CSOs that discharge into tributaries (not the Thames directly) which join the Thames within the Richmond-to-Putney stretch. Manually placed -- separate from the geographic river zones because these affect the same stretch via a tributary confluence rather than a direct Thames outfall.",
-      "monitors": [
-        "TEMP.2837",
-        "TEMP.2871",
-        "UCSO.0185",
-        "UCSO.0006",
-        "UCSO.0227",
-        "UCSO.0144",
-        "TEMP.1929",
-        "UCSO.0293",
-        "UCSO.0332",
-        "TEMP.2413",
-        "UCSO.0136",
-        "UCSO.0296",
-        "TEMP.2610",
-        "EPRAB3796VT",
-        "UCSO.0246",
-        "UCSO.0244",
-        "TEMP.2125"
       ]
     }
   },
