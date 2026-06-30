@@ -527,28 +527,36 @@
     {# ── Water Quality (combined CSO + E. coli) ── #}
     <h3>WATER QUALITY (DRAFT/WIP) <span class="updated">Updated {{ d.cso_updated }} &nbsp;<a href="/waterquality" style="font-size:0.8em; color:#555; text-decoration:none;" target="_blank">detail &#8599;</a></span></h3>
     <div style="font-size:clamp(11px,1.15vw,14px); line-height:2;">
-        <div style="display:grid; grid-template-columns:auto 1fr; gap:0 1em; align-items:baseline;">
+        {% if d.cso_discharge %}
+        {# Grid columns: zone name + one column per configured window (e.g. 24h, 7d, 30d) #}
+        <div style="display:grid; grid-template-columns:auto {% for w in d.cso_discharge.windows %}1fr {% endfor %}; gap:0 1em; align-items:baseline;">
 
-            {# — CSO header — #}
-            <span style="color:#888;">CSO discharge, 7 days</span>
-            <span style="color:#888;"></span>
+            {# — CSO header row — #}
+            <span style="color:#888;">CSO discharge</span>
+            {% for w in d.cso_discharge.windows %}
+            <span style="color:#888; text-align:right;">{{ w.label }}</span>
+            {% endfor %}
 
-            {# — CSO rows — #}
-            {% if d.cso_discharge %}
-                {% for z in d.cso_discharge.zones %}
-                {% set is_tunnel = z.name == 'Tideway Tunnel' %}
-                <span style="color:{% if is_tunnel %}#888{% else %}#ccc{% endif %};">
-                    {% if is_tunnel %}Tideway Tunnel (not into river){% else %}{{ z.name }}{% endif %}
-                </span>
-                <span style="text-align:right; font-weight:bold;
-                      color:{% if is_tunnel %}#33FF57{% elif z.active %}#FF4B4B{% else %}#555{% endif %};">
-                    {{ z.hours }}
-                </span>
-                {% endfor %}
-            {% else %}
-                <span style="color:#555; grid-column:1/-1;">CSO data unavailable</span>
-            {% endif %}
+            {# — CSO rows, one per zone — #}
+            {% for z in d.cso_discharge.zones %}
+            {% set is_tunnel = z.name == 'Tideway Tunnel' %}
+            <span style="color:{% if is_tunnel %}#888{% else %}#ccc{% endif %};">
+                {% if is_tunnel %}Tideway Tunnel (not into river){% else %}{{ z.name }}{% endif %}
+            </span>
+            {% for w in d.cso_discharge.windows %}
+            <span style="text-align:right; font-weight:bold;
+                  color:{% if is_tunnel %}#33FF57{% elif z.hours_by_window[w.key] != '0h 00m' %}#FF4B4B{% else %}#555{% endif %};">
+                {{ z.hours_by_window[w.key] }}
+            </span>
+            {% endfor %}
+            {% endfor %}
 
+        </div>
+        {% else %}
+        <span style="color:#555;">CSO data unavailable</span>
+        {% endif %}
+
+        <div style="display:grid; grid-template-columns:auto 1fr; gap:0 1em; align-items:baseline; margin-top:4px;">
             {# — Divider — #}
             <span style="grid-column:1/-1; border-top:1px solid #333; margin:4px 0; display:block;"></span>
 
@@ -582,6 +590,7 @@
             {% endif %}
 
         </div>
+
 
 
     </div>
