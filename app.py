@@ -1343,6 +1343,19 @@ def _load_cso_config():
     default_window = cfg.get("_config", {}).get("default_window", windows[0]["key"])
     lookback_days = cfg.get("_config", {}).get("fetch_lookback_days", 7)
 
+    # Permit -> official site name, from cso_monitors.json's monitors{} block.
+    # Used as a fallback when the live API's locationName field is missing
+    # on a given event — without this, a tracked permit with real discharge
+    # seconds but no locationName in its Start row would be silently
+    # dropped from the per-station table while still counting toward the
+    # zone total, making the zone header show non-zero hours with every
+    # visible row reading zero.
+    site_names = {
+        permit: info.get("site_name")
+        for permit, info in cfg.get("monitors", {}).items()
+        if info.get("site_name")
+    }
+
     return {
         "zone_ids":        zone_ids,
         "tunnel_ids":      tunnel_ids,
@@ -1350,6 +1363,7 @@ def _load_cso_config():
         "windows":         windows,
         "default_window":  default_window,
         "lookback_days":   lookback_days,
+        "site_names":      site_names,
     }
 
 _cso_cfg = _load_cso_config()
@@ -1357,6 +1371,7 @@ _CSO_ZONE_IDS   = _cso_cfg["zone_ids"]
 _CSO_TUNNEL_IDS = _cso_cfg["tunnel_ids"]
 _CSO_ALL_IDS    = _cso_cfg["all_ids"]
 _CSO_WINDOWS    = _cso_cfg["windows"]
+_CSO_SITE_NAMES = _cso_cfg["site_names"]
 
 def _fmt_cso_hrs(seconds):
     if seconds <= 0:
@@ -1545,7 +1560,11 @@ def get_cso_discharge():
             return [
                 {
                     "permit":        mid,
-                    "name":          location_names.get(mid, None),
+                    # Prefer the live API's locationName; fall back to the
+                    # official site_name from cso_monitors.json so a permit
+                    # is never silently dropped from this table just because
+                    # one particular Start event happened not to include it.
+                    "name":          location_names.get(mid) or _CSO_SITE_NAMES.get(mid, mid),
                     "hours":         _fmt_cso_hrs(secs_for_default(mid)),  # default window, for back-compat
                     "hours_by_window": hours_by_window(mid),
                     "secs":          secs_for_default(mid),
@@ -1553,7 +1572,12 @@ def get_cso_discharge():
                     "x":             location_x.get(mid, None),
                 }
                 for mid in ids
-                if location_names.get(mid)  # only include stations known to v2 API
+                # Include every tracked permit — previously this filtered
+                # out any permit with no locationName in the alerts feed,
+                # which could silently drop a station that had real
+                # discharge seconds (still counted in the zone total),
+                # making the zone header non-zero while every visible row
+                # underneath read 0h 00m.
             ]
 
         def zone_totals_by_window(ids):
@@ -2194,40 +2218,56 @@ def water_quality_detail():
                 "upstream":      upstream + no_coord,
             })
 
+    windows = cso_data.get("windows", []) if cso_data else []
+
     def station_table(stations):
         if not stations:
             return ""
+        header_cols = "".join(f'<th class="r">{w["label"]}</th>' for w in windows)
         rows = ""
         for s in stations:
-            cls = "hrs-active" if s["active"] else "hrs-zero"
+            hbw = s.get("hours_by_window", {})
+            data_cols = ""
+            for w in windows:
+                val = hbw.get(w["key"], "0h 00m")
+                cls = "hrs-active" if val != "0h 00m" else "hrs-zero"
+                data_cols += f'<td class="r {cls}">{val}</td>'
             rows += f"""    <tr>
       <td><a class="tw-link" href="https://www.thameswater.co.uk/edm-map" target="_blank">{s["name"]}</a></td>
       <td class="permit">{s["permit"]}</td>
-      <td class="r {cls}">{s["hours"]}</td>
+      {data_cols}
     </tr>\n"""
         return f"""  <table>
-    <thead><tr><th>Station</th><th>Permit</th><th class="r">Discharge hrs (7d)</th></tr></thead>
+    <thead><tr><th>Station</th><th>Permit</th>{header_cols}</tr></thead>
     <tbody>
 {rows}    </tbody>
   </table>"""
+
+    def zone_hours_summary():
+        """Render a zone's hours for every window, e.g. '0h 00m / 2h 15m / 10h 45m'"""
+        def fmt(zone):
+            hbw = zone.get("hours_by_window", {})
+            return " &nbsp;/&nbsp; ".join(hbw.get(w["key"], "0h 00m") for w in windows)
+        return fmt
+
+    zone_hours = zone_hours_summary()
 
     return render_template_string("""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Water Quality (DRAFT/WORK IN PROGRESS) — FRBC</title>
+<title>(DRAFT/WIP) Water Quality — FRBC</title>
 <style>
 * { box-sizing:border-box; margin:0; padding:0; font-family:'Courier New',monospace; }
-body { background:#000; color:#fff; padding:24px; max-width:900px; }
+body { background:#000; color:#fff; padding:24px; max-width:1100px; }
 h1 { font-size:1.3em; text-transform:uppercase; color:#33FF57; margin-bottom:4px; }
 .meta { font-size:0.78em; color:#555; margin-bottom:28px; }
 .meta a { color:#33FF57; text-decoration:none; }
 h2 { font-size:1em; text-transform:uppercase; letter-spacing:0.08em; color:#fff;
-     border-bottom:1px solid #333; padding-bottom:6px; margin:28px 0 4px; }
-.zone-total { font-size:0.8em; color:#666; margin-bottom:10px; }
-.zone-total .hrs { font-weight:bold; color:#fff; }
-.zone-total .hrs.active { color:#FF4B4B; }
+     border-bottom:1px solid #333; padding-bottom:6px; margin:28px 0 4px;
+     display:flex; justify-content:space-between; align-items:baseline; }
+.zone-hours { font-size:0.7em; color:#888; font-weight:normal; text-transform:none; }
 h3 { font-size:0.75em; text-transform:uppercase; letter-spacing:0.1em;
      color:#555; margin:14px 0 4px; border-left:2px solid #333; padding-left:6px; }
 table { width:100%; border-collapse:collapse; font-size:0.8em; margin-bottom:4px; }
@@ -2245,16 +2285,15 @@ td.r { text-align:right; white-space:nowrap; }
 </style>
 </head>
 <body>
-<h1>Water Quality — CSO Discharge Detail</h1>
+<h1>(DRAFT/WIP) Water Quality — CSO Discharge Detail</h1>
 <p class="meta">
-  7-day window: {{ week_ago }} – {{ now_date }}
-  &nbsp;&middot;&nbsp; Updated {{ cso_up }}
+  Updated {{ cso_up }}
   &nbsp;&middot;&nbsp; Source: <a href="https://docs.api.thameswater.co.uk/" target="_blank">Thames Water Open Data API v2</a>
   &nbsp;&middot;&nbsp; <a href="/">&#8592; Dashboard</a>
 </p>
 
 {% if zones_split %}{% for zone in zones_split %}
-<h2>{{ zone.name }} <span style="color:{% if zone.active %}#FF4B4B{% else %}#444{% endif %};font-size:0.9em;">{{ zone.hours }}</span></h2>
+<h2>{{ zone.name }} <span class="zone-hours">{{ zone_hours(zone) | safe }}</span></h2>
 
 {% if zone.beyond_putney %}
 <h3>&#9660; Downstream of Putney Bridge</h3>
@@ -2282,9 +2321,8 @@ td.r { text-align:right; white-space:nowrap; }
 </html>""",
         zones_split=zones_split,
         station_table=station_table,
+        zone_hours=zone_hours,
         cso_up=cso_up,
-        now_date=now.strftime("%d %b %H:%M"),
-        week_ago=week_ago.strftime("%d %b"),
     )
 
 @app.route("/")
