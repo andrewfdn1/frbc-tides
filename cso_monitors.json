@@ -60,6 +60,12 @@
         "url": "https://www.tideway.london/contact-us/document-library/cso-discharges-risk-to-navigation/",
         "what_it_provides": "Lists the seven CSO locations whose physical outfall position was moved further into the river by the Tideway project, for mariner passage-planning purposes: Putney Embankment (PUTEF), Chelsea Embankment (CHEEF), Heathwall Pumping Station (HEAPS) Nine Elms, Albert Bridge (ALBEF), Victoria Embankment (VCTEF), Blackfriars Bridge (BLABF), King Edward Memorial Park (KEMPF). All seven are tunnel-connected CSOs by definition (the relocation/DRA process only applies to connected sites). Corroborates Putney Bridge CSO and Victoria CSO already in our tunnel-connected set, and identifies Heathwall (Nine Elms) and Chelsea Embankment/Ranelagh as additional confirmed tunnel-connected sites not yet in our tracked monitor list.",
         "caveat": "Covers only 7 of the ~34 tunnel-connected CSOs nationally -- specifically those whose physical discharge point moved during construction. Absence from this list does NOT mean a CSO is not tunnel-connected; consult tw_specific_sites for the full determination."
+      },
+      "tw_opendata_api_receiving_watercourse": {
+        "title": "Thames Water Open Data API v2 -- receivingWaterCourse field (live, structured)",
+        "url": "https://api.thameswater.co.uk/opendata/v2/discharge/status",
+        "what_it_provides": "The live status/alerts API's receivingWaterCourse field directly states 'via the Tideway tunnel' for tunnel-connected permits (e.g. 'River Thames (via the Tideway tunnel)') versus plain 'River Thames' for non-connected ones. This is a structured, machine-readable signal independent of the prose tw_specific_sites FAQ page -- and a STRONGER source where the two disagree, since it comes directly from Thames Water's operational data rather than a marketing/investment FAQ page.",
+        "caveat": "Confirmed via full pull of all 576 national stations on 2026-06-30 (see all_tw_stations.csv). One direct conflict found against tw_specific_sites: CSAB.0538 Western Pumping Station CSO -- tw_specific_sites FAQ text says 'is now connected to the London Tideway Tunnels system', but this API field says plain 'River Thames' (no tunnel mention) for the same permit. Treat this field as authoritative pending further investigation of that specific conflict."
       }
     }
   },
@@ -67,20 +73,18 @@
     "Hammersmith": {
       "description": "Within approx 500m of FRBC pontoon at Hammersmith Bridge. Independent of tunnel_connected status.",
       "monitors": [
-        "CSAB.0572"
+        "CSAB.0572",
+        "TEMP.0312",
+        "CSAB.0534",
+        "CSAB.0571",
+        "CSAB.0535"
       ]
     },
     "Richmond to Putney": {
       "description": "Manually placed -- upstream and downstream of Hammersmith within the Richmond-to-Putney stretch. River geography is not linear so placement is judged per-site, not a fixed km boundary. Independent of tunnel_connected status -- a monitor here may or may not be tunnel-connected.",
       "monitors": [
-        "TEMP.0312",
-        "TEMP.2837",
-        "TEMP.2871",
         "CSSA.0383",
         "CSAB.0546",
-        "CSAB.0571",
-        "CSAB.0534",
-        "CSAB.0535",
         "CSAB.0557"
       ]
     },
@@ -90,19 +94,36 @@
         "EPRFB3198RS",
         "TEMP.3014",
         "TEMP.2843",
-        "UCSO.0185",
-        "UCSO.0006",
-        "UCSO.0227",
-        "UCSO.0144",
-        "TEMP.1929",
-        "UCSO.0293",
         "TEMP.2938",
         "CASM.0249",
         "CNTD.0085",
         "CSAB.0576",
         "CSAB.0578",
         "CSSA.0403",
-        "TEMP.2752"
+        "TEMP.2752",
+        "CSAB.0522",
+        "CSAB.0574",
+        "CSAB.0561",
+        "CSAB.0563",
+        "CSAB.0564",
+        "CSAB.0531",
+        "TEMP.2369",
+        "CSAB.0532",
+        "CSAB.0540",
+        "TEMP.2583",
+        "TEMP.2968",
+        "CSAB.0543",
+        "TEMP.1273",
+        "TEMP.2743",
+        "CSAB.0559",
+        "CSAB.0580",
+        "CSAB.0555",
+        "TEMP.2819",
+        "CSAB.0548",
+        "CSAB.0526",
+        "TEMP.2864",
+        "CSAB.0527",
+        "CSAB.0533"
       ]
     },
     "Tideway Tunnel": {
@@ -116,7 +137,32 @@
         "CSAB.0573",
         "CSAB.0538",
         "CSAB.0556",
-        "EPRWB3295ES"
+        "EPRWB3295ES",
+        "CSAB.0577",
+        "TEMP.2804",
+        "CSAB.0536"
+      ]
+    },
+    "Tideway Tributaries": {
+      "description": "CSOs that discharge into tributaries (not the Thames directly) which join the Thames within the Richmond-to-Putney stretch. Manually placed -- separate from the geographic river zones because these affect the same stretch via a tributary confluence rather than a direct Thames outfall.",
+      "monitors": [
+        "TEMP.2837",
+        "TEMP.2871",
+        "UCSO.0185",
+        "UCSO.0006",
+        "UCSO.0227",
+        "UCSO.0144",
+        "TEMP.1929",
+        "UCSO.0293",
+        "UCSO.0332",
+        "TEMP.2413",
+        "UCSO.0136",
+        "UCSO.0296",
+        "TEMP.2610",
+        "EPRAB3796VT",
+        "UCSO.0246",
+        "UCSO.0244",
+        "TEMP.2125"
       ]
     }
   },
@@ -135,7 +181,8 @@
       "receiving_water": "Thames (Tidal)",
       "ngr": "TQ2198078020",
       "tunnel_connected": true,
-      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system'"
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system'",
+      "notes": "Moved to Hammersmith zone 2026-06-30 per Andrew's confirmation all six named sites are within 500m of FRBC."
     },
     "TEMP.2837": {
       "site_name": "Priory Lane, Mortlake CSO",
@@ -143,7 +190,8 @@
       "receiving_water": "Beverley Brook",
       "ngr": "TQ2150075520",
       "tunnel_connected": "not_applicable",
-      "tunnel_status_source": "tw_specific_sites: entry 'Priory Lane Storm, Mortlake' present, generic investment-timeline text only, no tunnel-status paragraph"
+      "tunnel_status_source": "tw_specific_sites: entry 'Priory Lane Storm, Mortlake' present, generic investment-timeline text only, no tunnel-status paragraph",
+      "notes": " Moved to Tideway Tributaries zone 2026-06-30 (discharges to Beverley Brook, not Thames directly)."
     },
     "TEMP.2871": {
       "site_name": "Road A3, Roehampton Vale CSO",
@@ -151,7 +199,8 @@
       "receiving_water": "Beverley Brook",
       "ngr": "TQ2147072330",
       "tunnel_connected": "not_applicable",
-      "tunnel_status_source": "tw_specific_sites: entry 'Road A3, Roehampton Vale' present, generic investment-timeline text only, no tunnel-status paragraph"
+      "tunnel_status_source": "tw_specific_sites: entry 'Road A3, Roehampton Vale' present, generic investment-timeline text only, no tunnel-status paragraph",
+      "notes": " Moved to Tideway Tributaries zone 2026-06-30 (discharges to Beverley Brook, not Thames directly)."
     },
     "CSSA.0383": {
       "site_name": "Jews Row Pumping Station (Falconbrook Storm Relief) CSO",
@@ -175,7 +224,8 @@
       "receiving_water": "R.Thames (Tidal)",
       "ngr": "TQ2303078110",
       "tunnel_connected": false,
-      "tunnel_status_source": "tw_specific_sites: 'not directly connected to the Thames Tideway Tunnel route'"
+      "tunnel_status_source": "tw_specific_sites: 'not directly connected to the Thames Tideway Tunnel route'",
+      "notes": "Moved to Hammersmith zone 2026-06-30 per Andrew's confirmation all six named sites are within 500m of FRBC."
     },
     "CSAB.0534": {
       "site_name": "Stamford Brook Storm Relief CSO",
@@ -183,7 +233,8 @@
       "receiving_water": "R.Thames (Tidal)",
       "ngr": "TQ2270078310",
       "tunnel_connected": false,
-      "tunnel_status_source": "tw_specific_sites: 'not directly connected to the Thames Tideway Tunnel route'"
+      "tunnel_status_source": "tw_specific_sites: 'not directly connected to the Thames Tideway Tunnel route'",
+      "notes": "Moved to Hammersmith zone 2026-06-30 per Andrew's confirmation all six named sites are within 500m of FRBC."
     },
     "CSAB.0535": {
       "site_name": "(Northern) Low Level No 1 Brook Green CSO",
@@ -191,7 +242,8 @@
       "receiving_water": "R.Thames (Tidal)",
       "ngr": "TQ2304078150",
       "tunnel_connected": false,
-      "tunnel_status_source": "tw_specific_sites: 'not directly connected to the Thames Tideway Tunnel route' (site listed as '(Northern) Low Level No 1 Brook Green CSO' -- matched to this permit via EDM annual return site name 'Northern Low Level 1' and NGR)"
+      "tunnel_status_source": "tw_specific_sites: 'not directly connected to the Thames Tideway Tunnel route' (site listed as '(Northern) Low Level No 1 Brook Green CSO' -- matched to this permit via EDM annual return site name 'Northern Low Level 1' and NGR)",
+      "notes": "Moved to Hammersmith zone 2026-06-30 per Andrew's confirmation all six named sites are within 500m of FRBC."
     },
     "CSAB.0557": {
       "site_name": "Falconbrook Pumping Station CSO",
@@ -231,7 +283,8 @@
       "receiving_water": "River Crane (joins Thames at Isleworth)",
       "ngr": null,
       "tunnel_connected": "not_applicable",
-      "tunnel_status_source": "tw_specific_sites: entry 'Mornington Crescent' present, generic investment-timeline text only, no tunnel-status paragraph"
+      "tunnel_status_source": "tw_specific_sites: entry 'Mornington Crescent' present, generic investment-timeline text only, no tunnel-status paragraph",
+      "notes": "Moved to Tideway Tributaries zone 2026-06-30: River Brent/Crane join the Thames at Brentford/Isleworth, both between Richmond and Hammersmith per river-order sources, i.e. within the Richmond-to-Putney stretch -- corrected from earlier (wrong) placement in Beyond."
     },
     "UCSO.0006": {
       "site_name": "Brent Valley Golf Course, LB Ealing",
@@ -239,7 +292,8 @@
       "receiving_water": "River Brent (joins Thames at Brentford)",
       "ngr": null,
       "tunnel_connected": "not_applicable",
-      "tunnel_status_source": "tw_specific_sites: entry 'Brent Valley Golf Course, LB Ealing' present, generic investment-timeline text only, no tunnel-status paragraph"
+      "tunnel_status_source": "tw_specific_sites: entry 'Brent Valley Golf Course, LB Ealing' present, generic investment-timeline text only, no tunnel-status paragraph",
+      "notes": "Moved to Tideway Tributaries zone 2026-06-30: River Brent/Crane join the Thames at Brentford/Isleworth, both between Richmond and Hammersmith per river-order sources, i.e. within the Richmond-to-Putney stretch -- corrected from earlier (wrong) placement in Beyond."
     },
     "UCSO.0227": {
       "site_name": "Church Road/Brent Lodge Park (Bunny Park)",
@@ -247,7 +301,8 @@
       "receiving_water": "River Brent",
       "ngr": null,
       "tunnel_connected": "not_applicable",
-      "tunnel_status_source": "tw_specific_sites: entry 'Church Road/Brent Lodge Park (Bunny Park)' present, generic investment-timeline text only, no tunnel-status paragraph"
+      "tunnel_status_source": "tw_specific_sites: entry 'Church Road/Brent Lodge Park (Bunny Park)' present, generic investment-timeline text only, no tunnel-status paragraph",
+      "notes": "Moved to Tideway Tributaries zone 2026-06-30: River Brent/Crane join the Thames at Brentford/Isleworth, both between Richmond and Hammersmith per river-order sources, i.e. within the Richmond-to-Putney stretch -- corrected from earlier (wrong) placement in Beyond."
     },
     "UCSO.0144": {
       "site_name": "Ruislip Road East",
@@ -255,7 +310,8 @@
       "receiving_water": "River Brent",
       "ngr": null,
       "tunnel_connected": "not_applicable",
-      "tunnel_status_source": "tw_specific_sites: entry 'Ruislip Road East' present, generic investment-timeline text only, no tunnel-status paragraph"
+      "tunnel_status_source": "tw_specific_sites: entry 'Ruislip Road East' present, generic investment-timeline text only, no tunnel-status paragraph",
+      "notes": "Moved to Tideway Tributaries zone 2026-06-30: River Brent/Crane join the Thames at Brentford/Isleworth, both between Richmond and Hammersmith per river-order sources, i.e. within the Richmond-to-Putney stretch -- corrected from earlier (wrong) placement in Beyond."
     },
     "TEMP.1929": {
       "site_name": "South Ealing Road, W5",
@@ -263,7 +319,8 @@
       "receiving_water": "River Brent",
       "ngr": "TQ1800079000",
       "tunnel_connected": "not_applicable",
-      "tunnel_status_source": "tw_specific_sites: entry 'South Ealing Road, W5' present, generic investment-timeline text only, no tunnel-status paragraph"
+      "tunnel_status_source": "tw_specific_sites: entry 'South Ealing Road, W5' present, generic investment-timeline text only, no tunnel-status paragraph",
+      "notes": "Moved to Tideway Tributaries zone 2026-06-30: River Brent/Crane join the Thames at Brentford/Isleworth, both between Richmond and Hammersmith per river-order sources, i.e. within the Richmond-to-Putney stretch -- corrected from earlier (wrong) placement in Beyond."
     },
     "UCSO.0293": {
       "site_name": "Abbeydale Road",
@@ -271,7 +328,8 @@
       "receiving_water": "River Brent",
       "ngr": null,
       "tunnel_connected": "not_applicable",
-      "tunnel_status_source": "tw_specific_sites: entry 'Abbeydale Road' present, generic investment-timeline text only, no tunnel-status paragraph"
+      "tunnel_status_source": "tw_specific_sites: entry 'Abbeydale Road' present, generic investment-timeline text only, no tunnel-status paragraph",
+      "notes": "Moved to Tideway Tributaries zone 2026-06-30: River Brent/Crane join the Thames at Brentford/Isleworth, both between Richmond and Hammersmith per river-order sources, i.e. within the Richmond-to-Putney stretch -- corrected from earlier (wrong) placement in Beyond."
     },
     "TEMP.2938": {
       "site_name": "St James's Road CSO",
@@ -387,7 +445,8 @@
       "receiving_water": "R.Thames (Tidal)",
       "ngr": "TQ2868077920 and TQ2864077910",
       "tunnel_connected": true,
-      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system'"
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system'",
+      "notes": "CONFLICT FLAGGED 2026-06-30: tw_opendata_api_receiving_watercourse shows plain 'River Thames' (no tunnel mention) for this permit, contradicting the tw_specific_sites FAQ text this entry was originally sourced from. tunnel_connected currently left as True pending resolution -- see needs_followup."
     },
     "CSAB.0556": {
       "site_name": "South West Storm Relief CSO",
@@ -405,30 +464,324 @@
       "tunnel_connected": true,
       "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system' (listed under site name 'Victoria CSO')"
     },
-    "HEAPS_UNCONFIRMED_PERMIT": {
-      "site_name": "Heathwall Pumping Station CSO (Nine Elms)",
+    "CSAB.0522": {
+      "site_name": "Heathwall Pumping Station CSO",
       "legacy_unique_id": null,
-      "ea_permit_ref_status": "NOT YET CONFIRMED -- needs lookup against tw_edm_annual_return or live API by site name 'Heathwall'",
-      "receiving_water": null,
+      "receiving_water": "River Thames",
       "ngr": null,
-      "tunnel_connected": true,
-      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system' (entry 'Heathwall Pumping Station CSO'); corroborated by tideway_cso_navigation_risk (HEAPS relocated outfall)",
-      "notes": "Added 2026-06-30 following review of tideway_cso_navigation_risk. Placeholder permit key used until EA permit reference is confirmed -- DO NOT use this key in app.py until resolved."
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention -- CONTRADICTS earlier tw_specific_sites-based note expecting this to be connected (see needs_followup)",
+      "notes": "Resolved 2026-06-30 from all_tw_stations.csv full pull, replacing placeholder HEAPS_UNCONFIRMED_PERMIT. x=529530 y=177720, ~6.4km downstream of Hammersmith."
     },
-    "RANELAGH_UNCONFIRMED_PERMIT": {
-      "site_name": "Ranelagh CSO (Chelsea Embankment Foreshore)",
+    "CSAB.0577": {
+      "site_name": "Ranelagh CSO",
       "legacy_unique_id": null,
-      "ea_permit_ref_status": "NOT YET CONFIRMED -- needs lookup against tw_edm_annual_return or live API by site name 'Ranelagh'",
-      "receiving_water": null,
+      "receiving_water": "River Thames",
       "ngr": null,
       "tunnel_connected": true,
-      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system' (entry 'Ranelagh CSO'); corroborated by tideway_cso_navigation_risk (CHEEF relocated outfall, intercepts Ranelagh CSO and connects Northern Low Level Sewer No.1)",
-      "notes": "Added 2026-06-30 following review of tideway_cso_navigation_risk. Placeholder permit key used until EA permit reference is confirmed -- DO NOT use this key in app.py until resolved."
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: 'River Thames (via the Tideway tunnel)'",
+      "notes": "Resolved 2026-06-30 from all_tw_stations.csv full pull, replacing placeholder RANELAGH_UNCONFIRMED_PERMIT. x=528280 y=177820, ~5.2km downstream of Hammersmith. Confirms tw_specific_sites text and tideway_cso_navigation_risk (CHEEF)."
+    },
+    "CSAB.0574": {
+      "site_name": "Church Street CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention. Also explicitly confirmed NOT connected by tw_specific_sites FAQ text checked earlier in this project.",
+      "notes": "4.0km downstream of Hammersmith -> Beyond zone per Andrew's rule (downstream of Putney)."
+    },
+    "CSAB.0561": {
+      "site_name": "Kings Scholar Pond CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "6.8km downstream -> Beyond zone."
+    },
+    "CSAB.0563": {
+      "site_name": "Horseferry Road CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "7.2km downstream -> Beyond zone."
+    },
+    "CSAB.0564": {
+      "site_name": "Wood Street CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "7.3km downstream -> Beyond zone."
+    },
+    "CSAB.0531": {
+      "site_name": "Northumberland Street CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "7.7km downstream -> Beyond zone."
+    },
+    "TEMP.2369": {
+      "site_name": "Amyand Park Road, Twickenham",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "7.9km upstream (west) of Hammersmith -> Beyond zone (upstream of Richmond)."
+    },
+    "CSAB.0532": {
+      "site_name": "Savoy Street CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "8.0km downstream -> Beyond zone."
+    },
+    "CSAB.0540": {
+      "site_name": "Norfolk Street CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "8.3km downstream -> Beyond zone."
+    },
+    "TEMP.2583": {
+      "site_name": "Temple Place Essex Street CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "8.5km downstream -> Beyond zone."
+    },
+    "TEMP.2968": {
+      "site_name": "Pauls Pier CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "9.3km downstream -> Beyond zone."
+    },
+    "CSAB.0543": {
+      "site_name": "Goswell Street CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "9.7km downstream -> Beyond zone."
+    },
+    "TEMP.1273": {
+      "site_name": "Kingston Main CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "9.9km upstream (west) of Hammersmith -> Beyond zone (upstream of Richmond)."
+    },
+    "TEMP.2743": {
+      "site_name": "London Bridge CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "10.1km downstream -> Beyond zone."
+    },
+    "CSAB.0559": {
+      "site_name": "Beer Lane CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention. Also explicitly confirmed NOT connected by tw_specific_sites FAQ text checked earlier in this project.",
+      "notes": "10.5km downstream -> Beyond zone."
+    },
+    "CSAB.0580": {
+      "site_name": "Iron Gate CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "10.9km downstream -> Beyond zone."
+    },
+    "CSAB.0555": {
+      "site_name": "Shad, Thames CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "10.9km downstream -> Beyond zone."
+    },
+    "TEMP.2819": {
+      "site_name": "Nightingale Lane CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "11.3km downstream -> Beyond zone."
+    },
+    "CSAB.0548": {
+      "site_name": "Gun Wharf (Wapping Dock) CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention. Also explicitly confirmed NOT connected by tw_specific_sites FAQ text checked earlier in this project.",
+      "notes": "12.1km downstream -> Beyond zone."
+    },
+    "TEMP.2804": {
+      "site_name": "North East Storm Relief CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: 'River Thames (via the Tideway tunnel)'",
+      "notes": "12.8km downstream geographically, but tunnel-connected -> placed in Tideway Tunnel zone per existing rule (tunnel status overrides geographic zone placement, same treatment as Acton SR / Falconbrook PS)."
+    },
+    "CSAB.0526": {
+      "site_name": "Bell Wharf CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention. Also explicitly confirmed NOT connected by tw_specific_sites FAQ text checked earlier in this project.",
+      "notes": "12.8km downstream -> Beyond zone."
+    },
+    "TEMP.2864": {
+      "site_name": "Ratcliffe Highway Limekiln CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "13.2km downstream -> Beyond zone."
+    },
+    "CSAB.0527": {
+      "site_name": "Holloway Storm Relief Sewer CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "13.3km downstream -> Beyond zone."
+    },
+    "CSAB.0533": {
+      "site_name": "Earl Pumping Station CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: plain 'River Thames', no tunnel mention",
+      "notes": "13.7km downstream -> Beyond zone."
+    },
+    "CSAB.0536": {
+      "site_name": "Deptford Storm Relief CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_opendata_api_receiving_watercourse: 'River Thames (via the Tideway tunnel)'",
+      "notes": "14.3km downstream geographically, but tunnel-connected -> placed in Tideway Tunnel zone per existing rule."
+    },
+    "UCSO.0332": {
+      "site_name": "Alperton Lane",
+      "legacy_unique_id": null,
+      "receiving_water": "River Brent",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Not a Thames-direct CSO (discharges to River Brent, a tributary) -- tunnel connection determination only applies to Thames-direct CSOs per tw_specific_sites methodology",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Placed in Tideway Tributaries: River Brent joins Thames at Brentford, between Richmond and Hammersmith."
+    },
+    "TEMP.2413": {
+      "site_name": "Brentfield Gardens",
+      "legacy_unique_id": null,
+      "receiving_water": "River Brent",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Not a Thames-direct CSO (discharges to River Brent, a tributary) -- tunnel connection determination only applies to Thames-direct CSOs per tw_specific_sites methodology",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Placed in Tideway Tributaries: River Brent joins Thames at Brentford, between Richmond and Hammersmith."
+    },
+    "UCSO.0136": {
+      "site_name": "Conolly Road Hanwell",
+      "legacy_unique_id": null,
+      "receiving_water": "River Brent",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Not a Thames-direct CSO (discharges to River Brent, a tributary) -- tunnel connection determination only applies to Thames-direct CSOs per tw_specific_sites methodology",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Placed in Tideway Tributaries: River Brent joins Thames at Brentford, between Richmond and Hammersmith."
+    },
+    "UCSO.0296": {
+      "site_name": "Cricklewood Broadway",
+      "legacy_unique_id": null,
+      "receiving_water": "River Brent",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Not a Thames-direct CSO (discharges to River Brent, a tributary) -- tunnel connection determination only applies to Thames-direct CSOs per tw_specific_sites methodology",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Placed in Tideway Tributaries: River Brent joins Thames at Brentford, between Richmond and Hammersmith."
+    },
+    "TEMP.2610": {
+      "site_name": "Garden Way",
+      "legacy_unique_id": null,
+      "receiving_water": "River Brent",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Not a Thames-direct CSO (discharges to River Brent, a tributary) -- tunnel connection determination only applies to Thames-direct CSOs per tw_specific_sites methodology",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Placed in Tideway Tributaries: River Brent joins Thames at Brentford, between Richmond and Hammersmith."
+    },
+    "EPRAB3796VT": {
+      "site_name": "Hanger Lane",
+      "legacy_unique_id": null,
+      "receiving_water": "River Brent",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Not a Thames-direct CSO (discharges to River Brent, a tributary) -- tunnel connection determination only applies to Thames-direct CSOs per tw_specific_sites methodology",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Placed in Tideway Tributaries: River Brent joins Thames at Brentford, between Richmond and Hammersmith."
+    },
+    "UCSO.0246": {
+      "site_name": "Kingthorpe Terrace",
+      "legacy_unique_id": null,
+      "receiving_water": "River Brent",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Not a Thames-direct CSO (discharges to River Brent, a tributary) -- tunnel connection determination only applies to Thames-direct CSOs per tw_specific_sites methodology",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Placed in Tideway Tributaries: River Brent joins Thames at Brentford, between Richmond and Hammersmith."
+    },
+    "UCSO.0244": {
+      "site_name": "Neasden Station",
+      "legacy_unique_id": null,
+      "receiving_water": "River Brent",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Not a Thames-direct CSO (discharges to River Brent, a tributary) -- tunnel connection determination only applies to Thames-direct CSOs per tw_specific_sites methodology",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Placed in Tideway Tributaries: River Brent joins Thames at Brentford, between Richmond and Hammersmith."
+    },
+    "TEMP.2125": {
+      "site_name": "Trumpers Way, W7",
+      "legacy_unique_id": null,
+      "receiving_water": "River Brent",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Not a Thames-direct CSO (discharges to River Brent, a tributary) -- tunnel connection determination only applies to Thames-direct CSOs per tw_specific_sites methodology",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Placed in Tideway Tributaries: River Brent joins Thames at Brentford, between Richmond and Hammersmith."
     }
   },
   "needs_followup": [
-    "HEAPS_UNCONFIRMED_PERMIT (Heathwall Pumping Station CSO) -- confirm EA permit reference via tw_edm_annual_return or live API before using in app.py",
-    "RANELAGH_UNCONFIRMED_PERMIT (Ranelagh CSO) -- confirm EA permit reference via tw_edm_annual_return or live API before using in app.py"
+    "CSAB.0538 (Western Pumping Station CSO) -- tunnel_connected conflict between tw_specific_sites (says connected) and tw_opendata_api_receiving_watercourse (says plain River Thames, not connected). Needs resolution before this can be trusted either way."
   ],
   "dropped_monitors": {
     "_note": "Permits previously tracked that were removed during the 2026-06 zone rebuild, with reasons",
