@@ -85,7 +85,8 @@
       "monitors": [
         "CSSA.0383",
         "CSAB.0546",
-        "CSAB.0557"
+        "CSAB.0557",
+        "CNTD.0085"
       ]
     },
     "Tideway Tributaries": {
@@ -118,7 +119,6 @@
         "TEMP.2843",
         "TEMP.2938",
         "CASM.0249",
-        "CNTD.0085",
         "CSAB.0576",
         "CSAB.0578",
         "CSSA.0403",
@@ -145,7 +145,16 @@
         "CSAB.0526",
         "TEMP.2864",
         "CSAB.0527",
-        "CSAB.0533"
+        "CSAB.0533",
+        "CNTD.0058",
+        "CAWM.0192",
+        "TEMP.1003",
+        "TEMP.1769",
+        "TEMP.2616",
+        "TEMP.1358",
+        "TEMP.2457",
+        "UCSO.0357",
+        "CSSC.2470"
       ]
     },
     "Tideway Tunnel": {
@@ -354,7 +363,7 @@
       "ngr": "TQ1675075500",
       "tunnel_connected": "not_applicable",
       "tunnel_status_source": "tw_specific_sites: entry 'Mogden STW' present, generic investment-timeline text only ('range of complex schemes underway'), no tunnel-status paragraph. Corroborated by London Assembly source: Tideway Tunnel captures CSOs only as far west as Acton, explicitly excludes Mogden STW storm discharges as a separate category.",
-      "notes": "IMPORTANT for legal/water-quality analysis -- Mogden storm discharges bypass the tunnel entirely and go straight to the river."
+      "notes": "IMPORTANT for legal/water-quality analysis -- Mogden storm discharges bypass the tunnel entirely and go straight to the river. CORRECTED 2026-06-30: moved from Beyond to Richmond to Putney. Mogden discharges at Isleworth Ait -- Isleworth sits between Richmond and Hammersmith in river order (confirmed via Wikipedia river-passage sequence and direct distance source: Richmond is 4.9km/64min walk from Mogden), i.e. within the Richmond-to-Putney stretch, not upstream of Richmond as previously assumed."
     },
     "CSAB.0576": {
       "site_name": "Queen Street CSO",
@@ -778,6 +787,87 @@
       "tunnel_connected": "not_applicable",
       "tunnel_status_source": "Not a Thames-direct CSO (discharges to River Brent, a tributary) -- tunnel connection determination only applies to Thames-direct CSOs per tw_specific_sites methodology",
       "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Placed in Tideway Tributaries: River Brent joins Thames at Brentford, between Richmond and Hammersmith."
+    },
+    "CNTD.0058": {
+      "site_name": "Little Marlow",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Far upstream of the tunnel catchment by definition -- not individually checked against tw_specific_sites",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Direct-Thames CSO upstream of Richmond, x=487710. Placed in Beyond."
+    },
+    "CAWM.0192": {
+      "site_name": "Hambleden",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Far upstream of the tunnel catchment by definition -- not individually checked against tw_specific_sites",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Direct-Thames CSO upstream of Richmond, x=478600. Placed in Beyond."
+    },
+    "TEMP.1003": {
+      "site_name": "Friday Street, Henley",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Far upstream of the tunnel catchment by definition -- not individually checked against tw_specific_sites",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Direct-Thames CSO upstream of Richmond, x=476300. Placed in Beyond."
+    },
+    "TEMP.1769": {
+      "site_name": "Reading, Caversham",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Far upstream of the tunnel catchment by definition -- not individually checked against tw_specific_sites",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Direct-Thames CSO upstream of Richmond, x=472800. Placed in Beyond."
+    },
+    "TEMP.2616": {
+      "site_name": "Goring",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Far upstream of the tunnel catchment by definition -- not individually checked against tw_specific_sites",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Direct-Thames CSO upstream of Richmond, x=459890. Placed in Beyond."
+    },
+    "TEMP.1358": {
+      "site_name": "Littlemore Low Level",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Far upstream of the tunnel catchment by definition -- not individually checked against tw_specific_sites",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Direct-Thames CSO upstream of Richmond, x=452500. Placed in Beyond."
+    },
+    "TEMP.2457": {
+      "site_name": "Cassington",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Far upstream of the tunnel catchment by definition -- not individually checked against tw_specific_sites",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Direct-Thames CSO upstream of Richmond, x=446440. Placed in Beyond."
+    },
+    "UCSO.0357": {
+      "site_name": "Faringdon House CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Far upstream of the tunnel catchment by definition -- not individually checked against tw_specific_sites",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Direct-Thames CSO upstream of Richmond, x=428005. Placed in Beyond."
+    },
+    "CSSC.2470": {
+      "site_name": "Cricklade",
+      "legacy_unique_id": null,
+      "receiving_water": "Tributary of River Thames",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "Far upstream of the tunnel catchment by definition -- not individually checked against tw_specific_sites",
+      "notes": "Added 2026-06-30 from all_tw_stations.csv full pull. Direct-Thames CSO upstream of Richmond, x=410670. Placed in Beyond."
     }
   },
   "needs_followup": [
