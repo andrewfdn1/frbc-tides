@@ -2466,7 +2466,7 @@ Object.keys(ZONE_COLOURS).forEach(zone => {
 </html>""", points=points, zone_colours=ZONE_COLOURS, cso_up=cso_up)
 
 
-
+@app.route("/waterquality")
 def water_quality_detail():
     cso_data, cso_up = get_cso_discharge()
     now = datetime.now(ZoneInfo("Europe/London"))
