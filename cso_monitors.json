@@ -1,0 +1,459 @@
+{
+  "_meta": {
+    "description": "Authoritative reference list of CSO/EDM monitors tracked by the FRBC tides dashboard. Bundled into the app at deploy time (not fetched live) -- update this file and redeploy to apply changes. app.py should contain no hardcoded permit IDs; it reads zones and monitors from here. tunnel_connected, geographic zone, and Richmond/Putney placement are tracked as fully independent attributes -- do not infer one from another.",
+    "schema_version": "1.1",
+    "last_reviewed": "2026-06-30",
+    "last_reviewed_by": "Andrew (with Claude research assistance)",
+    "next_review_due": "2026-12-31",
+    "review_instructions": "1) Re-fetch tw_specific_sites in full -- use web_fetch with text_content_token_limit >= 150000, it truncates mid-alphabet otherwise and silently returns A-R only. 2) Re-run scripts/verify_cso_monitors.py against tw_opendata_api_status to catch newly retired/renamed permits. 3) Check tw_edm_annual_return for a newer edition (published ~March/April each year). 4) For EVERY monitor, tunnel_connected must be one of true/false/not_applicable, each backed by a direct quote-paraphrase from a named source in tunnel_status_source -- never infer from watercourse, geography, or clustering with other monitors. If a monitor's tunnel status cannot be directly evidenced, tunnel_connected must be null and tunnel_status_source must explain what is missing, not contain a guess.",
+    "tunnel_connected_values": {
+      "true": "Source explicitly states present-tense connection to the London Tideway Tunnels system",
+      "false": "Source explicitly states the CSO is NOT directly connected (tw_specific_sites uses standard wording: 'not directly connected to the Thames Tideway Tunnel route. However the tunnel will influence this CSO...')",
+      "not_applicable": "Site has no CSO/tunnel-status paragraph on tw_specific_sites at all -- it's an STW, pumping/transfer station, or generic catchment entry, not a CSO subject to a tunnel-connection determination",
+      "null": "Not yet checked against any source -- requires follow-up, do not treat as false"
+    },
+    "sources": {
+      "tw_api_docs": {
+        "title": "Thames Water Open Data API documentation portal",
+        "url": "https://docs.api.thameswater.co.uk/",
+        "what_it_provides": "Endpoint schemas: query parameters (offset, limit, locationName, permitNumber, alertType, dateStart/dateEnd etc.), example request/response bodies, field names (lowercase camelCase: permitNumber, locationName, alertType, datetime).",
+        "caveat": "Likely a Salesforce Experience Cloud portal (URL pattern matches data.thameswater.co.uk/s/login) -- not search-indexed, must be fetched/read directly by a human or pasted in."
+      },
+      "tw_opendata_api_status": {
+        "title": "Thames Water Open Data API v2 -- discharge/status endpoint",
+        "url": "https://api.thameswater.co.uk/opendata/v2/discharge/status",
+        "what_it_provides": "Live ground truth: which permits currently exist and are reporting, with locationName, x/y coordinates, alertStatus. No API key required.",
+        "caveat": "Paginate with offset/limit; observed working limit is 200/page (larger values returned HTTP 500). See scripts/verify_cso_monitors.py."
+      },
+      "tw_opendata_api_alerts": {
+        "title": "Thames Water Open Data API v2 -- discharge/alerts endpoint",
+        "url": "https://api.thameswater.co.uk/opendata/v2/discharge/alerts",
+        "what_it_provides": "Historic discharge Start/Stop events per permit, used by app.py to compute discharge hours per monitor over the 48h window.",
+        "caveat": "Same pagination behaviour as discharge/status."
+      },
+      "tw_edm_annual_return": {
+        "title": "EDM Storm Overflow Regulatory Annual Return (Thames Water)",
+        "url": "REPLACE_WITH_SOURCE_URL_WHEN_KNOWN -- file was supplied directly by Andrew as edm-annual-return-2025.xlsx",
+        "what_it_provides": "Official mapping of Unique ID (legacy TWL00xxx scheme) to EA Permit Reference (current scheme used by the live API), plus official site name, receiving watercourse, NGR grid reference, and storm discharge asset type for every monitor nationally.",
+        "caveat": "Published annually, this copy dated 2025 (covers reporting year 2024/25). A newer edition will exist by the next review date."
+      },
+      "tw_specific_sites": {
+        "title": "Thames Water -- Investment plans for storm discharge sites",
+        "url": "https://www.thameswater.co.uk/about-us/performance/river-health/frequently-asked-questions/information-about-specific-sites",
+        "what_it_provides": "Authoritative site-by-site statement of Tideway Tunnel connection status, organised alphabetically by site NAME (not permit number). Present-tense 'is now connected to the London Tideway Tunnels system' = connected. 'This CSO is not directly connected to the Thames Tideway Tunnel route. However the tunnel will influence this CSO...' = not connected. Sites with only an investment-timeline paragraph and no tunnel-status paragraph at all = not_applicable (not a CSO in scope of the tunnel determination).",
+        "caveat": "Very large page (550+ entries A-W). MUST fetch with text_content_token_limit >= 150000 or it truncates silently around the letter R with no error. Page states 'last updated April 2026' -- re-check this date on next review."
+      },
+      "tw_investment_plan": {
+        "title": "Thames Water -- Investing in river health (storm overflow reduction plan)",
+        "url": "https://www.thameswater.co.uk/about-us/performance/river-health/investing-in-river-health",
+        "what_it_provides": "Wider context: company-level storm overflow reduction targets and timelines, linked from every individual site entry in tw_specific_sites.",
+        "caveat": "Not yet read in full -- worth checking if litigation needs broader regulatory-commitment context."
+      },
+      "tideway_tunnel_order_2014": {
+        "title": "The Thames Water Utilities Limited (Thames Tideway Tunnel) Order 2014, Schedule 1",
+        "url": "https://www.legislation.gov.uk/uksi/2014/2384/schedule/1/made",
+        "what_it_provides": "Original statutory development consent naming specific CSOs and their connection works (e.g. confirms Putney Bridge CSO and West Putney Storm Relief CSO connection tunnels by Work Number). Useful corroboration where tw_specific_sites wording is ambiguous.",
+        "caveat": "Describes the planned 2014 scheme, not confirmed current operational status -- always cross-check against tw_specific_sites for current status."
+      },
+      "tideway_cso_navigation_risk": {
+        "title": "Tideway -- CSO Discharges, Risk to navigation",
+        "url": "https://www.tideway.london/contact-us/document-library/cso-discharges-risk-to-navigation/",
+        "what_it_provides": "Lists the seven CSO locations whose physical outfall position was moved further into the river by the Tideway project, for mariner passage-planning purposes: Putney Embankment (PUTEF), Chelsea Embankment (CHEEF), Heathwall Pumping Station (HEAPS) Nine Elms, Albert Bridge (ALBEF), Victoria Embankment (VCTEF), Blackfriars Bridge (BLABF), King Edward Memorial Park (KEMPF). All seven are tunnel-connected CSOs by definition (the relocation/DRA process only applies to connected sites). Corroborates Putney Bridge CSO and Victoria CSO already in our tunnel-connected set, and identifies Heathwall (Nine Elms) and Chelsea Embankment/Ranelagh as additional confirmed tunnel-connected sites not yet in our tracked monitor list.",
+        "caveat": "Covers only 7 of the ~34 tunnel-connected CSOs nationally -- specifically those whose physical discharge point moved during construction. Absence from this list does NOT mean a CSO is not tunnel-connected; consult tw_specific_sites for the full determination."
+      }
+    }
+  },
+  "zones": {
+    "Hammersmith": {
+      "description": "Within approx 500m of FRBC pontoon at Hammersmith Bridge. Independent of tunnel_connected status.",
+      "monitors": [
+        "CSAB.0572"
+      ]
+    },
+    "Richmond to Putney": {
+      "description": "Manually placed -- upstream and downstream of Hammersmith within the Richmond-to-Putney stretch. River geography is not linear so placement is judged per-site, not a fixed km boundary. Independent of tunnel_connected status -- a monitor here may or may not be tunnel-connected.",
+      "monitors": [
+        "TEMP.0312",
+        "TEMP.2837",
+        "TEMP.2871",
+        "CSSA.0383",
+        "CSAB.0546",
+        "CSAB.0571",
+        "CSAB.0534",
+        "CSAB.0535",
+        "CSAB.0557"
+      ]
+    },
+    "Beyond": {
+      "description": "Manually placed -- upstream beyond Richmond, or downstream beyond Putney into central London. Independent of tunnel_connected status.",
+      "monitors": [
+        "EPRFB3198RS",
+        "TEMP.3014",
+        "TEMP.2843",
+        "UCSO.0185",
+        "UCSO.0006",
+        "UCSO.0227",
+        "UCSO.0144",
+        "TEMP.1929",
+        "UCSO.0293",
+        "TEMP.2938",
+        "CASM.0249",
+        "CNTD.0085",
+        "CSAB.0576",
+        "CSAB.0578",
+        "CSSA.0403",
+        "TEMP.2752"
+      ]
+    },
+    "Tideway Tunnel": {
+      "description": "Display zone for monitors confirmed tunnel_connected: true per tw_specific_sites. This is a presentation grouping, not a different attribute -- every monitor here also has a true geographic position; check the monitors{} entry for its actual location. Includes two sites (Heathwall, Ranelagh) added 2026-06-30 with permit numbers not yet confirmed -- see needs_followup.",
+      "monitors": [
+        "TEMP.2986",
+        "CSAB.0544",
+        "TEMP.2599",
+        "TEMP.2438",
+        "CSAB.0554",
+        "CSAB.0573",
+        "CSAB.0538",
+        "CSAB.0556",
+        "EPRWB3295ES"
+      ]
+    }
+  },
+  "monitors": {
+    "CSAB.0572": {
+      "site_name": "Hammersmith Pumping Station CSO",
+      "legacy_unique_id": "TWL00210 / TWL00808 (duplicate aliases, retired)",
+      "receiving_water": "R.Thames (Tidal)",
+      "ngr": "TQ2310077990",
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system'"
+    },
+    "TEMP.0312": {
+      "site_name": "Acton Storm Relief CSO",
+      "legacy_unique_id": "TWL00005",
+      "receiving_water": "Thames (Tidal)",
+      "ngr": "TQ2198078020",
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system'"
+    },
+    "TEMP.2837": {
+      "site_name": "Priory Lane, Mortlake CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "Beverley Brook",
+      "ngr": "TQ2150075520",
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "tw_specific_sites: entry 'Priory Lane Storm, Mortlake' present, generic investment-timeline text only, no tunnel-status paragraph"
+    },
+    "TEMP.2871": {
+      "site_name": "Road A3, Roehampton Vale CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "Beverley Brook",
+      "ngr": "TQ2147072330",
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "tw_specific_sites: entry 'Road A3, Roehampton Vale' present, generic investment-timeline text only, no tunnel-status paragraph"
+    },
+    "CSSA.0383": {
+      "site_name": "Jews Row Pumping Station (Falconbrook Storm Relief) CSO",
+      "legacy_unique_id": "TWL00424",
+      "receiving_water": "Thames Tidal",
+      "ngr": "TQ2592075420",
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_specific_sites: 'not directly connected to the Thames Tideway Tunnel route'"
+    },
+    "CSAB.0546": {
+      "site_name": "Jews Row Wandle Valley Storm Relief CSO",
+      "legacy_unique_id": "TWL00423",
+      "receiving_water": "R.Thames (Tidal)",
+      "ngr": "TQ2594075450",
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_specific_sites: 'not directly connected to the Thames Tideway Tunnel route'"
+    },
+    "CSAB.0571": {
+      "site_name": "North West Storm Relief CSO",
+      "legacy_unique_id": "TWL00317",
+      "receiving_water": "R.Thames (Tidal)",
+      "ngr": "TQ2303078110",
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_specific_sites: 'not directly connected to the Thames Tideway Tunnel route'"
+    },
+    "CSAB.0534": {
+      "site_name": "Stamford Brook Storm Relief CSO",
+      "legacy_unique_id": "TWL00384",
+      "receiving_water": "R.Thames (Tidal)",
+      "ngr": "TQ2270078310",
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_specific_sites: 'not directly connected to the Thames Tideway Tunnel route'"
+    },
+    "CSAB.0535": {
+      "site_name": "(Northern) Low Level No 1 Brook Green CSO",
+      "legacy_unique_id": "TWL00280",
+      "receiving_water": "R.Thames (Tidal)",
+      "ngr": "TQ2304078150",
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_specific_sites: 'not directly connected to the Thames Tideway Tunnel route' (site listed as '(Northern) Low Level No 1 Brook Green CSO' -- matched to this permit via EDM annual return site name 'Northern Low Level 1' and NGR)"
+    },
+    "CSAB.0557": {
+      "site_name": "Falconbrook Pumping Station CSO",
+      "legacy_unique_id": "TWL00179",
+      "receiving_water": "R.Thames (Tidal)",
+      "ngr": "TQ2648076020",
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system'"
+    },
+    "EPRFB3198RS": {
+      "site_name": "Hatchetts Cricklade SPS",
+      "legacy_unique_id": null,
+      "receiving_water": "Tributary of River Thames",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "tw_specific_sites: entry 'Hattchets Cricklade' present, generic investment-timeline text only, no tunnel-status paragraph"
+    },
+    "TEMP.3014": {
+      "site_name": "Windsor",
+      "legacy_unique_id": null,
+      "receiving_water": "Thames",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "tw_specific_sites: entry 'Windsor STW' present, generic investment-timeline text only, no tunnel-status paragraph"
+    },
+    "TEMP.2843": {
+      "site_name": "Portsmouth Road, Uxbridge Road CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames",
+      "ngr": "TQ1767068010",
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "tw_specific_sites: entry 'Portsmouth Road, Uxbridge Road' present, generic investment-timeline text only, no tunnel-status paragraph"
+    },
+    "UCSO.0185": {
+      "site_name": "Mornington Crescent",
+      "legacy_unique_id": null,
+      "receiving_water": "River Crane (joins Thames at Isleworth)",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "tw_specific_sites: entry 'Mornington Crescent' present, generic investment-timeline text only, no tunnel-status paragraph"
+    },
+    "UCSO.0006": {
+      "site_name": "Brent Valley Golf Course, LB Ealing",
+      "legacy_unique_id": null,
+      "receiving_water": "River Brent (joins Thames at Brentford)",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "tw_specific_sites: entry 'Brent Valley Golf Course, LB Ealing' present, generic investment-timeline text only, no tunnel-status paragraph"
+    },
+    "UCSO.0227": {
+      "site_name": "Church Road/Brent Lodge Park (Bunny Park)",
+      "legacy_unique_id": null,
+      "receiving_water": "River Brent",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "tw_specific_sites: entry 'Church Road/Brent Lodge Park (Bunny Park)' present, generic investment-timeline text only, no tunnel-status paragraph"
+    },
+    "UCSO.0144": {
+      "site_name": "Ruislip Road East",
+      "legacy_unique_id": null,
+      "receiving_water": "River Brent",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "tw_specific_sites: entry 'Ruislip Road East' present, generic investment-timeline text only, no tunnel-status paragraph"
+    },
+    "TEMP.1929": {
+      "site_name": "South Ealing Road, W5",
+      "legacy_unique_id": null,
+      "receiving_water": "River Brent",
+      "ngr": "TQ1800079000",
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "tw_specific_sites: entry 'South Ealing Road, W5' present, generic investment-timeline text only, no tunnel-status paragraph"
+    },
+    "UCSO.0293": {
+      "site_name": "Abbeydale Road",
+      "legacy_unique_id": null,
+      "receiving_water": "River Brent",
+      "ngr": null,
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "tw_specific_sites: entry 'Abbeydale Road' present, generic investment-timeline text only, no tunnel-status paragraph"
+    },
+    "TEMP.2938": {
+      "site_name": "St James's Road CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "Hogsmill River (joins Thames at Kingston)",
+      "ngr": "TQ1801068960",
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "tw_specific_sites: entry 'St Jamess Road' present, generic investment-timeline text only, no tunnel-status paragraph"
+    },
+    "CASM.0249": {
+      "site_name": "Kew Transfer Pumping Station",
+      "legacy_unique_id": "TWL00248",
+      "receiving_water": "Tidal River Thames",
+      "ngr": "TQ1980077000",
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "tw_specific_sites: entry 'Kew Transfer' present, generic investment-timeline text only, no tunnel-status paragraph -- not a CSO"
+    },
+    "CNTD.0085": {
+      "site_name": "Mogden STW",
+      "legacy_unique_id": null,
+      "receiving_water": "River Thames Tidal",
+      "ngr": "TQ1675075500",
+      "tunnel_connected": "not_applicable",
+      "tunnel_status_source": "tw_specific_sites: entry 'Mogden STW' present, generic investment-timeline text only ('range of complex schemes underway'), no tunnel-status paragraph. Corroborated by London Assembly source: Tideway Tunnel captures CSOs only as far west as Acton, explicitly excludes Mogden STW storm discharges as a separate category.",
+      "notes": "IMPORTANT for legal/water-quality analysis -- Mogden storm discharges bypass the tunnel entirely and go straight to the river."
+    },
+    "CSAB.0576": {
+      "site_name": "Queen Street CSO",
+      "legacy_unique_id": "TWL00339",
+      "receiving_water": "R.Thames (Tidal)",
+      "ngr": "TQ2757077670",
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_specific_sites: 'not directly connected to the Thames Tideway Tunnel route'"
+    },
+    "CSAB.0578": {
+      "site_name": "Smith Street Main Line CSO",
+      "legacy_unique_id": "TWL00372",
+      "receiving_water": "R.Thames (Tidal)",
+      "ngr": "TQ2810077790",
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_specific_sites entry 'Smith Street': 'one of the 54 combined sewer overflows (CSOs) discharging to the tidal River Thames' -- same wording pattern used for other confirmed-excluded sites (Clapham, Norfolk Street, Temple Place)"
+    },
+    "CSSA.0403": {
+      "site_name": "Smith Street SR CSO",
+      "legacy_unique_id": "TWL00087",
+      "receiving_water": "Thames Tidal",
+      "ngr": "TQ2810677796",
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_specific_sites entry 'Smith Street' covers both permit variants at this site, see CSAB.0578"
+    },
+    "TEMP.2752": {
+      "site_name": "Grosvenor Ditch CSO",
+      "legacy_unique_id": "TWL00596",
+      "receiving_water": "Tidal Thames",
+      "ngr": "TQ3027078790",
+      "tunnel_connected": false,
+      "tunnel_status_source": "tw_specific_sites: 'not directly connected to the Thames Tideway Tunnel route'"
+    },
+    "TEMP.2986": {
+      "site_name": "West Putney Storm Relief CSO",
+      "legacy_unique_id": "TWL00438",
+      "receiving_water": "Tidal Thames",
+      "ngr": "TQ2348076230",
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system'",
+      "corroborating_source": "tideway_tunnel_order_2014 Work No.4 (Barn Elms CSO drop shaft / West Putney connection tunnel)"
+    },
+    "CSAB.0544": {
+      "site_name": "Putney Bridge CSO",
+      "legacy_unique_id": "TWL00338",
+      "receiving_water": "R.Thames (Tidal)",
+      "ngr": "TQ2416075640",
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system'",
+      "corroborating_source": "tideway_tunnel_order_2014 Work No.5 (Putney Embankment Foreshore CSO drop shaft / Putney Bridge connection tunnel)"
+    },
+    "TEMP.2599": {
+      "site_name": "Frogmore Storm Relief (Bell Lane Creek) CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "Bell Lane Creek (Estuarine)",
+      "ngr": "TQ2549074980",
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system'"
+    },
+    "TEMP.2438": {
+      "site_name": "Frogmore Storm Relief (River Wandle) CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "Wandle",
+      "ngr": "TQ2559074550",
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system'"
+    },
+    "CSAB.0554": {
+      "site_name": "Brixton and Clapham Storm Relief CSO",
+      "legacy_unique_id": "TWL00810",
+      "receiving_water": "RIVER THAMES (TIDAL)",
+      "ngr": "TQ3023078090",
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system'"
+    },
+    "CSAB.0573": {
+      "site_name": "Lots Road Pumping Station CSO",
+      "legacy_unique_id": "TWL00116",
+      "receiving_water": "R.Thames (Tidal)",
+      "ngr": "TQ2659077090",
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system'",
+      "corroborating_source": "Chelsea Society planning consultation document (chelseasociety.org.uk) describing interception works at Lots Road Pumping Station CSO"
+    },
+    "CSAB.0538": {
+      "site_name": "Western Pumping Station CSO",
+      "legacy_unique_id": "TWL00440",
+      "receiving_water": "R.Thames (Tidal)",
+      "ngr": "TQ2868077920 and TQ2864077910",
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system'"
+    },
+    "CSAB.0556": {
+      "site_name": "South West Storm Relief CSO",
+      "legacy_unique_id": null,
+      "receiving_water": "R.Thames (Tidal)",
+      "ngr": "TQ2955077720",
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system'"
+    },
+    "EPRWB3295ES": {
+      "site_name": "Victoria CSO",
+      "legacy_unique_id": "TWL00809",
+      "receiving_water": "River Thames (Estuarine)",
+      "ngr": "TQ3040080150",
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system' (listed under site name 'Victoria CSO')"
+    },
+    "HEAPS_UNCONFIRMED_PERMIT": {
+      "site_name": "Heathwall Pumping Station CSO (Nine Elms)",
+      "legacy_unique_id": null,
+      "ea_permit_ref_status": "NOT YET CONFIRMED -- needs lookup against tw_edm_annual_return or live API by site name 'Heathwall'",
+      "receiving_water": null,
+      "ngr": null,
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system' (entry 'Heathwall Pumping Station CSO'); corroborated by tideway_cso_navigation_risk (HEAPS relocated outfall)",
+      "notes": "Added 2026-06-30 following review of tideway_cso_navigation_risk. Placeholder permit key used until EA permit reference is confirmed -- DO NOT use this key in app.py until resolved."
+    },
+    "RANELAGH_UNCONFIRMED_PERMIT": {
+      "site_name": "Ranelagh CSO (Chelsea Embankment Foreshore)",
+      "legacy_unique_id": null,
+      "ea_permit_ref_status": "NOT YET CONFIRMED -- needs lookup against tw_edm_annual_return or live API by site name 'Ranelagh'",
+      "receiving_water": null,
+      "ngr": null,
+      "tunnel_connected": true,
+      "tunnel_status_source": "tw_specific_sites: 'is now connected to the London Tideway Tunnels system' (entry 'Ranelagh CSO'); corroborated by tideway_cso_navigation_risk (CHEEF relocated outfall, intercepts Ranelagh CSO and connects Northern Low Level Sewer No.1)",
+      "notes": "Added 2026-06-30 following review of tideway_cso_navigation_risk. Placeholder permit key used until EA permit reference is confirmed -- DO NOT use this key in app.py until resolved."
+    }
+  },
+  "needs_followup": [
+    "HEAPS_UNCONFIRMED_PERMIT (Heathwall Pumping Station CSO) -- confirm EA permit reference via tw_edm_annual_return or live API before using in app.py",
+    "RANELAGH_UNCONFIRMED_PERMIT (Ranelagh CSO) -- confirm EA permit reference via tw_edm_annual_return or live API before using in app.py"
+  ],
+  "dropped_monitors": {
+    "_note": "Permits previously tracked that were removed during the 2026-06 zone rebuild, with reasons",
+    "TWL00371": "Not found in EDM annual return or live API -- likely a typo or defunct ID from original (undocumented) zone list construction. No replacement identified."
+  },
+  "_config": {
+    "description": "Runtime config consumed by app.py. Edit this file and redeploy to change monitors, zones, or discharge time windows without touching app.py or index.html.",
+    "windows": [
+      {
+        "key": "24h",
+        "label": "24 hours",
+        "hours": 24
+      },
+      {
+        "key": "7d",
+        "label": "7 days",
+        "hours": 168
+      },
+      {
+        "key": "30d",
+        "label": "30 days",
+        "hours": 720
+      }
+    ],
+    "default_window": "24h",
+    "fetch_lookback_days": 30
+  }
+}
