@@ -1365,6 +1365,23 @@ def _fmt_cso_hrs(seconds):
     m = int((seconds % 3600) // 60)
     return f"{h}h {m:02d}m"
 
+
+def _parse_cso_dt(dt_str):
+    """
+    Parse a Thames Water API datetime string into an always-tz-aware UTC
+    datetime. Some responses include a trailing Z or +00:00 offset; some
+    (observed in production) come back as a bare ISO string with no offset
+    at all. Relying on .replace("Z", "+00:00") alone silently produces a
+    naive datetime in that case, which later crashes when compared against
+    an aware datetime (now_utc) — "can't compare offset-naive and
+    offset-aware datetimes". This helper forces UTC onto anything naive
+    instead of trusting the string format.
+    """
+    dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
 def get_cso_discharge():
     def fetch():
         now_utc  = datetime.now(timezone.utc)
@@ -1423,9 +1440,7 @@ def get_cso_discharge():
             dt_str = s.get("datetime")
             if permit and dt_str:
                 try:
-                    stops_by_permit[permit].append(
-                        datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-                    )
+                    stops_by_permit[permit].append(_parse_cso_dt(dt_str))
                 except ValueError:
                     pass
         for lst in stops_by_permit.values():
@@ -1447,7 +1462,7 @@ def get_cso_discharge():
             if not dt_str:
                 continue
             try:
-                start_dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                start_dt = _parse_cso_dt(dt_str)
             except ValueError:
                 continue
 
@@ -2338,7 +2353,6 @@ def api_overlay():
     next_tide_time = None
     try:
         tides, _ = get_tides()
-        hw_iso = None
         lw_iso = None
         # Find next HW and LW
         for e in tides:
