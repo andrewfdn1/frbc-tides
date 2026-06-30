@@ -1356,6 +1356,16 @@ def _load_cso_config():
         if info.get("site_name")
     }
 
+    # Permit -> tunnel_connected (True/False/"not_applicable"/None), from
+    # cso_monitors.json's monitors{} block. Used by /csomap to show
+    # tunnel-connection status per point, independent of geographic zone
+    # (a monitor can be tunnel-connected but live in a non-tunnel zone,
+    # e.g. Acton SR / Falconbrook PS — see cso_monitors.json notes).
+    tunnel_status = {
+        permit: info.get("tunnel_connected")
+        for permit, info in cfg.get("monitors", {}).items()
+    }
+
     return {
         "zone_ids":        zone_ids,
         "tunnel_ids":      tunnel_ids,
@@ -1364,14 +1374,16 @@ def _load_cso_config():
         "default_window":  default_window,
         "lookback_days":   lookback_days,
         "site_names":      site_names,
+        "tunnel_status":   tunnel_status,
     }
 
 _cso_cfg = _load_cso_config()
-_CSO_ZONE_IDS   = _cso_cfg["zone_ids"]
-_CSO_TUNNEL_IDS = _cso_cfg["tunnel_ids"]
-_CSO_ALL_IDS    = _cso_cfg["all_ids"]
-_CSO_WINDOWS    = _cso_cfg["windows"]
-_CSO_SITE_NAMES = _cso_cfg["site_names"]
+_CSO_ZONE_IDS       = _cso_cfg["zone_ids"]
+_CSO_TUNNEL_IDS     = _cso_cfg["tunnel_ids"]
+_CSO_ALL_IDS        = _cso_cfg["all_ids"]
+_CSO_WINDOWS        = _cso_cfg["windows"]
+_CSO_SITE_NAMES     = _cso_cfg["site_names"]
+_CSO_TUNNEL_STATUS  = _cso_cfg["tunnel_status"]
 
 def _fmt_cso_hrs(seconds):
     if seconds <= 0:
@@ -2253,7 +2265,208 @@ def get_wind_grid():
 
     return get_cached('wind_grid', fetch, ttl_seconds=3600)  # 1 hour cache
 
-@app.route("/waterquality")
+@app.route("/csomap")
+def cso_map():
+    """
+    Map view of every tracked CSO monitor, colour-coded by zone.
+    Reuses get_cso_discharge() (same 30-min cache as / and /waterquality)
+    so this costs no extra API calls. Coordinates come from the live API's
+    x/y per station, converted to WGS84 via _bng_to_wgs84 -- if the JSON
+    config changes (new monitor, zone move), this page reflects it on the
+    next request with no code changes needed, same as / and /waterquality.
+    """
+    cso_data, cso_up = get_cso_discharge()
+
+    ZONE_COLOURS = {
+        "Hammersmith":          "#FF4B4B",
+        "Richmond to Putney":   "#FFC233",
+        "Tideway Tributaries":  "#33B5FF",
+        "Beyond":               "#888888",
+        "Tideway Tunnel":       "#33FF57",
+    }
+
+    points = []
+    if cso_data:
+        for zone in cso_data.get("zones", []):
+            zone_name = zone["name"]
+            for s in zone.get("stations", []):
+                x, y = s.get("x"), s.get("y")
+                if not (x and y):
+                    continue
+                latlon = _bng_to_wgs84(x, y)
+                if not latlon:
+                    continue
+                lat, lon = latlon
+                permit = s["permit"]
+                tunnel_connected = _CSO_TUNNEL_STATUS.get(permit)
+                points.append({
+                    "permit": permit,
+                    "name": s["name"],
+                    "zone": zone_name,
+                    "lat": lat,
+                    "lon": lon,
+                    "tunnel_connected": tunnel_connected,
+                })
+
+    return render_template_string("""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>(DRAFT/WIP) CSO Monitor Map — FRBC</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: 'Courier New', monospace; background: #000; color: #fff; }
+  #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+
+  #header {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 1000;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.92), rgba(0,0,0,0));
+    padding: 14px 18px 30px;
+    pointer-events: none;
+  }
+  #header h1 {
+    font-size: 1.05em; letter-spacing: 0.08em; text-transform: uppercase;
+    color: #33FF57; font-weight: normal;
+  }
+  #header .sub { font-size: 0.72em; color: #777; margin-top: 2px; }
+  #header .sub a { color: #888; pointer-events: auto; text-decoration: none; }
+  #header .sub a:hover { color: #33FF57; }
+
+  #legend {
+    position: absolute; bottom: 18px; left: 18px; z-index: 1000;
+    background: rgba(0,0,0,0.88); border: 1px solid #2a2a2a;
+    padding: 10px 14px; font-size: 0.74em; min-width: 200px;
+  }
+  #legend .row {
+    display: flex; align-items: center; gap: 8px; padding: 3px 0;
+    cursor: pointer; user-select: none;
+  }
+  #legend .row.off { opacity: 0.35; }
+  #legend .swatch {
+    width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,0.3);
+  }
+  #legend .count { color: #555; margin-left: auto; }
+  #legend .title {
+    color: #888; text-transform: uppercase; letter-spacing: 0.06em;
+    font-size: 0.85em; margin-bottom: 6px; border-bottom: 1px solid #222;
+    padding-bottom: 5px;
+  }
+
+  .leaflet-popup-content-wrapper {
+    background: #0a0a0a; color: #fff; border: 1px solid #333;
+    border-radius: 0; font-family: 'Courier New', monospace;
+  }
+  .leaflet-popup-tip { background: #0a0a0a; }
+  .leaflet-popup-content { margin: 10px 12px; font-size: 0.8em; }
+  .leaflet-popup-content .pname { color: #fff; font-weight: bold; margin-bottom: 4px; }
+  .leaflet-popup-content .pzone { font-size: 0.85em; }
+  .leaflet-popup-content .ppermit { color: #555; font-size: 0.8em; margin-top: 4px; }
+  .leaflet-popup-content .ptunnel { color: #33FF57; font-size: 0.8em; margin-top: 2px; }
+  .leaflet-popup-content a { color: #888; text-decoration: none; font-size: 0.8em; }
+  .leaflet-popup-content a:hover { color: #33FF57; }
+  .leaflet-container { background: #111; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>(DRAFT/WIP) FRBC &mdash; CSO Monitor Map</h1>
+  <div class="sub" id="header-sub">
+    {{ points|length }} monitors &middot; updated {{ cso_up }} &middot; click a dot for detail &middot;
+    <a href="/waterquality">water quality detail &#8599;</a> &middot;
+    <a href="/">&#8592; dashboard</a>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<div id="legend">
+  <div class="title">Zones</div>
+  <div id="legend-rows"></div>
+</div>
+
+<script>
+const ZONE_COLOURS = {{ zone_colours | tojson }};
+const POINTS = {{ points | tojson }};
+
+const map = L.map('map', { zoomControl: true }).setView([51.4836, -0.2305], 12);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap &copy; CARTO',
+  subdomains: 'abcd',
+  maxZoom: 19,
+}).addTo(map);
+
+const layersByZone = {};
+const countsByZone = {};
+
+function mapsUrl(p) {
+  return `https://www.google.com/maps?q=${p.lat},${p.lon}`;
+}
+
+POINTS.forEach(p => {
+  const colour = ZONE_COLOURS[p.zone] || "#fff";
+  countsByZone[p.zone] = (countsByZone[p.zone] || 0) + 1;
+
+  const marker = L.circleMarker([p.lat, p.lon], {
+    radius: 7,
+    fillColor: colour,
+    fillOpacity: 0.85,
+    color: "#000",
+    weight: 1,
+    opacity: 0.6,
+  });
+
+  const tunnelLine = p.tunnel_connected === true
+    ? '<div class="ptunnel">Tideway Tunnel-connected</div>'
+    : '';
+
+  marker.bindPopup(`
+    <div class="pname">${p.name}</div>
+    <div class="pzone">Zone: ${p.zone}</div>
+    <div class="ppermit">Permit: ${p.permit}</div>
+    ${tunnelLine}
+    <a href="${mapsUrl(p)}" target="_blank">Open in Google Maps &#8599;</a>
+  `);
+
+  if (!layersByZone[p.zone]) layersByZone[p.zone] = L.layerGroup();
+  marker.addTo(layersByZone[p.zone]);
+});
+
+Object.values(layersByZone).forEach(layer => layer.addTo(map));
+
+const legendRows = document.getElementById('legend-rows');
+Object.keys(ZONE_COLOURS).forEach(zone => {
+  if (!layersByZone[zone]) return;
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.innerHTML = `
+    <div class="swatch" style="background:${ZONE_COLOURS[zone]}"></div>
+    <div>${zone}</div>
+    <div class="count">${countsByZone[zone] || 0}</div>
+  `;
+  row.addEventListener('click', () => {
+    if (map.hasLayer(layersByZone[zone])) {
+      map.removeLayer(layersByZone[zone]);
+      row.classList.add('off');
+    } else {
+      layersByZone[zone].addTo(map);
+      row.classList.remove('off');
+    }
+  });
+  legendRows.appendChild(row);
+});
+</script>
+
+</body>
+</html>""", points=points, zone_colours=ZONE_COLOURS, cso_up=cso_up)
+
+
+
 def water_quality_detail():
     cso_data, cso_up = get_cso_discharge()
     now = datetime.now(ZoneInfo("Europe/London"))
@@ -2375,6 +2588,7 @@ td.r { text-align:right; white-space:nowrap; }
 <p class="meta">
   Updated {{ cso_up }}
   &nbsp;&middot;&nbsp; Source: <a href="https://docs.api.thameswater.co.uk/" target="_blank">Thames Water Open Data API v2</a>
+  &nbsp;&middot;&nbsp; <a href="/csomap">map view &#8599;</a>
   &nbsp;&middot;&nbsp; <a href="/">&#8592; Dashboard</a>
 </p>
 
