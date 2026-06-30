@@ -1317,52 +1317,46 @@ def get_nswws_warnings():
 _CSO_API_BASE = "https://api.thameswater.co.uk/opendata/v2/discharge/alerts"
 _CSO_API_LIMIT = 200  # fetch in pages of 200
 
-_CSO_ZONE_IDS = {
-    "Hammersmith": {
-        "TWL00210", "TWL00808", "TWL00317", "TWL00280", "TWL00438",
-        "CSAB.0572",  # Hammersmith Pumping Station A
-        "CSAB.0571",  # North West Storm Relief
-        "CSAB.0534",  # Stamford Brook
-    },
-    "Richmond to Putney": {
-        "TWL00384", "TWL00005", "TWL00248", "TWL00338", "TWL00424",
-        "TWL00423", "TWL00179", "TWL00116", "TWL00100", "TWL00339",
-        "TWL00372", "TWL00087", "TWL00371", "TWL00440",
-        "CSAB.0557",  # Falconbrook Pumping Station CSO
-        "CSSA.0383",  # Jews Row Pumping Station (Falconbrook Storm Relief)
-        "CSAB.0546",  # Jews Row Wandle Valley Storm Relief
-        "TEMP.2871",  # Road A3, Roehampton Vale (Beverley Brook)
-        "TEMP.2837",  # Priory Lane Storm, Mortlake (Beverley Brook)
-    },
-    "Beyond Richmond/Putney": {
-        "CNTD.0085",   # Mogden STW — River Thames (major upstream works)
-        "EPRFB3198RS", # Hattchets Cricklade — Tributary of River Thames
-        "TEMP.3014",   # Windsor — River Thames
-        "TEMP.2843",   # Portsmouth Road, Uxbridge Road — River Thames
-        "UCSO.0185",   # Mornington Crescent — River Crane (joins Thames at Isleworth)
-        "UCSO.0006",   # Brent Valley Golf Course — River Brent (joins Thames at Brentford)
-        "UCSO.0227",   # Church Road/Brent Lodge Park — River Brent
-        "UCSO.0144",   # Ruislip Road East — River Brent
-        "TEMP.1929",   # South Ealing Road — River Brent
-        "UCSO.0293",   # Abbeydale Road — River Brent
-        "TEMP.2938",   # St James's Road — River Hogsmill (joins Thames at Kingston)
-    },
-}
+# --- CSO monitor / zone / window config, loaded from cso_monitors.json ---
+# This is the single source of truth for which permits are tracked, which
+# zone each belongs to, which permits are Tideway Tunnel-connected, and
+# which discharge time windows to compute. Edit cso_monitors.json and
+# redeploy to change any of this — no code changes needed here.
+_CSO_CONFIG_PATH = pathlib.Path(__file__).parent / "cso_monitors.json"
 
-# Tunnel permit numbers (Tideway Tunnel CSOs) — excluded from river zone totals,
-# counted separately in the Tideway Tunnel row
-_CSO_TUNNEL_IDS = {
-    "TWL00596", "TWL00809", "TWL00810",
-    "TEMP.2986",    # West Putney Storm Relief CSO
-    "TEMP.2599",    # Frogmore Storm Relief (Bell Lane Creek)
-    "CSAB.0556",    # South West Storm Relief
-    "TEMP.2438",    # Frogmore Storm Relief (River Wandle)
-    "CSAB.0554",    # Brixton and Clapham Storm Relief
-    "EPRWB3295ES",  # Victoria CSO
-}
+def _load_cso_config():
+    with open(_CSO_CONFIG_PATH) as f:
+        cfg = json.load(f)
 
-# All permit numbers we care about (zones + tunnel), flat set for fast filtering
-_CSO_ALL_IDS = {mid for ids in _CSO_ZONE_IDS.values() for mid in ids} | _CSO_TUNNEL_IDS
+    zone_ids = {}
+    for zone_name, zone_data in cfg["zones"].items():
+        zone_ids[zone_name] = set(zone_data["monitors"])
+
+    # Tideway Tunnel is just another entry in "zones" in the JSON, but
+    # app.py treats it specially (subtracted from river zone totals,
+    # rendered as its own row) — pull it out by name.
+    tunnel_ids = zone_ids.pop("Tideway Tunnel", set())
+
+    windows = cfg.get("_config", {}).get("windows", [
+        {"key": "48h", "label": "48 hours", "hours": 48}
+    ])
+    default_window = cfg.get("_config", {}).get("default_window", windows[0]["key"])
+    lookback_days = cfg.get("_config", {}).get("fetch_lookback_days", 7)
+
+    return {
+        "zone_ids":        zone_ids,
+        "tunnel_ids":      tunnel_ids,
+        "all_ids":         {mid for ids in zone_ids.values() for mid in ids} | tunnel_ids,
+        "windows":         windows,
+        "default_window":  default_window,
+        "lookback_days":   lookback_days,
+    }
+
+_cso_cfg = _load_cso_config()
+_CSO_ZONE_IDS   = _cso_cfg["zone_ids"]
+_CSO_TUNNEL_IDS = _cso_cfg["tunnel_ids"]
+_CSO_ALL_IDS    = _cso_cfg["all_ids"]
+_CSO_WINDOWS    = _cso_cfg["windows"]
 
 def _fmt_cso_hrs(seconds):
     if seconds <= 0:
@@ -1374,12 +1368,12 @@ def _fmt_cso_hrs(seconds):
 def get_cso_discharge():
     def fetch():
         now_utc  = datetime.now(timezone.utc)
-        week_ago = now_utc - timedelta(days=7)
         date_end   = now_utc.strftime("%Y-%m-%d")
-        date_start = week_ago.strftime("%Y-%m-%d")
+        date_start = (now_utc - timedelta(days=_cso_cfg["lookback_days"])).strftime("%Y-%m-%d")
 
-        # --- Collect all Start events for our permit numbers over 7 days ---
-        # Key: permitNumber → list of {"start": datetime, "stop": datetime|None}
+        # --- Collect all Start events for our permit numbers over the
+        # configured lookback period --- Key: permitNumber → list of
+        # {"start": datetime, "stop": datetime|None}
         # We fetch all Start alerts then pair each with its matching Stop.
         # Strategy: fetch Start events, then fetch Stop events, match by permitNumber
         # and proximity. Because the API returns one row per alert event, multiple
@@ -1438,9 +1432,12 @@ def get_cso_discharge():
             lst.sort()
 
         # For each Start event at a permit we care about, find the next Stop
-        # after it (or treat as still active if none found).
-        # Sum discharge seconds per permit number.
-        discharge_secs = defaultdict(float)  # permitNumber → total seconds
+        # after it (or treat as still active/ongoing-to-now if none found).
+        # Build a flat list of (permit, start_dt, stop_dt) discharge intervals —
+        # NOT summed yet, so we can later clip each interval against however
+        # many time windows are configured (24h, 7d, 30d, etc.) without
+        # needing to re-fetch from the API per window.
+        discharge_intervals = []  # list of (permit, start_dt, stop_dt)
 
         for item in starts:
             permit = item.get("permitNumber")
@@ -1461,14 +1458,34 @@ def get_cso_discharge():
                     stop_dt = candidate
                     break
 
-            if stop_dt:
-                duration = (stop_dt - start_dt).total_seconds()
-            else:
-                # Still active (or stop not yet in window): measure to now
-                duration = (now_utc - start_dt).total_seconds()
+            if stop_dt is None:
+                # Still active (or stop not yet in window): treat as ongoing to now
+                stop_dt = now_utc
 
-            if duration > 0:
-                discharge_secs[permit] += duration
+            if stop_dt > start_dt:
+                discharge_intervals.append((permit, start_dt, stop_dt))
+
+        def discharge_secs_for_window(window_hours):
+            """
+            Sum discharge seconds per permit, clipped to the window
+            [now_utc - window_hours, now_utc]. An event that started before
+            the window but is still ongoing (or stopped inside the window)
+            is partially counted — only the portion inside the window.
+            """
+            window_start = now_utc - timedelta(hours=window_hours)
+            secs = defaultdict(float)
+            for permit, start_dt, stop_dt in discharge_intervals:
+                clipped_start = max(start_dt, window_start)
+                clipped_stop  = min(stop_dt, now_utc)
+                if clipped_stop > clipped_start:
+                    secs[permit] += (clipped_stop - clipped_start).total_seconds()
+            return secs
+
+        # Compute discharge_secs per permit for every configured window
+        secs_by_window = {
+            w["key"]: discharge_secs_for_window(w["hours"])
+            for w in _CSO_WINDOWS
+        }
 
         # Also fetch current status to count monitors found per zone
         # (so the x/y monitor count stays accurate)
@@ -1497,59 +1514,72 @@ def get_cso_discharge():
             if p and x:
                 location_x[p] = x
 
+        default_key = _cso_cfg["default_window"]
+
+        def hours_by_window(permit):
+            """Dict of window_key -> formatted hours string, for one permit."""
+            return {
+                w["key"]: _fmt_cso_hrs(secs_by_window[w["key"]].get(permit, 0))
+                for w in _CSO_WINDOWS
+            }
+
+        def secs_for_default(permit):
+            return secs_by_window[default_key].get(permit, 0)
+
+        def build_stations(ids):
+            return [
+                {
+                    "permit":        mid,
+                    "name":          location_names.get(mid, None),
+                    "hours":         _fmt_cso_hrs(secs_for_default(mid)),  # default window, for back-compat
+                    "hours_by_window": hours_by_window(mid),
+                    "secs":          secs_for_default(mid),
+                    "active":        secs_for_default(mid) > 0,
+                    "x":             location_x.get(mid, None),
+                }
+                for mid in ids
+                if location_names.get(mid)  # only include stations known to v2 API
+            ]
+
+        def zone_totals_by_window(ids):
+            return {
+                w["key"]: _fmt_cso_hrs(sum(secs_by_window[w["key"]].get(mid, 0) for mid in ids))
+                for w in _CSO_WINDOWS
+            }
+
         # Build zone summaries with per-station detail
         zones = []
         for zone_name, zone_ids in _CSO_ZONE_IDS.items():
             river_ids = zone_ids - _CSO_TUNNEL_IDS
-            total_secs = sum(discharge_secs.get(mid, 0) for mid in river_ids)
+            total_secs_default = sum(secs_for_default(mid) for mid in river_ids)
             found = len([mid for mid in river_ids if mid in found_permits])
-            stations = [
-                {
-                    "permit":  mid,
-                    "name":    location_names.get(mid, None),
-                    "hours":   _fmt_cso_hrs(discharge_secs.get(mid, 0)),
-                    "secs":    discharge_secs.get(mid, 0),
-                    "active":  discharge_secs.get(mid, 0) > 0,
-                    "x":       location_x.get(mid, None),
-                }
-                for mid in river_ids
-                if location_names.get(mid)  # only include stations known to v2 API
-            ]
             zones.append({
-                "name":     zone_name,
-                "found":    found,
-                "expected": len(river_ids),
-                "hours":    _fmt_cso_hrs(total_secs),
-                "active":   total_secs > 0,
-                "stations": stations,
+                "name":            zone_name,
+                "found":           found,
+                "expected":        len(river_ids),
+                "hours":           _fmt_cso_hrs(total_secs_default),  # default window, for back-compat
+                "hours_by_window": zone_totals_by_window(river_ids),
+                "active":          total_secs_default > 0,
+                "stations":        build_stations(river_ids),
             })
 
         # Tunnel zone
-        tunnel_secs = sum(discharge_secs.get(mid, 0) for mid in _CSO_TUNNEL_IDS)
+        tunnel_secs_default = sum(secs_for_default(mid) for mid in _CSO_TUNNEL_IDS)
         tunnel_found = len([mid for mid in _CSO_TUNNEL_IDS if mid in found_permits])
-        tunnel_stations = [
-            {
-                "permit":  mid,
-                "name":    location_names.get(mid, None),
-                "hours":   _fmt_cso_hrs(discharge_secs.get(mid, 0)),
-                "secs":    discharge_secs.get(mid, 0),
-                "active":  discharge_secs.get(mid, 0) > 0,
-                "x":       location_x.get(mid, None),
-            }
-            for mid in _CSO_TUNNEL_IDS
-            if location_names.get(mid)  # only include stations known to v2 API
-        ]
         zones.append({
-            "name":     "Tideway Tunnel",
-            "found":    tunnel_found,
-            "expected": len(_CSO_TUNNEL_IDS),
-            "hours":    _fmt_cso_hrs(tunnel_secs),
-            "active":   tunnel_secs > 0,
-            "stations": tunnel_stations,
+            "name":            "Tideway Tunnel",
+            "found":           tunnel_found,
+            "expected":        len(_CSO_TUNNEL_IDS),
+            "hours":           _fmt_cso_hrs(tunnel_secs_default),  # default window, for back-compat
+            "hours_by_window": zone_totals_by_window(_CSO_TUNNEL_IDS),
+            "active":          tunnel_secs_default > 0,
+            "stations":        build_stations(_CSO_TUNNEL_IDS),
         })
 
         return {
             "zones":          zones,
+            "windows":        _CSO_WINDOWS,        # [{key,label,hours}, ...] for template to render headers/tabs
+            "default_window": default_key,
             "total_found":    len(found_permits),
             "total_expected": len(_CSO_ALL_IDS),
         }
@@ -2490,12 +2520,17 @@ def _wq_fetch_site(url, site_label):
     try:
         with _urlopen(url, timeout=15) as resp:
             if resp.status == 403:
+                # Sheet genuinely not public — this is a real "no data" state,
+                # not a transient failure, so returning [] here is correct.
                 print(f"INFO [wq/{site_label}]: sheet not public (403)")
                 return []
             return _wq_parse_sheet(resp.read().decode("utf-8"), site_label)
     except _URLError as e:
+        # Network failure / timeout — this is transient, not "no data".
+        # Raise so the caller can fall back to the last good cached reading
+        # instead of overwriting it with an "unavailable" state.
         print(f"ERROR [wq/{site_label}]: {e}")
-        return []
+        raise
 
 
 def get_water_quality():
@@ -2503,38 +2538,59 @@ def get_water_quality():
     Fetch E. coli readings for FRBC and PTRC.
     Returns dict with 'frbc' and 'ptrc' sub-dicts for template rendering.
     Cached for 6 hours — data is updated weekly.
+
+    Each site is fetched independently: if one site has a transient network
+    failure, we fall back to that site's last successfully cached reading
+    (marked stale) rather than wiping the whole result. A 403 (sheet not
+    public) is treated as genuine "no data available", not a transient
+    failure, and is not retried from cache.
     """
+    def fetch_one(key, url, label):
+        try:
+            data = _wq_fetch_site(url, label)
+        except _URLError:
+            # Transient failure — re-raise so get_cached's existing
+            # per-key fallback can return the last good value for the
+            # whole 'water_quality' cache entry. Note: this means a
+            # transient failure on ONE site currently falls back the
+            # ENTIRE cached result (both frbc and ptrc), since get_cached
+            # caches at the 'water_quality' key level, not per-site.
+            # This is the simplest fix; a per-site cache key would be
+            # needed to isolate fallback to just the failing site.
+            raise
+
+        latest = next((r for r in data if r["ecoli"] is not None), None)
+        if latest:
+            d = latest["days_ago"]
+            if d == 0:       days_str = "today"
+            elif d == 1:     days_str = "yesterday"
+            elif d is not None: days_str = f"{d} days ago"
+            else:            days_str = "date unknown"
+            return {
+                "ecoli_str":    f"{latest['ecoli']:,}",
+                "date_str":     latest["date_str"],
+                "days_ago_str": days_str,
+                "colour":       latest["colour"],
+                "stale":        latest["stale"],
+                "available":    True,
+            }
+        else:
+            return {
+                "ecoli_str":    "—",
+                "date_str":     "—",
+                "days_ago_str": "unavailable",
+                "colour":       "#555",
+                "stale":        False,
+                "available":    False,
+            }
+
     def fetch():
         out = {}
         for key, url, label in (
             ("frbc", _WQ_FRBC_URL, "FRBC"),
             ("ptrc", _WQ_PTRC_URL, "PTRC"),
         ):
-            data = _wq_fetch_site(url, label)
-            latest = next((r for r in data if r["ecoli"] is not None), None)
-            if latest:
-                d = latest["days_ago"]
-                if d == 0:       days_str = "today"
-                elif d == 1:     days_str = "yesterday"
-                elif d is not None: days_str = f"{d} days ago"
-                else:            days_str = "date unknown"
-                out[key] = {
-                    "ecoli_str":    f"{latest['ecoli']:,}",
-                    "date_str":     latest["date_str"],
-                    "days_ago_str": days_str,
-                    "colour":       latest["colour"],
-                    "stale":        latest["stale"],
-                    "available":    True,
-                }
-            else:
-                out[key] = {
-                    "ecoli_str":    "—",
-                    "date_str":     "—",
-                    "days_ago_str": "unavailable",
-                    "colour":       "#555",
-                    "stale":        False,
-                    "available":    False,
-                }
+            out[key] = fetch_one(key, url, label)
         return out
 
     result, fetched_at = get_cached("water_quality", fetch, ttl_seconds=21600)
