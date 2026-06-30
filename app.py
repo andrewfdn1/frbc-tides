@@ -1381,6 +1381,73 @@ def _fmt_cso_hrs(seconds):
     return f"{h}h {m:02d}m"
 
 
+def _bng_to_wgs84(easting, northing):
+    """
+    Convert British National Grid (OSGB36) easting/northing to WGS84
+    lat/lon, for building Google Maps links from the x/y coordinates the
+    Thames Water API returns per monitor. Uses the standard Ordnance
+    Survey transformation (Airy 1830 ellipsoid -> WGS84), accurate to a
+    few metres -- good enough for a map pin, not for survey-grade work.
+    Returns (lat, lon) or None if conversion fails.
+    """
+    try:
+        import math
+
+        a, b = 6377563.396, 6356256.909  # Airy 1830 semi-major/minor axes
+        F0 = 0.9996012717                 # scale factor on central meridian
+        lat0 = math.radians(49)           # true origin latitude
+        lon0 = math.radians(-2)           # true origin longitude
+        N0, E0 = -100000, 400000          # true origin northing/easting
+        e2 = 1 - (b * b) / (a * a)        # eccentricity squared
+        n = (a - b) / (a + b)
+
+        lat = lat0
+        M = 0
+        while True:
+            lat = (northing - N0 - M) / (a * F0) + lat
+            Ma = (1 + n + (5 / 4) * n**2 + (5 / 4) * n**3) * (lat - lat0)
+            Mb = (3 * n + 3 * n**2 + (21 / 8) * n**3) * math.sin(lat - lat0) * math.cos(lat + lat0)
+            Mc = ((15 / 8) * n**2 + (15 / 8) * n**3) * math.sin(2 * (lat - lat0)) * math.cos(2 * (lat + lat0))
+            Md = (35 / 24) * n**3 * math.sin(3 * (lat - lat0)) * math.cos(3 * (lat + lat0))
+            M = b * F0 * (Ma - Mb + Mc - Md)
+            if abs(northing - N0 - M) < 0.00001:
+                break
+
+        sin_lat = math.sin(lat)
+        cos_lat = math.cos(lat)
+        tan_lat = math.tan(lat)
+
+        nu = a * F0 / math.sqrt(1 - e2 * sin_lat**2)
+        rho = a * F0 * (1 - e2) / (1 - e2 * sin_lat**2) ** 1.5
+        eta2 = nu / rho - 1
+
+        tan_lat2 = tan_lat**2
+        tan_lat4 = tan_lat**4
+        tan_lat6 = tan_lat**6
+
+        VII = tan_lat / (2 * rho * nu)
+        VIII = tan_lat / (24 * rho * nu**3) * (5 + 3 * tan_lat2 + eta2 - 9 * tan_lat2 * eta2)
+        IX = tan_lat / (720 * rho * nu**5) * (61 + 90 * tan_lat2 + 45 * tan_lat4)
+        X = 1 / (cos_lat * nu)
+        XI = 1 / (cos_lat * 6 * nu**3) * (nu / rho + 2 * tan_lat2)
+        XII = 1 / (cos_lat * 120 * nu**5) * (5 + 28 * tan_lat2 + 24 * tan_lat4)
+        XIIA = 1 / (cos_lat * 5040 * nu**7) * (61 + 662 * tan_lat2 + 1320 * tan_lat4 + 720 * tan_lat6)
+
+        dE = easting - E0
+        lat_rad = lat - VII * dE**2 + VIII * dE**4 - IX * dE**6
+        lon_rad = lon0 + X * dE - XI * dE**3 + XII * dE**5 - XIIA * dE**7
+
+        lat_deg = math.degrees(lat_rad)
+        lon_deg = math.degrees(lon_rad)
+
+        # OSGB36 -> WGS84 is technically a separate small datum shift
+        # (~tens of metres); skipped here since it's well within the
+        # precision needed for a Google Maps pin pointing at a CSO outfall.
+        return round(lat_deg, 6), round(lon_deg, 6)
+    except Exception:
+        return None
+
+
 def _parse_cso_dt(dt_str):
     """
     Parse a Thames Water API datetime string into an always-tz-aware UTC
@@ -1535,14 +1602,18 @@ def get_cso_discharge():
         # Build location name + coordinate lookup from alerts data
         location_names = {}
         location_x = {}
+        location_y = {}
         for item in starts:
             p = item.get("permitNumber")
             n = item.get("locationName")
             x = item.get("x")
+            y = item.get("y")
             if p and n:
                 location_names[p] = n
             if p and x:
                 location_x[p] = x
+            if p and y:
+                location_y[p] = y
 
         default_key = _cso_cfg["default_window"]
 
@@ -1570,6 +1641,7 @@ def get_cso_discharge():
                     "secs":          secs_for_default(mid),
                     "active":        secs_for_default(mid) > 0,
                     "x":             location_x.get(mid, None),
+                    "y":             location_y.get(mid, None),
                 }
                 for mid in ids
                 # Include every tracked permit — previously this filtered
@@ -2232,8 +2304,18 @@ def water_quality_detail():
                 val = hbw.get(w["key"], "0h 00m")
                 cls = "hrs-active" if val != "0h 00m" else "hrs-zero"
                 data_cols += f'<td class="r {cls}">{val}</td>'
+            # Link to this station's actual location on Google Maps if we
+            # have its coordinates; otherwise fall back to the generic
+            # Thames Water map (no per-station deep link exists there).
+            x, y = s.get("x"), s.get("y")
+            latlon = _bng_to_wgs84(x, y) if (x and y) else None
+            if latlon:
+                lat, lon = latlon
+                map_href = f"https://www.google.com/maps?q={lat},{lon}"
+            else:
+                map_href = "https://www.thameswater.co.uk/edm-map"
             rows += f"""    <tr>
-      <td><a class="tw-link" href="https://www.thameswater.co.uk/edm-map" target="_blank">{s["name"]}</a></td>
+      <td class="station-name"><a class="tw-link" href="{map_href}" target="_blank">{s["name"]}</a></td>
       <td class="permit">{s["permit"]}</td>
       {data_cols}
     </tr>\n"""
@@ -2270,7 +2352,11 @@ h2 { font-size:1em; text-transform:uppercase; letter-spacing:0.08em; color:#fff;
 .zone-hours { font-size:0.7em; color:#888; font-weight:normal; text-transform:none; }
 h3 { font-size:0.75em; text-transform:uppercase; letter-spacing:0.1em;
      color:#555; margin:14px 0 4px; border-left:2px solid #333; padding-left:6px; }
-table { width:100%; border-collapse:collapse; font-size:0.8em; margin-bottom:4px; }
+table { width:100%; table-layout:fixed; border-collapse:collapse; font-size:0.8em; margin-bottom:4px; }
+th, td { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+th:nth-child(1), td.station-name { width:42%; }
+th:nth-child(2), td.permit { width:16%; }
+/* Remaining width split evenly across however many window columns are configured */
 th { text-align:left; color:#444; padding:3px 12px 3px 0;
      border-bottom:1px solid #1e1e1e; white-space:nowrap; }
 th.r { text-align:right; }
