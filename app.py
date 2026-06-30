@@ -2171,7 +2171,7 @@ def water_quality_detail():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Water Quality — FRBC</title>
+<title>Water Quality (DRAFT/WORK IN PROGRESS) — FRBC</title>
 <style>
 * { box-sizing:border-box; margin:0; padding:0; font-family:'Courier New',monospace; }
 body { background:#000; color:#fff; padding:24px; max-width:900px; }
