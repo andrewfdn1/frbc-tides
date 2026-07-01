@@ -534,9 +534,11 @@ def _get_mo_obs_geohash():
     now = datetime.now(timezone.utc).timestamp()
     if now >= _mo_obs_geohash_fail:
         try:
-            url = f"{_MO_OBS_BASE}nearest/{LAT}/{LON}"
+            # lat/lon go in the query string and must be at most 2 decimal places
+            url = f"{_MO_OBS_BASE}nearest"
             headers = {"apikey": MO_OBS_KEY, "accept": "application/json"}
-            r = requests.get(url, headers=headers, timeout=15)
+            params = {"lat": round(LAT, 2), "lon": round(LON, 2), "max": 1}
+            r = requests.get(url, headers=headers, params=params, timeout=15)
             if r.status_code in (401, 403):
                 _mo_obs_geohash_fail = now + 3600
                 raise Exception("Met Office Observations auth failed")
@@ -568,6 +570,7 @@ def _fetch_mo_observations():
     Fetch ~7 days of hourly observations for our nearest station.
     Returns a list of hourly records as in the sample data.
     """
+    global _mo_obs_geohash
     geohash = _get_mo_obs_geohash()
     url = _MO_OBS_BASE + geohash
     headers = {"apikey": MO_OBS_KEY, "accept": "application/json"}
@@ -576,6 +579,15 @@ def _fetch_mo_observations():
         raise Exception("Met Office Observations auth failed")
     if r.status_code == 429:
         raise Exception("Met Office Observations rate limited")
+    if r.status_code == 404:
+        # Geohash not supported by the API — drop caches so the next
+        # refresh does a fresh nearest-station lookup
+        _mo_obs_geohash = None
+        try:
+            _GEOHASH_FILE.unlink()
+        except Exception:
+            pass
+        raise Exception(f"Met Office Observations: geohash {geohash} not recognised")
     r.raise_for_status()
     data = r.json()
     if not isinstance(data, list):
