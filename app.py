@@ -2313,7 +2313,7 @@ def cso_map():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>(DRAFT/WIP) CSO Monitor Map — FRBC</title>
+<title>(DRAFT) CSO Monitor Map — FRBC</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
@@ -2374,7 +2374,7 @@ def cso_map():
 <body>
 
 <div id="header">
-  <h1>(DRAFT/WIP) FRBC &mdash; CSO Monitor Map</h1>
+  <h1>(DRAFT) FRBC &mdash; CSO Monitor Map</h1>
   <div class="sub" id="header-sub">
     {{ points|length }} monitors &middot; updated {{ cso_up }} &middot; click a dot for detail &middot;
     <a href="/waterquality">water quality detail &#8599;</a> &middot;
@@ -2552,7 +2552,7 @@ def water_quality_detail():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>(DRAFT/WIP) Water Quality — FRBC</title>
+<title>(DRAFT) Water Quality — FRBC</title>
 <style>
 * { box-sizing:border-box; margin:0; padding:0; font-family:'Courier New',monospace; }
 body { background:#000; color:#fff; padding:24px; max-width:1100px; }
@@ -2584,7 +2584,7 @@ td.r { text-align:right; white-space:nowrap; }
 </style>
 </head>
 <body>
-<h1>(DRAFT/WIP) Water Quality — CSO Discharge Detail</h1>
+<h1>(DRAFT) Water Quality — CSO Discharge Detail</h1>
 <p class="meta">
   Updated {{ cso_up }}
   &nbsp;&middot;&nbsp; Source: <a href="https://docs.api.thameswater.co.uk/" target="_blank">Thames Water Open Data API v2</a>
