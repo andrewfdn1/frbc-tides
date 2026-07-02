@@ -23,7 +23,7 @@ The dashboard displays real-time information in a three-column layout (landscape
   - UV index
   - Fog and storm indicators
   - Air + Water temperature sum (cold water risk)
-  - After midday, the morning window is backfilled with actual Met Office observations (rather than the original forecast) when `METOFFICE_OBSERVATIONS` is configured
+  - Each window is backfilled with actual Met Office observations once it has fully passed (morning after 12:00, afternoon after 20:00), when `METOFFICE_OBSERVATIONS` is configured; a window still in progress or upcoming stays as forecast
 - **Met Office Warnings** - NSWWS severe weather warnings by time period, plus a 7-day-lookahead list of warnings not yet active today
 - **Rain Radar & Wind Map** - Leaflet map with a RainViewer radar overlay and a 4x4 wind-arrow grid, refreshed client-side (radar every 5 minutes, wind hourly)
 
@@ -45,7 +45,7 @@ The dashboard displays real-time information in a three-column layout (landscape
 | **UK Hydrographic Office (Admiralty) Tidal API** | Tidal events for Hammersmith (Station 0115) | `TIDE_API_KEY` |
 | **Met Office Weather DataHub (Site-Specific)** | Hourly/three-hourly weather forecasts | `METOFFICE_SITESPECIFIC` |
 | **Met Office NSWWS** | National Severe Weather Warning Service | `METOFFICE_NSWWS` |
-| **Met Office Observations** | Actual observations, used to backfill the morning weather window after midday | `METOFFICE_OBSERVATIONS` |
+| **Met Office Observations** | Actual observations, used to backfill each weather window once it has fully passed | `METOFFICE_OBSERVATIONS` |
 | **Google Calendar API** | Club calendar events | `GOOGLE_CALENDAR_API_KEY` |
 
 ### Fallback APIs
@@ -76,7 +76,7 @@ All API responses are cached in memory with per-source TTL (time-to-live):
 |-------------|-----|-----------|
 | Tides | 2 hours | Predicted data changes slowly |
 | Weather | 2 hours | Forecasts updated infrequently |
-| Met Office Observations | 1 hour | Backfills the morning window after midday |
+| Met Office Observations | 1 hour | Backfills each weather window once it has fully passed |
 | PLA Flag | Time-slot based | Refreshes at key times (06:00, 18:00, etc.) |
 | PLA JSON (crosscheck) | 5 minutes | Independent check against the widget/Richmond-derived colour |
 | Richmond Observed Low Tide | 1 minute | Needs to catch a new low tide reading quickly for next-flag prediction |
@@ -88,7 +88,7 @@ All API responses are cached in memory with per-source TTL (time-to-live):
 | Water Quality (E. coli) | 6 hours | Sheet is updated infrequently |
 | Wind Grid | 1 hour | Wind forecast changes slowly |
 
-A file-based backoff system (`openmeteo_backoff.json`) persists rate-limit state across process restarts for Open-Meteo. A separate file-based store (`_MORNING_FILE`) persists the backfilled morning-observations weather data across process restarts.
+A file-based backoff system (`openmeteo_backoff.json`) persists rate-limit state across process restarts for Open-Meteo. A separate file-based store (`_MORNING_FILE`) persists each day's captured forecast windows across process restarts, so the observations backfill has rain/UV values to borrow once a window has passed. This file lives in ephemeral per-deploy storage, so a Render redeploy clears it — if that happens between roughly 06:00 and 20:00, that day's rain/UV values for the backfilled window(s) may be unavailable until the next day's forecast is captured fresh.
 
 ### Parallel Fetching
 
@@ -101,7 +101,7 @@ Weather data follows a priority fallback chain:
 1. **Met Office DataHub** (Site-Specific) - tries hourly, then three-hourly
 2. **WeatherAPI.com** - if Met Office unavailable or unconfigured
 3. **Open-Meteo** - final fallback with rate-limit backoff
-4. **Met Office Observations** - if `METOFFICE_OBSERVATIONS` is configured and it's past 12:00 local, the morning window (whichever source supplied it) is replaced with actual observations
+4. **Met Office Observations** - if `METOFFICE_OBSERVATIONS` is configured, each window (whichever source supplied it) is replaced with actual observations once it has fully passed: morning after 12:00 local, afternoon after 20:00 local
 
 All sources return normalised data with morning/afternoon windows.
 
@@ -232,7 +232,7 @@ METOFFICE_SITESPECIFIC=your_metoffice_site_key
 ```
 
 Optional:
-- `METOFFICE_OBSERVATIONS` - Met Office Observations key, used to backfill the morning weather window with actuals after midday. Falls back gracefully (feature is simply skipped) if unset
+- `METOFFICE_OBSERVATIONS` - Met Office Observations key, used to backfill each weather window with actuals once it has fully passed (morning after 12:00, afternoon after 20:00). Falls back gracefully (feature is simply skipped) if unset
 - `FLASK_DEBUG` - set to `1` to run local `python app.py` with Flask debug mode on (defaults off)
 
 Optional (not currently used):

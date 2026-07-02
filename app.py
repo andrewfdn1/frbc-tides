@@ -638,9 +638,9 @@ def _fetch_mo_observations():
     return data
 
 
-def _parse_mo_observations_morning(obs_records, existing_morning):
+def _parse_mo_observations_window(obs_records, existing_window, hour_start, hour_end):
     """
-    Build a morning window dict (06:00–12:00 local) from observed hourly records.
+    Build a window dict (hour_start:00-hour_end:00 local) from observed hourly records.
     Preserves rain_min/rain_max and uv_max from the forecast (not available in obs).
     Wind speeds are in m/s in the observations API — same as site-specific forecast.
     Wind direction is already a cardinal string (e.g. "NNW") — take the mode.
@@ -652,7 +652,7 @@ def _parse_mo_observations_morning(obs_records, existing_morning):
             dt = datetime.fromisoformat(rec["datetime"].replace("Z", "+00:00")).astimezone(LONDON_TZ)
         except Exception:
             continue
-        if dt.date() == today and 6 <= dt.hour < 12:
+        if dt.date() == today and hour_start <= dt.hour < hour_end:
             entries.append(rec)
 
     if not entries:
@@ -678,9 +678,9 @@ def _parse_mo_observations_morning(obs_records, existing_morning):
         "fog":       any(c in _MO_FOG_CODES   for c in codes),
         "storm":     any(c in _MO_STORM_CODES for c in codes),
         # Preserve forecast values for fields not available in observations
-        "rain_min":  existing_morning.get("rain_min")  if existing_morning else None,
-        "rain_max":  existing_morning.get("rain_max")  if existing_morning else None,
-        "uv_max":    existing_morning.get("uv_max")    if existing_morning else None,
+        "rain_min":  existing_window.get("rain_min")  if existing_window else None,
+        "rain_max":  existing_window.get("rain_max")  if existing_window else None,
+        "uv_max":    existing_window.get("uv_max")    if existing_window else None,
     }
     return result
 
@@ -1009,7 +1009,8 @@ def _fetch_weather_with_fallbacks():
 
 
 def _load_morning_store():
-    """Load morning weather data from file, returns {date_str: morning_dict}."""
+    """Load per-day weather window data from file, returns
+    {date_str: {"morning": {...}, "afternoon": {...}}}."""
     try:
         return json.loads(_MORNING_FILE.read_text())
     except Exception:
@@ -1017,7 +1018,7 @@ def _load_morning_store():
 
 
 def _save_morning_store(store):
-    """Persist morning weather data to file."""
+    """Persist per-day weather window data to file."""
     try:
         _MORNING_FILE.write_text(json.dumps(store))
     except Exception as e:
@@ -1026,8 +1027,13 @@ def _save_morning_store(store):
 
 def _fetch_weather_with_observations():
     """
-    Fetch weather, persist morning data to file, and after midday replace
-    morning forecast with actual observations if available.
+    Fetch weather and persist each day's forecast windows to file. Each
+    window is replaced with actual observed data once it has fully passed:
+      - before 12:00: morning (06:00-12:00) and afternoon (12:00-20:00) both
+        stay as forecast (morning hasn't finished, afternoon hasn't started)
+      - 12:00-20:00: morning has passed -> observations; afternoon is in
+        progress -> stays forecast
+      - after 20:00: afternoon has also passed -> observations
     Called inside get_cached so it only runs when the cache expires.
     """
     result = _fetch_weather_with_fallbacks()
@@ -1037,29 +1043,51 @@ def _fetch_weather_with_observations():
 
     # Purge old dates
     store = {k: v for k, v in store.items() if k == today_str}
+    day_store = store.get(today_str, {})
 
-    # Save morning forecast data if we have it
+    # Save today's forecast windows as a baseline. Rain/UV aren't available
+    # from observations, so the obs-parsing step below borrows them back
+    # out of whatever forecast was captured here.
     if result.get('morning') is not None:
-        store[today_str] = result['morning']
-        _save_morning_store(store)
+        day_store['morning'] = result['morning']
+    if result.get('afternoon') is not None:
+        day_store['afternoon'] = result['afternoon']
+    store[today_str] = day_store
+    _save_morning_store(store)
 
-    # After midday: try to replace with actual observations (own cache — refreshes hourly)
-    if now_lon.hour >= 12 and MO_OBS_KEY:
-        try:
-            obs, _ = get_cached('mo_observations', _fetch_mo_observations, ttl_seconds=3600)
-            if obs:
-                obs_morning = _parse_mo_observations_morning(obs, store.get(today_str))
+    # Once a window has fully passed, try to replace it with actual
+    # observations (own cache — refreshes hourly).
+    if MO_OBS_KEY and now_lon.hour >= 12:
+        obs, _ = get_cached('mo_observations', _fetch_mo_observations, ttl_seconds=3600)
+        if obs:
+            try:
+                obs_morning = _parse_mo_observations_window(obs, day_store.get('morning'), 6, 12)
                 if obs_morning:
-                    store[today_str] = obs_morning
-                    _save_morning_store(store)
+                    day_store['morning'] = obs_morning
                     print("Met Office Observations: morning data updated")
-        except Exception as e:
-            print(f"Met Office Observations morning fetch failed, keeping forecast: {e}")
+            except Exception as e:
+                print(f"Met Office Observations morning parse failed, keeping forecast: {e}")
 
-    # Restore morning from file (covers both: no morning in result, and always-prefer-observed)
-    if today_str in store:
+            if now_lon.hour >= 20:
+                try:
+                    obs_afternoon = _parse_mo_observations_window(obs, day_store.get('afternoon'), 12, 20)
+                    if obs_afternoon:
+                        day_store['afternoon'] = obs_afternoon
+                        print("Met Office Observations: afternoon data updated")
+                except Exception as e:
+                    print(f"Met Office Observations afternoon parse failed, keeping forecast: {e}")
+
+            store[today_str] = day_store
+            _save_morning_store(store)
+
+    # Restore windows from the store (covers both: no window in result, and
+    # always-prefer-observed once a window has passed).
+    if day_store:
         result = dict(result)
-        result['morning'] = store[today_str]
+        if 'morning' in day_store:
+            result['morning'] = day_store['morning']
+        if 'afternoon' in day_store:
+            result['afternoon'] = day_store['afternoon']
 
     return result
 
