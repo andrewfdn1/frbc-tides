@@ -11,6 +11,8 @@ services:
         sync: false
       - key: METOFFICE_ATMOSPHERIC
         sync: false
+      - key: METOFFICE_OBSERVATIONS
+        sync: false
       - key: TIDE_API_KEY
         sync: false
       - key: GOOGLE_CALENDAR_API_KEY
