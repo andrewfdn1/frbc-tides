@@ -14,12 +14,32 @@ import json
 import pathlib
 import tempfile
 import xml.etree.ElementTree as ET
-import netrc  # noqa: F401 — force this import now, single-threaded; requests'
-              # get_netrc_auth() imports it lazily on first use, and multiple
-              # threads racing that first import can deadlock on CPython's
-              # per-module import lock (seen in production as a hung
-              # requests.get() inside get_netrc_auth -> import netrc).
+import netrc  # noqa: F401 — see _warm_up_requests_stack() below
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+def _warm_up_requests_stack():
+    """
+    Make one real HTTPS request, synchronously and single-threaded, before
+    any fetch threads exist. requests/urllib3 lazily import several stdlib
+    modules (netrc, ssl internals, idna, etc.) the first time they prepare
+    a request; if multiple threads trigger that same first-time import
+    concurrently, they can deadlock on CPython's per-module import lock.
+    Seen in production as threads permanently stuck inside get_cached()
+    waiting on a per-key lock whose holder never returns from fetch_fn(),
+    surviving well past that call's own socket timeout — the signature of
+    an import deadlock, not a slow upstream. Doing one throwaway request
+    here resolves every such lazy import once, before any thread can race
+    on it.
+    """
+    try:
+        requests.get(
+            "https://api.open-meteo.com/v1/forecast?latitude=0&longitude=0&current=temperature_2m",
+            timeout=10,
+        )
+    except Exception as e:
+        print(f"HTTP stack warm-up request failed (non-fatal): {e}")
+
+_warm_up_requests_stack()
 
 # ---------------------------------------------------------------------------
 
