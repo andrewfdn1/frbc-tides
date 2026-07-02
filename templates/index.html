@@ -1074,8 +1074,16 @@
 
     function makeArrowIcon(speed, direction) {
         var colour = windArrowColour(speed);
-        // direction is meteorological: where wind comes FROM — rotate arrow to point in travel direction
-        var rotateDeg = (direction + 180) % 360;
+        // Arrow orientation convention (verified):
+        //   - The unrotated polygon (14,3 20,22 14,18 8,22) is a dart whose TIP
+        //     is at the TOP of the viewBox, i.e. it points NORTH on the map.
+        //   - `direction` is meteorological: the bearing the wind comes FROM
+        //     (all three server sources — Met Office windDirectionFrom10m,
+        //     WeatherAPI wind_degree, Open-Meteo wind_direction_10m — use this).
+        //   - SVG rotate() is clockwise, so rotating by (direction + 180) makes
+        //     the arrow point DOWNWIND — the way the wind is blowing.
+        //   e.g. wind FROM the west (270°) → rotate 90° → arrow points east.
+        var rotateDeg = ((Number(direction) % 360) + 360 + 180) % 360;
         var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">'
             + '<g transform="rotate(' + rotateDeg + ' 14 14)">'
             + '<polygon points="14,3 20,22 14,18 8,22" fill="' + colour + '" opacity="0.92"/>'
