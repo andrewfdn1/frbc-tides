@@ -2703,6 +2703,7 @@ def api_overlay():
     next_tide_time = None
     try:
         tides, _ = get_tides()
+        hw_iso = None
         lw_iso = None
         # Find next HW and LW
         for e in tides:
