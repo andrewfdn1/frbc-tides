@@ -1833,7 +1833,9 @@ def build_dashboard_data():
         threading.Thread(target=run, args=('water_quality',  get_water_quality)),
     ]
     for t in threads: t.start()
-    for t in threads: t.join(timeout=15)
+    deadline = time.monotonic() + 15
+    for t in threads:
+        t.join(timeout=max(0, deadline - time.monotonic()))
 
     # Tides
     tides, t_up = results.get('tides', (None, ''))
