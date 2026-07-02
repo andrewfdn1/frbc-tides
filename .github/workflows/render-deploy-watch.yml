@@ -12,7 +12,7 @@ jobs:
       - name: Fetch Render service, deploy status, and recent logs
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          SERVICE_NAME: hammersmith-tide-monitor
+          SERVICE_NAME: frbc-tides
         run: |
           set -euo pipefail
           if [ -z "${RENDER_API_KEY:-}" ]; then
