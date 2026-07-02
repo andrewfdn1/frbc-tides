@@ -109,7 +109,18 @@ def get_cached(key, fetch_fn, ttl_seconds):
     now = datetime.now(timezone.utc).timestamp()
     if key in _cache and now - _cache[key]['ts'] < ttl_seconds:
         return _cache[key]['data'], _cache[key]['fetched_at']
-    with _get_lock(key):
+    lock = _get_lock(key)
+    if not lock.acquire(timeout=20):
+        # Another caller is already fetching this key and hasn't finished
+        # within a reasonable time. Don't block indefinitely — a single
+        # hung fetch (slow upstream, or any other stall) would otherwise
+        # freeze every other caller waiting on this same key, including
+        # unthreaded callers running directly on the sole gunicorn worker.
+        print(f"Timed out waiting for '{key}' cache lock — serving stale/none")
+        if key in _cache:
+            return _cache[key]['data'], _cache[key]['fetched_at']
+        return None, ''
+    try:
         now = datetime.now(timezone.utc).timestamp()
         if key in _cache and now - _cache[key]['ts'] < ttl_seconds:
             return _cache[key]['data'], _cache[key]['fetched_at']
@@ -125,6 +136,8 @@ def get_cached(key, fetch_fn, ttl_seconds):
             if key in _cache:
                 return _cache[key]['data'], _cache[key]['fetched_at']
             return None, ''
+    finally:
+        lock.release()
 
 
 def get_tides():
