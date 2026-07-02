@@ -1,0 +1,52 @@
+name: Render deploy watch
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  render-status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Render service, deploy status, and recent logs
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          SERVICE_NAME: hammersmith-tide-monitor
+        run: |
+          set -euo pipefail
+          if [ -z "${RENDER_API_KEY:-}" ]; then
+            echo "::error::RENDER_API_KEY secret is not set. Add it under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+          API="https://api.render.com/v1"
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+
+          echo "## Looking up service: ${SERVICE_NAME}"
+          service_json=$(curl -sf -H "$AUTH" "$API/services?name=${SERVICE_NAME}&limit=1")
+          service_id=$(echo "$service_json" | jq -r '.[0].service.id // empty')
+          owner_id=$(echo "$service_json" | jq -r '.[0].service.ownerId // empty')
+
+          if [ -z "$service_id" ]; then
+            echo "::error::No Render service found named '${SERVICE_NAME}'."
+            echo "$service_json"
+            exit 1
+          fi
+          echo "Service ID: $service_id"
+
+          echo ""
+          echo "## Recent deploys"
+          deploy_json=$(curl -sf -H "$AUTH" "$API/services/${service_id}/deploys?limit=5")
+          echo "$deploy_json" | jq -r '.[] | "\(.deploy.id)\t\(.deploy.status)\tstarted=\(.deploy.createdAt)\tfinished=\(.deploy.finishedAt // "in progress")\t\(.deploy.commit.message // "")"' | column -t -s $'\t'
+
+          latest_status=$(echo "$deploy_json" | jq -r '.[0].deploy.status // empty')
+          echo ""
+          echo "Latest deploy status: ${latest_status:-unknown}"
+
+          echo ""
+          echo "## Recent logs"
+          if ! curl -sf -H "$AUTH" "$API/logs?ownerId=${owner_id}&resource=${service_id}&limit=200&direction=backward" \
+              | jq -r '.logs[]? | "\(.timestamp)  \(.message)"'; then
+            echo "::warning::Could not fetch logs from Render logs API (endpoint or params may differ from what's expected)."
+          fi
