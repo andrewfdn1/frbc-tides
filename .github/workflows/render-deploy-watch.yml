@@ -23,17 +23,34 @@ jobs:
           API="https://api.render.com/v1"
           AUTH="Authorization: Bearer ${RENDER_API_KEY}"
 
+          echo "## Workspaces accessible to this API key"
+          owners_json=$(curl -sf -H "$AUTH" "$API/owners?limit=20")
+          echo "$owners_json" | jq -r '.[] | "\(.owner.id)\t\(.owner.name)\t\(.owner.type)"' | column -t -s $'\t'
+
+          echo ""
           echo "## Looking up service: ${SERVICE_NAME}"
-          service_json=$(curl -sf -H "$AUTH" "$API/services?name=${SERVICE_NAME}&limit=1")
-          service_id=$(echo "$service_json" | jq -r '.[0].service.id // empty')
-          owner_id=$(echo "$service_json" | jq -r '.[0].service.ownerId // empty')
+          service_id=""
+          owner_id=""
+          all_services=""
+          for oid in $(echo "$owners_json" | jq -r '.[].owner.id'); do
+            services_json=$(curl -sf -H "$AUTH" "$API/services?ownerId=${oid}&limit=100")
+            all_services="${all_services}
+          $(echo "$services_json" | jq -r --arg oid "$oid" '.[] | "\(.service.id)\t\(.service.name)\t\($oid)"')"
+            match=$(echo "$services_json" | jq -r --arg name "$SERVICE_NAME" '.[] | select(.service.name == $name) | .service.id' | head -n1)
+            if [ -n "$match" ]; then
+              service_id="$match"
+              owner_id="$oid"
+              break
+            fi
+          done
 
           if [ -z "$service_id" ]; then
-            echo "::error::No Render service found named '${SERVICE_NAME}'."
-            echo "$service_json"
+            echo "::error::No service named '${SERVICE_NAME}' found in any workspace this key can see."
+            echo "Services visible to this key (id, name, ownerId):"
+            echo "$all_services"
             exit 1
           fi
-          echo "Service ID: $service_id"
+          echo "Service ID: $service_id (owner: $owner_id)"
 
           echo ""
           echo "## Recent deploys"
