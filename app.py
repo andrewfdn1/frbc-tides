@@ -130,12 +130,17 @@ def get_cached(key, fetch_fn, ttl_seconds):
     if key in _cache and now - _cache[key]['ts'] < ttl_seconds:
         return _cache[key]['data'], _cache[key]['fetched_at']
     lock = _get_lock(key)
-    if not lock.acquire(timeout=20):
+    if not lock.acquire(timeout=3):
         # Another caller is already fetching this key and hasn't finished
         # within a reasonable time. Don't block indefinitely — a single
         # hung fetch (slow upstream, or any other stall) would otherwise
         # freeze every other caller waiting on this same key, including
         # unthreaded callers running directly on the sole gunicorn worker.
+        # Kept short (not e.g. 20s): build_dashboard_data() spawns a fresh
+        # thread per request per key, so a genuinely stuck fetch means every
+        # subsequent request piles up another thread waiting on this same
+        # lock — a long per-attempt timeout lets those accumulate faster
+        # than they expire if requests arrive more often than the timeout.
         print(f"Timed out waiting for '{key}' cache lock — serving stale/none")
         if key in _cache:
             return _cache[key]['data'], _cache[key]['fetched_at']
