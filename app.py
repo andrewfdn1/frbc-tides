@@ -1,8 +1,10 @@
-from flask import Flask, jsonify, render_template, render_template_string
+from flask import Flask, jsonify, render_template, render_template_string, request
+from werkzeug.exceptions import HTTPException
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from bs4 import BeautifulSoup
 import requests
+import traceback
 import urllib3
 import threading
 import time
@@ -24,6 +26,17 @@ except ImportError:
     print("WARNING: shapely not installed — NSWWS point-in-polygon disabled. pip install shapely")
 
 app = Flask(__name__)
+
+
+@app.errorhandler(Exception)
+def _log_unhandled_exception(e):
+    """Log the full traceback of any unhandled exception to stdout so it
+    shows up in the Render logs, instead of a bare 500 with no trace."""
+    if isinstance(e, HTTPException):
+        return e   # normal 404s etc. — pass through untouched
+    print(f"ERROR [unhandled] {request.method} {request.path}: {e!r}")
+    traceback.print_exc()
+    return "Internal Server Error", 500
 
 TIDE_API_KEY      = os.environ.get("TIDE_API_KEY", "")
 GOOGLE_API_KEY    = os.environ.get("GOOGLE_CALENDAR_API_KEY", "")
@@ -68,6 +81,16 @@ def _set_fail_until(key, seconds):
         print(f"Open-Meteo {key} 429 — backing off for {seconds}s")
     except Exception as e:
         print(f"Could not persist backoff state: {e}")
+
+
+def _retry_after_seconds(response, default=3600):
+    """Parse a Retry-After header as integer seconds. Servers may send the
+    HTTP-date form instead of seconds — fall back to the default rather than
+    letting int() raise and skip the backoff bookkeeping entirely."""
+    try:
+        return int(response.headers.get("Retry-After", default))
+    except (TypeError, ValueError):
+        return default
 
 
 def _get_lock(key):
@@ -467,7 +490,9 @@ def get_richmond_observed_low_tide():
 def get_cardinal_direction(degree):
     directions = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
                   "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
-    return directions[int((degree + 11.25) / 22.5) % 16]
+    # Normalise first so negative or >360 degrees land in the right sector
+    # (e.g. -15 -> 345 -> NNW, not N)
+    return directions[int(((degree % 360) + 11.25) / 22.5) % 16]
 
 
 def prevailing_direction(degrees_list):
@@ -896,7 +921,7 @@ def _fetch_openmeteo():
 
     wx_res = requests.get(wx_url, timeout=10)
     if wx_res.status_code == 429:
-        retry_after = int(wx_res.headers.get("Retry-After", 3600))
+        retry_after = _retry_after_seconds(wx_res)
         _set_fail_until('weather_openmeteo', retry_after)
         raise Exception(f"Open-Meteo rate limited, retry after {retry_after}s")
     wx_res.raise_for_status()
@@ -1773,19 +1798,18 @@ def get_thames_temperature():
                 }
         return None
     return get_cached('thames_temp', fetch, ttl_seconds=900)
-    
-def tide_direction_at(tides, check_utc):
-    fut = [t for t in tides if t['dt_utc'] > check_utc]
-    if fut:
-        return "FLOOD TIDE" if fut[0]['EventType'] == "HighWater" else "EBB TIDE"
-    return ""
 
 
 def build_dashboard_data():
     now_utc = datetime.now(timezone.utc)
     now_lon = datetime.now(LONDON_TZ)
     is_bst  = now_lon.dst() != timedelta(0)
-    off     = timedelta(hours=1) if is_bst else timedelta(0)
+
+    # Convert a UTC tide datetime to London wall-clock time. Using astimezone
+    # (rather than adding a fixed BST/GMT offset based on *now*) keeps times
+    # correct for events on the far side of a clock change.
+    def to_london(dt_utc):
+        return dt_utc.astimezone(LONDON_TZ)
 
     results = {}
 
@@ -1820,13 +1844,13 @@ def build_dashboard_data():
         pst = [t for t in tides if t['dt_utc'] <= now_utc]
         if fut:
             t_data["direction"] = "FLOOD TIDE" if fut[0]['EventType'] == "HighWater" else "EBB TIDE"
-            t_data["until"] = (fut[0]['dt_utc'] + off).strftime('%H:%M')
+            t_data["until"] = to_london(fut[0]['dt_utc']).strftime('%H:%M')
             # Extract the height string for the current imminent tide target
             t_data["current_target_height"] = f"{fut[0]['Height']:.1f}m"
             for t in fut[:5]:
                 t_data["upcoming"].append({
                     "label":  "HI" if t['EventType'] == 'HighWater' else "LO",
-                    "time":   (t['dt_utc'] + off).strftime('%a %H:%M'),
+                    "time":   to_london(t['dt_utc']).strftime('%a %H:%M'),
                     "height": f"{t['Height']:.1f}m",
                     "type":   t['EventType']
                 })
@@ -1834,7 +1858,7 @@ def build_dashboard_data():
                 nt = fut[1]
                 t_data["next_tide"] = {
                     "label":  "High" if nt['EventType'] == 'HighWater' else "Low",
-                    "time":   (nt['dt_utc'] + off).strftime('%a %H:%M'),
+                    "time":   to_london(nt['dt_utc']).strftime('%a %H:%M'),
                     "height": f"{nt['Height']:.1f}m",
                     "type":   nt['EventType']
                 }
@@ -1842,46 +1866,55 @@ def build_dashboard_data():
             lt = pst[-1]
             t_data["last_tide"] = {
                 "label":  "High" if lt['EventType'] == 'HighWater' else "Low",
-                "time":   (lt['dt_utc'] + off).strftime('%a %H:%M'),
+                "time":   to_london(lt['dt_utc']).strftime('%a %H:%M'),
                 "height": f"{lt['Height']:.1f}m",
                 "type":   lt['EventType']
             }
 
         # Bridge tides table — apply fixed offsets (minutes) from Hammersmith reference
-        # Offsets are approximate and based on standard Thames tidal progression
-        _BRIDGES = [
-            {"name": "Putney",        "hw_off": -5,  "lw_off": -8},
-            {"name": "Hammersmith",   "hw_off":  0,  "lw_off":  0},
-            {"name": "Chiswick",      "hw_off": +8,  "lw_off": +10},
-            {"name": "Richmond",      "hw_off": +25, "lw_off": +30},
-        ]
-        # next tide event (fut[0]) determines whether "next" is HW or LW
-        _next_is_hw = fut[0]['EventType'] == 'HighWater'
-        # Gather up to 4 future events to find next HW and next LW at Hammersmith
-        _next_hw_utc = next((t['dt_utc'] for t in fut if t['EventType'] == 'HighWater'), None)
-        _next_lw_utc = next((t['dt_utc'] for t in fut if t['EventType'] == 'LowWater'),  None)
-        _next_hw_h   = next((t['Height'] for t in fut if t['EventType'] == 'HighWater'), None)
-        _next_lw_h   = next((t['Height'] for t in fut if t['EventType'] == 'LowWater'),  None)
+        # Offsets are approximate and based on standard Thames tidal progression.
+        # Guarded by `if fut:` — if the tide cache has gone stale enough that
+        # every event is in the past, fut is empty and fut[0] would crash the
+        # whole dashboard with an IndexError.
+        t_data["bridge_tides"]     = []
+        t_data["next_hw_utc_iso"]  = None
+        t_data["next_lw_utc_iso"]  = None
+        _next_hw_h = None
+        _next_lw_h = None
+        if fut:
+            _BRIDGES = [
+                {"name": "Putney",        "hw_off": -5,  "lw_off": -8},
+                {"name": "Hammersmith",   "hw_off":  0,  "lw_off":  0},
+                {"name": "Chiswick",      "hw_off": +8,  "lw_off": +10},
+                {"name": "Richmond",      "hw_off": +25, "lw_off": +30},
+            ]
+            # next tide event (fut[0]) determines whether "next" is HW or LW
+            _next_is_hw = fut[0]['EventType'] == 'HighWater'
+            # Gather up to 4 future events to find next HW and next LW at Hammersmith
+            _next_hw_utc = next((t['dt_utc'] for t in fut if t['EventType'] == 'HighWater'), None)
+            _next_lw_utc = next((t['dt_utc'] for t in fut if t['EventType'] == 'LowWater'),  None)
+            _next_hw_h   = next((t['Height'] for t in fut if t['EventType'] == 'HighWater'), None)
+            _next_lw_h   = next((t['Height'] for t in fut if t['EventType'] == 'LowWater'),  None)
 
-        def _fmt_bridge_time(base_utc, offset_mins):
-            if base_utc is None:
-                return None
-            adjusted = base_utc + timedelta(minutes=offset_mins) + off
-            return adjusted.strftime('%H:%M')
+            def _fmt_bridge_time(base_utc, offset_mins):
+                if base_utc is None:
+                    return None
+                adjusted = to_london(base_utc + timedelta(minutes=offset_mins))
+                return adjusted.strftime('%H:%M')
 
-        _bridge_rows = []
-        for _b in _BRIDGES:
-            _bridge_rows.append({
-                "name":     _b["name"],
-                "hw_time":  _fmt_bridge_time(_next_hw_utc, _b["hw_off"]),
-                "lw_time":  _fmt_bridge_time(_next_lw_utc, _b["lw_off"]),
-                "hw_height": f"{_next_hw_h:.1f}m" if _next_hw_h is not None else None,
-                "lw_height": f"{_next_lw_h:.1f}m" if _next_lw_h is not None else None,
-                "next_is_hw": _next_is_hw,
-            })
-        t_data["bridge_tides"] = _bridge_rows
-        t_data["next_hw_utc_iso"] = _next_hw_utc.isoformat() if _next_hw_utc else None
-        t_data["next_lw_utc_iso"] = _next_lw_utc.isoformat() if _next_lw_utc else None
+            _bridge_rows = []
+            for _b in _BRIDGES:
+                _bridge_rows.append({
+                    "name":     _b["name"],
+                    "hw_time":  _fmt_bridge_time(_next_hw_utc, _b["hw_off"]),
+                    "lw_time":  _fmt_bridge_time(_next_lw_utc, _b["lw_off"]),
+                    "hw_height": f"{_next_hw_h:.1f}m" if _next_hw_h is not None else None,
+                    "lw_height": f"{_next_lw_h:.1f}m" if _next_lw_h is not None else None,
+                    "next_is_hw": _next_is_hw,
+                })
+            t_data["bridge_tides"] = _bridge_rows
+            t_data["next_hw_utc_iso"] = _next_hw_utc.isoformat() if _next_hw_utc else None
+            t_data["next_lw_utc_iso"] = _next_lw_utc.isoformat() if _next_lw_utc else None
 
         # Spring/Neap indicator — use all API data (7 days) to compute daily ranges
         # and derive both current type and multi-day trend
@@ -1903,7 +1936,7 @@ def build_dashboard_data():
             from collections import defaultdict as _dd
             _daily_heights = _dd(list)
             for _t in tides:
-                _day = (_t['dt_utc'] + off).strftime('%Y-%m-%d')
+                _day = to_london(_t['dt_utc']).strftime('%Y-%m-%d')
                 _daily_heights[_day].append(_t['Height'])
             _daily_ranges = {
                 _d: round(max(_h) - min(_h), 2)
@@ -1946,11 +1979,11 @@ def build_dashboard_data():
         t_data["today_tides"] = [
             {
                 "label":  "High" if t['EventType'] == 'HighWater' else "Low",
-                "time":   (t['dt_utc'] + off).strftime('%H:%M'),
+                "time":   to_london(t['dt_utc']).strftime('%H:%M'),
                 "height": f"{t['Height']:.1f}m",
             }
             for t in tides
-            if (t['dt_utc'] + off).date() == today_local
+            if to_london(t['dt_utc']).date() == today_local
         ]
             
     # Calendar
@@ -2219,7 +2252,7 @@ def _fetch_wind_openmeteo():
     )
     r = requests.get(url, timeout=15)
     if r.status_code == 429:
-        retry_after = int(r.headers.get("Retry-After", 3600))
+        retry_after = _retry_after_seconds(r)
         _set_fail_until('wind_grid', retry_after)
         raise Exception(f"Open-Meteo rate limited, retry after {retry_after}s")
     r.raise_for_status()
@@ -2695,8 +2728,8 @@ def api_overlay():
     try:
         flag_data, _ = get_pla_flag()
         flag_colour = flag_data.get('colour', 'UNKNOWN').upper()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"ERROR [overlay/flag]: {e!r}")
 
     # Next tide — compare next HW and LW UTC times, take whichever is sooner
     next_tide_label = None
@@ -2727,8 +2760,10 @@ def api_overlay():
         elif lw_iso:
             next_tide_label = "Low"
             next_tide_time = lw_iso.astimezone(LONDON_TZ).strftime("%H:%M")
-    except Exception:
-        pass
+    except Exception as e:
+        # Log rather than pass silently — a bare pass here hid the missing
+        # hw_iso initialisation for days while the overlay showed no tide text.
+        print(f"ERROR [overlay/next-tide]: {e!r}")
 
     # Pontoon warning — within 60 mins after low tide
     pontoon_warning = False
@@ -2738,8 +2773,8 @@ def api_overlay():
         if past_lows:
             diff = (now - past_lows[-1]['dt_utc']).total_seconds()
             pontoon_warning = 0 <= diff <= 3600
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"ERROR [overlay/pontoon]: {e!r}")
 
     return jsonify({
         "flag":            flag_colour,
@@ -2747,23 +2782,23 @@ def api_overlay():
         "next_tide_time":  next_tide_time,
         "pontoon_warning": pontoon_warning,
     })
+
+
 def _prewarm():
-    import time
     print("Pre-warming cache on startup...")
     for fn in (get_tides, get_kingston_flow, get_pla_flag, get_calendar_events, get_nswws_warnings, get_water_quality):
         try:
             fn()
         except Exception as e:
-            print(f"Pre-warm error: {e}")
+            print(f"Pre-warm error [{fn.__name__}]: {e!r}")
     time.sleep(2)
     try:
         get_weather()
     except Exception as e:
-        print(f"Pre-warm weather error: {e}")
+        print(f"Pre-warm weather error: {e!r}")
 
 
 if __name__ == "__main__":
-    threading.Thread(target=_prewarm, daemon=True).start()
     app.run(debug=os.environ.get("FLASK_DEBUG", "0") == "1")
 
 
@@ -2776,7 +2811,7 @@ import re as _re
 from datetime import date as _date
 from io import StringIO as _StringIO
 from urllib.request import urlopen as _urlopen
-from urllib.error import URLError as _URLError
+from urllib.error import URLError as _URLError, HTTPError as _HTTPError
 
 _WQ_FRBC_URL = (
     "https://docs.google.com/spreadsheets/d/"
@@ -2885,12 +2920,18 @@ def _wq_fetch_site(url, site_label):
         return []
     try:
         with _urlopen(url, timeout=15) as resp:
-            if resp.status == 403:
-                # Sheet genuinely not public — this is a real "no data" state,
-                # not a transient failure, so returning [] here is correct.
-                print(f"INFO [wq/{site_label}]: sheet not public (403)")
-                return []
             return _wq_parse_sheet(resp.read().decode("utf-8"), site_label)
+    except _HTTPError as e:
+        # urlopen raises HTTPError for any 4xx/5xx — it never returns a
+        # response object we could check .status on. Handle it BEFORE
+        # URLError (HTTPError is a subclass of URLError).
+        if e.code == 403:
+            # Sheet genuinely not public — this is a real "no data" state,
+            # not a transient failure, so returning [] here is correct.
+            print(f"INFO [wq/{site_label}]: sheet not public (403)")
+            return []
+        print(f"ERROR [wq/{site_label}]: HTTP {e.code} {e.reason}")
+        raise
     except _URLError as e:
         # Network failure / timeout — this is transient, not "no data".
         # Raise so the caller can fall back to the last good cached reading
@@ -2961,3 +3002,14 @@ def get_water_quality():
 
     result, fetched_at = get_cached("water_quality", fetch, ttl_seconds=21600)
     return result, fetched_at
+
+
+# ---------------------------------------------------------------------------
+# Cache pre-warm — started at import time (bottom of the module, after every
+# function it calls is defined) so it also runs under gunicorn on Render.
+# Previously this only started under `if __name__ == "__main__"`, which never
+# executes when Render runs `gunicorn app:app`, so production workers always
+# started cold and the first request after each deploy paid the full fetch
+# cost for every data source.
+# ---------------------------------------------------------------------------
+threading.Thread(target=_prewarm, daemon=True).start()
