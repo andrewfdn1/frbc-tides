@@ -2674,10 +2674,6 @@ td.r { text-align:right; white-space:nowrap; }
 def index():
     return render_template("index.html", d=build_dashboard_data())
 
-@app.route('/radar')
-def radar():
-    return render_template("index2.html", d=build_dashboard_data())
-
 @app.route("/data")
 def data_endpoint():
     return jsonify(build_dashboard_data())

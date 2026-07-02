@@ -276,7 +276,6 @@ Note: Render free tier spins down after 15 minutes inactivity. The first request
 - `GET /api/overlay` - Compact JSON summary (PLA flag colour, next tide label/time, pontoon warning) for external/embedded consumers
 - `GET /csomap` - Leaflet map of all tracked CSO monitors, colour-coded by zone
 - `GET /waterquality` - Detailed CSO discharge table banded by geographic zone
-- `GET /radar` - **Currently broken**: renders `templates/index2.html`, which was deleted from the repo. Needs either a restored template or the route removed.
 
 ## Key Features
 
