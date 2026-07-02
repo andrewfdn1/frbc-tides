@@ -14,6 +14,11 @@ import json
 import pathlib
 import tempfile
 import xml.etree.ElementTree as ET
+import netrc  # noqa: F401 — force this import now, single-threaded; requests'
+              # get_netrc_auth() imports it lazily on first use, and multiple
+              # threads racing that first import can deadlock on CPython's
+              # per-module import lock (seen in production as a hung
+              # requests.get() inside get_netrc_auth -> import netrc).
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ---------------------------------------------------------------------------
