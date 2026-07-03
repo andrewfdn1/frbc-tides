@@ -78,10 +78,9 @@ CAL_ID            = "info@fulhamreachboatclub.com"
 # Hammersmith, London
 LAT, LON = 51.488, -0.224
 
-_cache              = {}
-_refresh_started    = set()
-_refresh_started_mu = threading.Lock()
-_cal_fail_until     = 0
+_cache           = {}
+_refresh_started = set()
+_cal_fail_until  = 0
 
 # File-based backoff — survives process restarts and is shared across workers
 _BACKOFF_FILE  = pathlib.Path(tempfile.gettempdir()) / "openmeteo_backoff.json"
@@ -172,15 +171,22 @@ def get_cached(key, fetch_fn, ttl_seconds, hard_timeout=25):
     background refresh loop for it the first time it's requested (later
     calls are a no-op for the thread-start). Never blocks on a live fetch —
     returns (None, '') if nothing has been fetched yet.
+
+    No lock around the "already started?" check: a production crash showed
+    a request thread stuck for 100+ seconds trying to acquire a lock here
+    (root cause unconfirmed, but a plain set membership check + add is a
+    single, GIL-atomic operation in CPython, so no lock is actually needed
+    for correctness). Worst case on a genuine race is two background
+    threads briefly started for the same key — harmless, self-resolving,
+    and far preferable to any risk of another hang on this path.
     """
-    with _refresh_started_mu:
-        if key not in _refresh_started:
-            _refresh_started.add(key)
-            threading.Thread(
-                target=_background_refresh_loop,
-                args=(key, fetch_fn, ttl_seconds, hard_timeout),
-                daemon=True,
-            ).start()
+    if key not in _refresh_started:
+        _refresh_started.add(key)
+        threading.Thread(
+            target=_background_refresh_loop,
+            args=(key, fetch_fn, ttl_seconds, hard_timeout),
+            daemon=True,
+        ).start()
     return _read_cache(key)
 
 
