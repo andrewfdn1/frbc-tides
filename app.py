@@ -2678,6 +2678,10 @@ def index():
 def radar():
     return render_template("index2.html", d=build_dashboard_data())
 
+@app.route("/links")
+def links():
+    return render_template("links.html")
+
 @app.route("/data")
 def data_endpoint():
     return jsonify(build_dashboard_data())

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Links &mdash; FRBC</title>
+    <link rel="icon" type="image/png" href="/static/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+    <link rel="shortcut icon" href="/static/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
+    <link rel="manifest" href="/static/site.webmanifest" />
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
+
+        body {
+            background-color: #000;
+            color: #fff;
+            min-height: 100vh;
+            padding: clamp(20px, 4vw, 48px) clamp(16px, 6vw, 64px);
+        }
+
+        .back-link {
+            display: inline-block;
+            color: #888;
+            text-decoration: none;
+            font-size: clamp(13px, 1.4vw, 16px);
+            margin-bottom: clamp(20px, 3vw, 36px);
+        }
+
+        .back-link:hover { color: #33FF57; }
+
+        h1 {
+            font-size: clamp(24px, 3.2vw, 36px);
+            text-transform: uppercase;
+            border-bottom: 1px solid #333;
+            padding-bottom: 14px;
+            margin-bottom: clamp(20px, 3vw, 36px);
+        }
+
+        .link-block {
+            margin-bottom: clamp(24px, 3.4vw, 40px);
+        }
+
+        .link-label {
+            font-size: clamp(18px, 2.2vw, 26px);
+            font-weight: bold;
+            color: #33FF57;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+
+        .link-url {
+            display: inline-block;
+            font-size: clamp(15px, 1.8vw, 20px);
+            color: #fff;
+            text-decoration: none;
+            word-break: break-all;
+            border-bottom: 1px solid #333;
+            padding-bottom: 2px;
+        }
+
+        .link-url:hover {
+            color: #33FF57;
+            border-bottom-color: #33FF57;
+        }
+    </style>
+</head>
+<body>
+
+<a href="/" class="back-link">&larr; Back to dashboard</a>
+
+<h1>Links</h1>
+
+<div class="link-block">
+    <div class="link-label">Incident report</div>
+    <a class="link-url" href="https://docs.google.com/forms/d/e/1FAIpQLSdsuWobvXfYjHm-lmqi8OTXx1oeicnnQi1sXoLWngWTdSIa-Q/viewform?pli=1" target="_blank" rel="noopener">https://docs.google.com/forms/d/e/1FAIpQLSdsuWobvXfYjHm-lmqi8OTXx1oeicnnQi1sXoLWngWTdSIa-Q/viewform?pli=1</a>
+</div>
+
+<div class="link-block">
+    <div class="link-label">Distances</div>
+    <a class="link-url" href="https://andrewdoughty.com/distances/" target="_blank" rel="noopener">https://andrewdoughty.com/distances/</a>
+</div>
+
+<div class="link-block">
+    <div class="link-label">Safety</div>
+    <a class="link-url" href="https://www.fulhamreachboatclub.co.uk/safety" target="_blank" rel="noopener">https://www.fulhamreachboatclub.co.uk/safety</a>
+</div>
+
+<div class="link-block">
+    <div class="link-label">Tideway Code</div>
+    <a class="link-url" href="https://pla.co.uk/tideway-code" target="_blank" rel="noopener">https://pla.co.uk/tideway-code</a>
+</div>
+
+<div class="link-block">
+    <div class="link-label">Dashboard</div>
+    <a class="link-url" href="/">Home page on Render</a>
+</div>
+
+</body>
+</html>
