@@ -8,39 +8,13 @@ import traceback
 import urllib3
 import threading
 import time
-import concurrent.futures
 from collections import defaultdict
 import os
 import json
 import pathlib
 import tempfile
 import xml.etree.ElementTree as ET
-import netrc  # noqa: F401 — see _warm_up_requests_stack() below
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-def _warm_up_requests_stack():
-    """
-    Make one real HTTPS request, synchronously and single-threaded, before
-    any fetch threads exist. requests/urllib3 lazily import several stdlib
-    modules (netrc, ssl internals, idna, etc.) the first time they prepare
-    a request; if multiple threads trigger that same first-time import
-    concurrently, they can deadlock on CPython's per-module import lock.
-    Seen in production as threads permanently stuck inside get_cached()
-    waiting on a per-key lock whose holder never returns from fetch_fn(),
-    surviving well past that call's own socket timeout — the signature of
-    an import deadlock, not a slow upstream. Doing one throwaway request
-    here resolves every such lazy import once, before any thread can race
-    on it.
-    """
-    try:
-        requests.get(
-            "https://api.open-meteo.com/v1/forecast?latitude=0&longitude=0&current=temperature_2m",
-            timeout=10,
-        )
-    except Exception as e:
-        print(f"HTTP stack warm-up request failed (non-fatal): {e}")
-
-_warm_up_requests_stack()
 
 # ---------------------------------------------------------------------------
 
@@ -52,7 +26,6 @@ except ImportError:
     print("WARNING: shapely not installed — NSWWS point-in-polygon disabled. pip install shapely")
 
 app = Flask(__name__)
-app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 86400  # 1 day — logo/favicons/manifest rarely change
 
 
 @app.errorhandler(Exception)
@@ -79,7 +52,8 @@ CAL_ID            = "info@fulhamreachboatclub.com"
 LAT, LON = 51.488, -0.224
 
 _cache           = {}
-_refresh_started = set()
+_cache_locks     = {}
+_cache_locks_mu  = threading.Lock()
 _cal_fail_until  = 0
 
 # File-based backoff — survives process restarts and is shared across workers
@@ -119,75 +93,33 @@ def _retry_after_seconds(response, default=3600):
         return default
 
 
-_FETCH_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=30, thread_name_prefix="fetch")
+def _get_lock(key):
+    with _cache_locks_mu:
+        if key not in _cache_locks:
+            _cache_locks[key] = threading.Lock()
+        return _cache_locks[key]
 
-def _call_with_hard_timeout(fn, timeout):
-    """
-    Run fn() with a wall-clock timeout that can't be defeated by a hang
-    anywhere inside it — DNS resolution, TLS handshake, or a stalled read.
-    requests' own timeout= doesn't reliably cover DNS lookups, which is the
-    confirmed cause of a production tides-fetch hang (the identical call
-    from an independent network completed in 0.12s). Python can't force-
-    kill a running thread, so a fetch that's genuinely stuck leaves one
-    abandoned thread behind — but bounded to at most one per refresh
-    cycle, not one per incoming request.
-    """
-    future = _FETCH_EXECUTOR.submit(fn)
-    return future.result(timeout=timeout)
-
-
-def _read_cache(key):
-    entry = _cache.get(key)
-    if entry is None:
-        return None, ''
-    return entry['data'], entry['fetched_at']
-
-
-def _background_refresh_loop(key, fetch_fn, ttl_seconds, hard_timeout):
-    """
-    Runs forever in its own daemon thread, one per cache key, decoupled
-    from request handling entirely. Request threads only ever read
-    _cache[key] via get_cached()/_read_cache() — they never fetch
-    themselves, so a hung upstream can block at most this one persistent
-    thread, not an unbounded pile of per-request threads.
-    """
+def get_cached(key, fetch_fn, ttl_seconds):
     global _nswws_last_error
-    while True:
+    now = datetime.now(timezone.utc).timestamp()
+    if key in _cache and now - _cache[key]['ts'] < ttl_seconds:
+        return _cache[key]['data'], _cache[key]['fetched_at']
+    with _get_lock(key):
+        now = datetime.now(timezone.utc).timestamp()
+        if key in _cache and now - _cache[key]['ts'] < ttl_seconds:
+            return _cache[key]['data'], _cache[key]['fetched_at']
         try:
-            data = _call_with_hard_timeout(fetch_fn, hard_timeout)
-            _cache[key] = {'data': data, 'fetched_at': datetime.now(LONDON_TZ).strftime('%H:%M')}
-        except concurrent.futures.TimeoutError:
-            print(f"{key} fetch exceeded {hard_timeout}s hard timeout — will retry next cycle")
+            data = fetch_fn()
+            fetched_at = datetime.now(LONDON_TZ).strftime('%H:%M')
+            _cache[key] = {'ts': now, 'data': data, 'fetched_at': fetched_at}
+            return data, fetched_at
         except Exception as e:
             print(f"Error fetching {key}: {e}")
             if key == "nswws":
                 _nswws_last_error = str(e)
-        time.sleep(ttl_seconds)
-
-
-def get_cached(key, fetch_fn, ttl_seconds, hard_timeout=25):
-    """
-    Return the latest cached value for `key`. Starts a persistent
-    background refresh loop for it the first time it's requested (later
-    calls are a no-op for the thread-start). Never blocks on a live fetch —
-    returns (None, '') if nothing has been fetched yet.
-
-    No lock around the "already started?" check: a production crash showed
-    a request thread stuck for 100+ seconds trying to acquire a lock here
-    (root cause unconfirmed, but a plain set membership check + add is a
-    single, GIL-atomic operation in CPython, so no lock is actually needed
-    for correctness). Worst case on a genuine race is two background
-    threads briefly started for the same key — harmless, self-resolving,
-    and far preferable to any risk of another hang on this path.
-    """
-    if key not in _refresh_started:
-        _refresh_started.add(key)
-        threading.Thread(
-            target=_background_refresh_loop,
-            args=(key, fetch_fn, ttl_seconds, hard_timeout),
-            daemon=True,
-        ).start()
-    return _read_cache(key)
+            if key in _cache:
+                return _cache[key]['data'], _cache[key]['fetched_at']
+            return None, ''
 
 
 def get_tides():
@@ -435,24 +367,6 @@ def get_pla_flag():
         return cached['data'], cached['fetched_at']
 
     return data, fetched_at
-
-
-def _pla_flag_background_loop():
-    """
-    get_pla_flag() manages _cache['pla_flag'] directly with its own
-    slot-based logic rather than going through get_cached(), so it needs
-    its own background loop for the same hang protection. Calling it
-    every 60s is cheap: it already short-circuits internally when the
-    current time-slot is already cached.
-    """
-    while True:
-        try:
-            _call_with_hard_timeout(get_pla_flag, timeout=25)
-        except concurrent.futures.TimeoutError:
-            print("pla_flag fetch exceeded 25s hard timeout — will retry next cycle")
-        except Exception as e:
-            print(f"Error in pla_flag background loop: {e}")
-        time.sleep(60)
 
 
 # ---------------------------------------------------------------------------
@@ -706,9 +620,9 @@ def _fetch_mo_observations():
     return data
 
 
-def _parse_mo_observations_window(obs_records, existing_window, hour_start, hour_end):
+def _parse_mo_observations_morning(obs_records, existing_morning):
     """
-    Build a window dict (hour_start:00-hour_end:00 local) from observed hourly records.
+    Build a morning window dict (06:00–12:00 local) from observed hourly records.
     Preserves rain_min/rain_max and uv_max from the forecast (not available in obs).
     Wind speeds are in m/s in the observations API — same as site-specific forecast.
     Wind direction is already a cardinal string (e.g. "NNW") — take the mode.
@@ -720,7 +634,7 @@ def _parse_mo_observations_window(obs_records, existing_window, hour_start, hour
             dt = datetime.fromisoformat(rec["datetime"].replace("Z", "+00:00")).astimezone(LONDON_TZ)
         except Exception:
             continue
-        if dt.date() == today and hour_start <= dt.hour < hour_end:
+        if dt.date() == today and 6 <= dt.hour < 12:
             entries.append(rec)
 
     if not entries:
@@ -746,9 +660,9 @@ def _parse_mo_observations_window(obs_records, existing_window, hour_start, hour
         "fog":       any(c in _MO_FOG_CODES   for c in codes),
         "storm":     any(c in _MO_STORM_CODES for c in codes),
         # Preserve forecast values for fields not available in observations
-        "rain_min":  existing_window.get("rain_min")  if existing_window else None,
-        "rain_max":  existing_window.get("rain_max")  if existing_window else None,
-        "uv_max":    existing_window.get("uv_max")    if existing_window else None,
+        "rain_min":  existing_morning.get("rain_min")  if existing_morning else None,
+        "rain_max":  existing_morning.get("rain_max")  if existing_morning else None,
+        "uv_max":    existing_morning.get("uv_max")    if existing_morning else None,
     }
     return result
 
@@ -1077,8 +991,7 @@ def _fetch_weather_with_fallbacks():
 
 
 def _load_morning_store():
-    """Load per-day weather window data from file, returns
-    {date_str: {"morning": {...}, "afternoon": {...}}}."""
+    """Load morning weather data from file, returns {date_str: morning_dict}."""
     try:
         return json.loads(_MORNING_FILE.read_text())
     except Exception:
@@ -1086,7 +999,7 @@ def _load_morning_store():
 
 
 def _save_morning_store(store):
-    """Persist per-day weather window data to file."""
+    """Persist morning weather data to file."""
     try:
         _MORNING_FILE.write_text(json.dumps(store))
     except Exception as e:
@@ -1095,13 +1008,8 @@ def _save_morning_store(store):
 
 def _fetch_weather_with_observations():
     """
-    Fetch weather and persist each day's forecast windows to file. Each
-    window is replaced with actual observed data once it has fully passed:
-      - before 12:00: morning (06:00-12:00) and afternoon (12:00-20:00) both
-        stay as forecast (morning hasn't finished, afternoon hasn't started)
-      - 12:00-20:00: morning has passed -> observations; afternoon is in
-        progress -> stays forecast
-      - after 20:00: afternoon has also passed -> observations
+    Fetch weather, persist morning data to file, and after midday replace
+    morning forecast with actual observations if available.
     Called inside get_cached so it only runs when the cache expires.
     """
     result = _fetch_weather_with_fallbacks()
@@ -1111,51 +1019,29 @@ def _fetch_weather_with_observations():
 
     # Purge old dates
     store = {k: v for k, v in store.items() if k == today_str}
-    day_store = store.get(today_str, {})
 
-    # Save today's forecast windows as a baseline. Rain/UV aren't available
-    # from observations, so the obs-parsing step below borrows them back
-    # out of whatever forecast was captured here.
+    # Save morning forecast data if we have it
     if result.get('morning') is not None:
-        day_store['morning'] = result['morning']
-    if result.get('afternoon') is not None:
-        day_store['afternoon'] = result['afternoon']
-    store[today_str] = day_store
-    _save_morning_store(store)
+        store[today_str] = result['morning']
+        _save_morning_store(store)
 
-    # Once a window has fully passed, try to replace it with actual
-    # observations (own cache — refreshes hourly).
-    if MO_OBS_KEY and now_lon.hour >= 12:
-        obs, _ = get_cached('mo_observations', _fetch_mo_observations, ttl_seconds=3600)
-        if obs:
-            try:
-                obs_morning = _parse_mo_observations_window(obs, day_store.get('morning'), 6, 12)
+    # After midday: try to replace with actual observations (own cache — refreshes hourly)
+    if now_lon.hour >= 12 and MO_OBS_KEY:
+        try:
+            obs, _ = get_cached('mo_observations', _fetch_mo_observations, ttl_seconds=3600)
+            if obs:
+                obs_morning = _parse_mo_observations_morning(obs, store.get(today_str))
                 if obs_morning:
-                    day_store['morning'] = obs_morning
+                    store[today_str] = obs_morning
+                    _save_morning_store(store)
                     print("Met Office Observations: morning data updated")
-            except Exception as e:
-                print(f"Met Office Observations morning parse failed, keeping forecast: {e}")
+        except Exception as e:
+            print(f"Met Office Observations morning fetch failed, keeping forecast: {e}")
 
-            if now_lon.hour >= 20:
-                try:
-                    obs_afternoon = _parse_mo_observations_window(obs, day_store.get('afternoon'), 12, 20)
-                    if obs_afternoon:
-                        day_store['afternoon'] = obs_afternoon
-                        print("Met Office Observations: afternoon data updated")
-                except Exception as e:
-                    print(f"Met Office Observations afternoon parse failed, keeping forecast: {e}")
-
-            store[today_str] = day_store
-            _save_morning_store(store)
-
-    # Restore windows from the store (covers both: no window in result, and
-    # always-prefer-observed once a window has passed).
-    if day_store:
+    # Restore morning from file (covers both: no morning in result, and always-prefer-observed)
+    if today_str in store:
         result = dict(result)
-        if 'morning' in day_store:
-            result['morning'] = day_store['morning']
-        if 'afternoon' in day_store:
-            result['afternoon'] = day_store['afternoon']
+        result['morning'] = store[today_str]
 
     return result
 
@@ -1931,23 +1817,23 @@ def build_dashboard_data():
         try:
             results[key] = fn()
         except Exception as e:
-            print(f"Error reading {key}: {e}")
+            print(f"Thread error {key}: {e}")
 
-    # All in-memory cache reads — the underlying data is kept warm by
-    # persistent background refresh threads (started in get_cached() and
-    # _pla_flag_background_loop()), fully decoupled from request handling.
-    # No threading needed here: a hung upstream can never block a request.
-    run('tides',         get_tides)
-    run('calendar',      get_calendar_events)
-    run('pla_flag',      lambda: _read_cache('pla_flag'))
-    run('pla_json',      _fetch_pla_json)
-    run('weather',       get_weather)
-    run('kingston_flow', get_kingston_flow)
-    run('cso_discharge', get_cso_discharge)
-    run('richmond_lw',   get_richmond_observed_low_tide)
-    run('thames_temp',   get_thames_temperature)
-    run('nswws',         get_nswws_warnings)
-    run('water_quality', get_water_quality)
+    threads = [
+        threading.Thread(target=run, args=('tides',         get_tides)),
+        threading.Thread(target=run, args=('calendar',      get_calendar_events)),
+        threading.Thread(target=run, args=('pla_flag',      get_pla_flag)),
+        threading.Thread(target=run, args=('pla_json',       _fetch_pla_json)),
+        threading.Thread(target=run, args=('weather',       get_weather)),
+        threading.Thread(target=run, args=('kingston_flow', get_kingston_flow)),
+        threading.Thread(target=run, args=('cso_discharge', get_cso_discharge)),
+        threading.Thread(target=run, args=('richmond_lw',   get_richmond_observed_low_tide)),
+        threading.Thread(target=run, args=('thames_temp', get_thames_temperature)),
+        threading.Thread(target=run, args=('nswws',          get_nswws_warnings)),
+        threading.Thread(target=run, args=('water_quality',  get_water_quality)),
+    ]
+    for t in threads: t.start()
+    for t in threads: t.join(timeout=15)
 
     # Tides
     tides, t_up = results.get('tides', (None, ''))
@@ -2788,6 +2674,10 @@ td.r { text-align:right; white-space:nowrap; }
 def index():
     return render_template("index.html", d=build_dashboard_data())
 
+@app.route('/radar')
+def radar():
+    return render_template("index2.html", d=build_dashboard_data())
+
 @app.route("/data")
 def data_endpoint():
     return jsonify(build_dashboard_data())
@@ -2846,31 +2736,30 @@ def api_overlay():
     next_tide_time = None
     try:
         tides, _ = get_tides()
-        if tides:
-            hw_iso = None
-            lw_iso = None
-            # Find next HW and LW
-            for e in tides:
-                if e['dt_utc'] > now:
-                    if "High" in e['EventType'] and hw_iso is None:
-                        hw_iso = e['dt_utc']
-                    if "Low" in e['EventType'] and lw_iso is None:
-                        lw_iso = e['dt_utc']
-                    if hw_iso and lw_iso:
-                        break
-            if hw_iso and lw_iso:
-                if hw_iso < lw_iso:
-                    next_tide_label = "High"
-                    next_tide_time = hw_iso.astimezone(LONDON_TZ).strftime("%H:%M")
-                else:
-                    next_tide_label = "Low"
-                    next_tide_time = lw_iso.astimezone(LONDON_TZ).strftime("%H:%M")
-            elif hw_iso:
+        hw_iso = None
+        lw_iso = None
+        # Find next HW and LW
+        for e in tides:
+            if e['dt_utc'] > now:
+                if "High" in e['EventType'] and hw_iso is None:
+                    hw_iso = e['dt_utc']
+                if "Low" in e['EventType'] and lw_iso is None:
+                    lw_iso = e['dt_utc']
+                if hw_iso and lw_iso:
+                    break
+        if hw_iso and lw_iso:
+            if hw_iso < lw_iso:
                 next_tide_label = "High"
                 next_tide_time = hw_iso.astimezone(LONDON_TZ).strftime("%H:%M")
-            elif lw_iso:
+            else:
                 next_tide_label = "Low"
                 next_tide_time = lw_iso.astimezone(LONDON_TZ).strftime("%H:%M")
+        elif hw_iso:
+            next_tide_label = "High"
+            next_tide_time = hw_iso.astimezone(LONDON_TZ).strftime("%H:%M")
+        elif lw_iso:
+            next_tide_label = "Low"
+            next_tide_time = lw_iso.astimezone(LONDON_TZ).strftime("%H:%M")
     except Exception as e:
         # Log rather than pass silently — a bare pass here hid the missing
         # hw_iso initialisation for days while the overlay showed no tide text.
@@ -2880,11 +2769,10 @@ def api_overlay():
     pontoon_warning = False
     try:
         tides, _ = get_tides()
-        if tides:
-            past_lows = [e for e in tides if "Low" in e['EventType'] and e['dt_utc'] < now]
-            if past_lows:
-                diff = (now - past_lows[-1]['dt_utc']).total_seconds()
-                pontoon_warning = 0 <= diff <= 3600
+        past_lows = [e for e in tides if "Low" in e['EventType'] and e['dt_utc'] < now]
+        if past_lows:
+            diff = (now - past_lows[-1]['dt_utc']).total_seconds()
+            pontoon_warning = 0 <= diff <= 3600
     except Exception as e:
         print(f"ERROR [overlay/pontoon]: {e!r}")
 
@@ -2897,24 +2785,17 @@ def api_overlay():
 
 
 def _prewarm():
-    """
-    Trigger a background refresh thread for every cache key at startup, so
-    a real request is never the first to kick one off. Each call here is
-    non-blocking (get_cached() starts the thread and returns immediately) —
-    this just needs to touch every key once. get_pla_flag() is handled by
-    its own dedicated loop (_pla_flag_background_loop), started separately
-    below, since it doesn't go through get_cached().
-    """
     print("Pre-warming cache on startup...")
-    for fn in (
-        get_tides, get_calendar_events, _fetch_pla_json, get_weather,
-        get_kingston_flow, get_cso_discharge, get_richmond_observed_low_tide,
-        get_thames_temperature, get_nswws_warnings, get_water_quality,
-    ):
+    for fn in (get_tides, get_kingston_flow, get_pla_flag, get_calendar_events, get_nswws_warnings, get_water_quality):
         try:
             fn()
         except Exception as e:
             print(f"Pre-warm error [{fn.__name__}]: {e!r}")
+    time.sleep(2)
+    try:
+        get_weather()
+    except Exception as e:
+        print(f"Pre-warm weather error: {e!r}")
 
 
 if __name__ == "__main__":
@@ -3132,4 +3013,3 @@ def get_water_quality():
 # cost for every data source.
 # ---------------------------------------------------------------------------
 threading.Thread(target=_prewarm, daemon=True).start()
-threading.Thread(target=_pla_flag_background_loop, daemon=True).start()
