@@ -1,0 +1,45 @@
+name: Deputy shift calendar sync
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Log planned changes without writing to Google Calendar'
+        type: boolean
+        default: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements-deputy-sync.txt
+
+      - name: Sync Deputy shifts to Google Calendar
+        env:
+          DEPUTY_API_BASE_URL: ${{ secrets.DEPUTY_API_BASE_URL }}
+          DEPUTY_ACCESS_TOKEN: ${{ secrets.DEPUTY_ACCESS_TOKEN }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SHIFTS_CALENDAR_ID: ${{ secrets.SHIFTS_CALENDAR_ID }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for var in DEPUTY_API_BASE_URL DEPUTY_ACCESS_TOKEN GOOGLE_SERVICE_ACCOUNT_JSON SHIFTS_CALENDAR_ID; do
+            if [ -z "${!var:-}" ]; then
+              missing+=("$var")
+            fi
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing required secrets: ${missing[*]}. Add them under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          python deputy_calendar_sync.py

@@ -266,6 +266,58 @@ Note: Render free tier spins down after 15 minutes inactivity. The first request
 
 **Important deploy sequencing**: always upload `app.py` before `index.html`. The template references data keys produced by `app.py`; deploying `index.html` first against an old `app.py` can cause template rendering errors.
 
+## Deputy → Google Calendar Shift Sync
+
+A standalone script (`deputy_calendar_sync.py`), run on a schedule by
+`.github/workflows/deputy-calendar-sync.yml`, keeps a single Google Calendar
+in sync with the club's Deputy shift roster. It is independent of the Flask
+dashboard app — it runs as a GitHub Actions job (every 30 minutes, or via
+manual `workflow_dispatch`) rather than as a background thread in the app,
+since Render's free tier spins the dashboard down when idle.
+
+### What it does
+
+1. Fetches every assigned shift ("Roster" in Deputy) across all staff for a
+   rolling window (yesterday through 21 days ahead by default).
+2. Groups shifts by Deputy area ("Operational Unit") and day, then merges
+   any shifts that overlap or touch in that area into a single block —
+   this is the deduplication: two staff both rostered on, say, "Bar" from
+   09:00–13:00 and 11:00–15:00 become one 09:00–15:00 calendar event
+   listing both, instead of two overlapping events.
+3. Reconciles that set of blocks against the target Google Calendar:
+   creates new events, updates events whose time/staff changed, and deletes
+   events for shifts that were cancelled or reassigned — so the calendar
+   always mirrors Deputy's current roster rather than accumulating stale
+   entries. Each event's Google Calendar ID is deterministically derived
+   from its area + time span, and every event it manages is tagged with a
+   private `source=deputy-sync` extended property so the sync never touches
+   events it didn't create.
+
+### Setup
+
+1. **Deputy permanent access token** — as a Deputy Systems Administrator,
+   open `https://{yourinstall}.{geo}.deputy.com/exec/devapp/oauth_clients`
+   and generate a permanent token. Note your install's API base URL (the
+   same subdomain), e.g. `https://yourinstall.eu.deputy.com/api/v1`.
+2. **Dedicated Google Calendar** — create a new calendar (e.g. "FRBC
+   Shifts") in Google Calendar, separate from the existing club events
+   calendar the dashboard already reads. Copy its Calendar ID from
+   Settings → *Integrate calendar*.
+3. **Google service account** — in Google Cloud Console, create a service
+   account, enable the Calendar API for the project, and download a JSON
+   key. Share the new calendar with the service account's email address,
+   granting *"Make changes to events"*.
+4. **GitHub Actions secrets** — under Settings → Secrets and variables →
+   Actions, add:
+   - `DEPUTY_API_BASE_URL`
+   - `DEPUTY_ACCESS_TOKEN`
+   - `GOOGLE_SERVICE_ACCOUNT_JSON` (paste the full JSON key contents)
+   - `SHIFTS_CALENDAR_ID`
+
+Trigger the workflow manually with `dry_run: true` first to log the planned
+create/update/delete actions without writing anything, before letting it run
+on its schedule.
+
 ## API Endpoints
 
 - `GET /` - Main dashboard HTML page
