@@ -237,14 +237,11 @@ def _scrape_pla_widget():
         return None
 
     src = img.get('src', '')
-    colour = None
+    img_colour = None
     for fragment, name in _PLA_IMG_COLOUR_MAP.items():
         if fragment in src:
-            colour = name
+            img_colour = name
             break
-    if not colour:
-        print(f"ERROR [pla_widget]: unrecognised img src '{src}'")
-        return None
 
     # Extract heading and body text from the tidecont div
     tidecont = soup.find('div', class_='tidecont')
@@ -252,6 +249,21 @@ def _scrape_pla_widget():
     texts = [t.strip() for t in inner_div.strings if t.strip()] if inner_div else []
     heading = texts[0] if len(texts) > 0 else ""
     body    = texts[1] if len(texts) > 1 else ""
+
+    # The heading is PLA's own textual confirmation of which flag is showing
+    # (e.g. "GREEN — Average Fluvial Flows") and is the same text a visitor
+    # reads next to the flag in the iframe. It's more trustworthy than the
+    # <img> filename, which can be stale or mismatched, so prefer it and
+    # only fall back to the image when no colour word is found in the text.
+    heading_lower = heading.lower()
+    text_colour = next((name for name in _PLA_IMG_COLOUR_MAP.values() if name in heading_lower), None)
+
+    colour = text_colour or img_colour
+    if not colour:
+        print(f"ERROR [pla_widget]: could not determine colour from heading '{heading}' or img src '{src}'")
+        return None
+    if img_colour and text_colour and img_colour != text_colour:
+        print(f"WARN [pla_widget]: img src colour '{img_colour}' disagrees with heading text colour '{text_colour}' — using text")
 
     print(f"INFO [pla_widget]: scraped → {colour} | {heading} | {body}")
     return {"colour": colour, "heading": heading, "body": body}
