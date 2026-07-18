@@ -64,7 +64,7 @@
         table {
             width: 100%;
             border-collapse: collapse;
-            font-size: clamp(12px, 3.6vw, 15px);
+            font-size: clamp(11px, 3.1vw, 13px);
         }
 
         thead th {
@@ -78,15 +78,12 @@
             white-space: nowrap;
         }
 
-        thead th.num { text-align: right; }
-
         tbody td {
+            text-align: left;
             padding: 8px 4px;
             border-bottom: 1px solid #1a1a1a;
             white-space: nowrap;
         }
-
-        tbody td.num { text-align: right; }
 
         tr.highlight td { font-weight: bold; }
         tr.highlight td:first-child { color: #33FF57; }
@@ -134,20 +131,20 @@
     <thead>
         <tr>
             <th>Low tide</th>
-            <th class="num">Wind/gusts</th>
-            <th class="num">Rain %</th>
-            <th class="num">Temp &deg;C</th>
+            <th>Wind/gusts</th>
+            <th>Rain %</th>
+            <th>Temp &deg;C</th>
         </tr>
     </thead>
     <tbody>
         {% for row in rows %}
         <tr class="{% if row.is_night %}night{% elif row.highlight %}highlight{% endif %}">
             <td>{{ row.time }} <span class="tide-day">{{ row.day }}</span> <span class="tide-date">{{ row.date }}</span></td>
-            <td class="num{% if row.wind_ok and not row.is_night %} ok{% endif %}"
+            <td class="{% if row.wind_ok and not row.is_night %}ok{% endif %}"
                 data-mph="{{ row.wind_mph }}/{{ row.gust_mph }}"
                 data-kmh="{{ row.wind_kmh }}/{{ row.gust_kmh }}">{{ row.wind_kmh }}/{{ row.gust_kmh }}</td>
-            <td class="num{% if row.rain_ok and not row.is_night %} ok{% endif %}">{{ row.rain_pct }}%</td>
-            <td class="num">{{ row.temp_c }}</td>
+            <td class="{% if row.rain_ok and not row.is_night %}ok{% endif %}">{{ row.rain_pct }}%</td>
+            <td>{{ row.temp_c if row.temp_c is not none else '-' }}</td>
         </tr>
         {% endfor %}
     </tbody>

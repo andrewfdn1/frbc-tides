@@ -122,9 +122,14 @@ def _fetch_met_office_forecast():
             wind = e.get("windSpeed10m")
             gust = e.get("max10mWindGust", e.get("windGustSpeed10m"))
             rain = e.get("probOfPrecipitation")
-            temp = e.get("screenTemperature")
-            if wind is None or gust is None or rain is None or temp is None:
+            if wind is None or gust is None or rain is None:
                 continue
+
+            # Temperature is a bonus field, not required — some forecast
+            # points (esp. three-hourly, which covers most of the week)
+            # omit screenTemperature, and dropping the whole row over a
+            # missing temp was hiding otherwise-good wind/rain data.
+            temp = e.get("screenTemperature")
 
             key = dt.isoformat()
             if key in points:
@@ -134,7 +139,7 @@ def _fetch_met_office_forecast():
                 "wind_mph": _ms_to_mph(wind),
                 "gust_mph": _ms_to_mph(gust),
                 "rain_pct": float(rain),
-                "temp_c":   float(temp),
+                "temp_c":   float(temp) if temp is not None else None,
             }
 
     return sorted(points.values(), key=lambda p: p["dt"])
@@ -199,7 +204,7 @@ def build_forecast_rows():
             "wind_ok":   wind_ok,
             "rain_pct":  round(rain_pct),
             "rain_ok":   rain_ok,
-            "temp_c":    round(temp_c),
+            "temp_c":    round(temp_c) if temp_c is not None else None,
             "is_night":  is_night,
             "highlight": highlight,
         })
