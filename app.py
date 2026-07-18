@@ -1,6 +1,6 @@
 from flask import Flask, jsonify, render_template, render_template_string, request
 from werkzeug.exceptions import HTTPException
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 from bs4 import BeautifulSoup
 import requests
@@ -1064,6 +1064,92 @@ def get_weather():
         raise Exception("Weather unavailable")
     return result, fetched_at
 
+
+# ---------------------------------------------------------------------------
+# Fairweather Sculler — forecast low tides matched with wind & rain
+# ---------------------------------------------------------------------------
+
+_SCULLER_WIND_THRESHOLD_MPH = 10
+_SCULLER_RAIN_THRESHOLD_PCT = 10
+
+
+def _fetch_sculler_hourly_weather():
+    """Hourly wind speed/gust (mph) and rain probability (%) for the coming
+    week at Hammersmith, keyed by local London hour ('YYYY-MM-DDTHH')."""
+    url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={LAT}&longitude={LON}"
+        "&hourly=wind_speed_10m,wind_gusts_10m,precipitation_probability"
+        "&wind_speed_unit=mph"
+        "&timezone=Europe%2FLondon"
+        "&forecast_days=10"
+    )
+    r = requests.get(url, timeout=10)
+    r.raise_for_status()
+    hourly = r.json()["hourly"]
+    times = hourly["time"]
+    return {
+        t[:13]: {
+            "wind_mph": hourly["wind_speed_10m"][i],
+            "gust_mph": hourly["wind_gusts_10m"][i],
+            "rain_pct": hourly["precipitation_probability"][i],
+        }
+        for i, t in enumerate(times)
+    }
+
+
+def get_sculler_forecast():
+    """Build the forecast low-tide / wind / rain rows for the Fairweather
+    Sculler page: every future low tide from the Admiralty forecast, matched
+    against the Open-Meteo hourly forecast for the nearest hour."""
+    tides, tides_fetched_at = get_tides()
+    hourly, weather_fetched_at = get_cached(
+        "sculler_weather", _fetch_sculler_hourly_weather, ttl_seconds=3600
+    )
+
+    now = datetime.now(timezone.utc)
+    rows = []
+    for e in (tides or []):
+        if "Low" not in e["EventType"] or e["dt_utc"] < now:
+            continue
+
+        dt_london = e["dt_utc"].astimezone(LONDON_TZ)
+
+        # Match to the nearest forecast hour rather than flooring, so a
+        # 14:56 low tide is matched against the 15:00 forecast, not 14:00.
+        rounded = (dt_london + timedelta(minutes=30)).replace(minute=0, second=0, microsecond=0)
+        wx = (hourly or {}).get(rounded.strftime("%Y-%m-%dT%H"))
+        if wx is None or wx["wind_mph"] is None or wx["gust_mph"] is None or wx["rain_pct"] is None:
+            continue
+
+        wind_mph = wx["wind_mph"]
+        gust_mph = wx["gust_mph"]
+        rain_pct = wx["rain_pct"]
+
+        wind_ok = max(wind_mph, gust_mph) < _SCULLER_WIND_THRESHOLD_MPH
+        rain_ok = rain_pct < _SCULLER_RAIN_THRESHOLD_PCT
+        daylight = dtime(8, 0) <= dt_london.time() <= dtime(18, 0)
+        fairweather = daylight and wind_ok and rain_pct == 0
+
+        rows.append({
+            "time":     dt_london.strftime("%H:%M"),
+            "day":      dt_london.strftime("%a"),
+            "date":     dt_london.strftime("%-d %b"),
+            "wind_mph": round(wind_mph),
+            "gust_mph": round(gust_mph),
+            "wind_kmh": round(wind_mph * 1.609344),
+            "gust_kmh": round(gust_mph * 1.609344),
+            "wind_ok":  wind_ok,
+            "rain_pct": round(rain_pct),
+            "rain_ok":  rain_ok,
+            "fairweather": fairweather,
+        })
+
+    return {
+        "rows":               rows,
+        "tides_fetched_at":   tides_fetched_at,
+        "weather_fetched_at": weather_fetched_at,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2694,6 +2780,15 @@ def radar():
 def links():
     return render_template("links.html")
 
+@app.route("/sculler")
+def sculler():
+    try:
+        d = get_sculler_forecast()
+    except Exception as e:
+        print(f"ERROR [sculler]: {e!r}")
+        d = {"rows": [], "tides_fetched_at": "", "weather_fetched_at": ""}
+    return render_template("sculler.html", d=d)
+
 @app.route("/data")
 def data_endpoint():
     return jsonify(build_dashboard_data())
@@ -2812,6 +2907,10 @@ def _prewarm():
         get_weather()
     except Exception as e:
         print(f"Pre-warm weather error: {e!r}")
+    try:
+        get_sculler_forecast()
+    except Exception as e:
+        print(f"Pre-warm sculler error: {e!r}")
 
 
 if __name__ == "__main__":
