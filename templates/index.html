@@ -69,7 +69,6 @@
 
         thead th {
             text-align: left;
-            text-transform: uppercase;
             font-size: clamp(13px, 4vw, 16px);
             font-weight: bold;
             color: #ccc;
@@ -93,7 +92,9 @@
         .tide-day  { color: #888; }
         .tide-date { color: #888; }
 
-        .ok { color: #33FF57; }
+        .c-green  { color: #33FF57; }
+        .c-yellow { color: #FFFF00; }
+        .c-red    { color: #FF4B4B; }
 
         tbody tr:nth-child(even) { background-color: #0a0a0a; }
 
@@ -128,8 +129,8 @@
 <table>
     <thead>
         <tr>
-            <th>Low tide</th>
-            <th>Wind/gusts</th>
+            <th>Low Tide</th>
+            <th>Wind/Gusts</th>
             <th>Rain %</th>
             <th>Temp &deg;C</th>
         </tr>
@@ -138,11 +139,12 @@
         {% for row in rows %}
         <tr class="{% if row.highlight %}highlight{% endif %}">
             <td>{{ row.time }} <span class="tide-day">{{ row.day }}</span> <span class="tide-date">{{ row.date }}</span></td>
-            <td class="{% if row.wind_ok %}ok{% endif %}"
-                data-mph="{{ row.wind_mph }}/{{ row.gust_mph }}"
-                data-kmh="{{ row.wind_kmh }}/{{ row.gust_kmh }}">{{ row.wind_kmh }}/{{ row.gust_kmh }}</td>
-            <td class="{% if row.rain_ok %}ok{% endif %}">{{ row.rain_pct }}%</td>
-            <td>{{ row.temp_c if row.temp_c is not none else '-' }}</td>
+            <td><span class="{% if row.wind_color %}c-{{ row.wind_color }}{% endif %}"
+                    data-mph="{{ row.wind_mph }}" data-kmh="{{ row.wind_kmh }}">{{ row.wind_kmh }}</span>/<span
+                    class="{% if row.gust_color %}c-{{ row.gust_color }}{% endif %}"
+                    data-mph="{{ row.gust_mph }}" data-kmh="{{ row.gust_kmh }}">{{ row.gust_kmh }}</span></td>
+            <td class="{% if row.rain_color %}c-{{ row.rain_color }}{% endif %}">{{ row.rain_pct }}%</td>
+            <td class="{% if row.temp_color %}c-{{ row.temp_color }}{% endif %}">{{ row.temp_c if row.temp_c is not none else '-' }}</td>
         </tr>
         {% endfor %}
     </tbody>
@@ -155,12 +157,21 @@
     Wind shown as speed/gust. Tide times from the Admiralty forecast for Hammersmith;
     wind, rain and temperature from the Met Office Weather DataHub, matched to the
     nearest forecast point.
+    <br><br>
+    <span class="c-green">Green</span> wind/gusts: under 10mph.
+    <span class="c-yellow">Yellow</span>: over 10km/h.
+    <span class="c-red">Red</span>: over 20km/h.
+    <br>
+    <span class="c-green">Green</span> rain: under 10%.
+    <br>
+    <span class="c-yellow">Yellow</span> temp: 25&deg;C+ or below 3&deg;C.
+    <span class="c-red">Red</span>: 30&deg;C+ or below 0&deg;C.
 </div>
 
 <script>
 (function () {
     var buttons = document.querySelectorAll('.unit-btn');
-    var cells = document.querySelectorAll('td[data-mph]');
+    var cells = document.querySelectorAll('[data-mph]');
     function setUnit(unit) {
         buttons.forEach(function (b) {
             b.classList.toggle('active', b.dataset.unit === unit);

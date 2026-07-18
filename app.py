@@ -21,6 +21,16 @@ LAT, LON = 51.488, -0.224
 WIND_THRESHOLD_MPH = 10
 RAIN_THRESHOLD_PCT = 10
 
+# Amber/red wind bands, matching the FRBC tides dashboard (evaluated in km/h)
+WIND_AMBER_KMH = 10
+WIND_RED_KMH   = 20
+
+# Air temperature bands, matching the FRBC tides dashboard's cold/heat logic
+TEMP_RED_HIGH_C   = 30
+TEMP_RED_LOW_C    = 0
+TEMP_AMBER_HIGH_C = 25
+TEMP_AMBER_LOW_C  = 3
+
 _MO_SS_BASE = "https://data.hub.api.metoffice.gov.uk/sitespecific/v0/point/"
 
 # ---------------------------------------------------------------------------
@@ -180,6 +190,33 @@ def _nearest_forecast_point(forecast, target_dt, max_delta=timedelta(hours=2)):
 
 
 # ---------------------------------------------------------------------------
+# Colour coding
+# ---------------------------------------------------------------------------
+
+def _wind_band(mph, kmh):
+    """Green under the mph threshold (this app's own rule); above that,
+    the same amber/red bands the FRBC tides dashboard uses for wind/gusts."""
+    if mph < WIND_THRESHOLD_MPH:
+        return "green"
+    if kmh > WIND_RED_KMH:
+        return "red"
+    if kmh > WIND_AMBER_KMH:
+        return "yellow"
+    return ""
+
+
+def _temp_band(temp_c):
+    """Same hot/cold bands the FRBC tides dashboard uses for air temperature."""
+    if temp_c is None:
+        return ""
+    if temp_c >= TEMP_RED_HIGH_C or temp_c < TEMP_RED_LOW_C:
+        return "red"
+    if temp_c >= TEMP_AMBER_HIGH_C or temp_c < TEMP_AMBER_LOW_C:
+        return "yellow"
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Forecast table
 # ---------------------------------------------------------------------------
 
@@ -212,23 +249,30 @@ def build_forecast_rows():
         rain_pct = wx["rain_pct"]
         temp_c   = wx["temp_c"]
 
-        wind_ok   = max(wind_mph, gust_mph) < WIND_THRESHOLD_MPH
-        rain_ok   = rain_pct < RAIN_THRESHOLD_PCT
+        wind_kmh = round(wind_mph * 1.609344)
+        gust_kmh = round(gust_mph * 1.609344)
+        temp_c_r = round(temp_c) if temp_c is not None else None
+
+        wind_ok = wind_mph < WIND_THRESHOLD_MPH
+        rain_ok = rain_pct < RAIN_THRESHOLD_PCT
+        # Bold-row rule looks at wind speed only, not gusts.
         highlight = wind_ok
 
         rows.append({
-            "time":      dt_london.strftime("%H:%M"),
-            "day":       dt_london.strftime("%a"),
-            "date":      dt_london.strftime("%-d %b"),
-            "wind_mph":  round(wind_mph),
-            "gust_mph":  round(gust_mph),
-            "wind_kmh":  round(wind_mph * 1.609344),
-            "gust_kmh":  round(gust_mph * 1.609344),
-            "wind_ok":   wind_ok,
-            "rain_pct":  round(rain_pct),
-            "rain_ok":   rain_ok,
-            "temp_c":    round(temp_c) if temp_c is not None else None,
-            "highlight": highlight,
+            "time":        dt_london.strftime("%H:%M"),
+            "day":         dt_london.strftime("%a"),
+            "date":        dt_london.strftime("%-d %b"),
+            "wind_mph":    round(wind_mph),
+            "gust_mph":    round(gust_mph),
+            "wind_kmh":    wind_kmh,
+            "gust_kmh":    gust_kmh,
+            "wind_color":  _wind_band(wind_mph, wind_kmh),
+            "gust_color":  _wind_band(gust_mph, gust_kmh),
+            "rain_pct":    round(rain_pct),
+            "rain_color":  "green" if rain_ok else "",
+            "temp_c":      temp_c_r,
+            "temp_color":  _temp_band(temp_c_r),
+            "highlight":   highlight,
         })
 
     return rows
