@@ -105,6 +105,25 @@ def _ms_to_mph(ms):
     return float(ms) * 2.236936
 
 
+def _extract_temp_c(e):
+    """
+    Met Office field names for temperature vary by timestep: most points
+    carry an instantaneous 'screenTemperature', but some (particularly
+    further out in the three-hourly series) only report min/max bounds
+    instead. Average whichever is present rather than requiring the exact
+    instantaneous field, so temps beyond the ~2-day hourly window aren't
+    silently dropped.
+    """
+    direct = e.get("screenTemperature")
+    if direct is not None:
+        return float(direct)
+    bounds = [
+        float(e[k]) for k in ("maxScreenAirTemp", "minScreenAirTemp")
+        if e.get(k) is not None
+    ]
+    return sum(bounds) / len(bounds) if bounds else None
+
+
 def _fetch_met_office_forecast():
     """
     Merge the hourly (~2 days) and three-hourly (~7 days) Met Office
@@ -125,11 +144,10 @@ def _fetch_met_office_forecast():
             if wind is None or gust is None or rain is None:
                 continue
 
-            # Temperature is a bonus field, not required — some forecast
-            # points (esp. three-hourly, which covers most of the week)
-            # omit screenTemperature, and dropping the whole row over a
-            # missing temp was hiding otherwise-good wind/rain data.
-            temp = e.get("screenTemperature")
+            # Temperature is a bonus field, not required — dropping the
+            # whole row over a missing temp would hide otherwise-good
+            # wind/rain data.
+            temp = _extract_temp_c(e)
 
             key = dt.isoformat()
             if key in points:
@@ -139,7 +157,7 @@ def _fetch_met_office_forecast():
                 "wind_mph": _ms_to_mph(wind),
                 "gust_mph": _ms_to_mph(gust),
                 "rain_pct": float(rain),
-                "temp_c":   float(temp) if temp is not None else None,
+                "temp_c":   temp,
             }
 
     return sorted(points.values(), key=lambda p: p["dt"])
@@ -166,8 +184,9 @@ def _nearest_forecast_point(forecast, target_dt, max_delta=timedelta(hours=2)):
 # ---------------------------------------------------------------------------
 
 def build_forecast_rows():
-    """Every future low tide, matched against the Met Office wind/rain
-    forecast for the nearest available forecast point."""
+    """Every future low tide between 6am and 7pm, matched against the Met
+    Office wind/rain/temp forecast for the nearest available forecast
+    point."""
     tides = get_tides()
     forecast = get_met_office_forecast()
     now = datetime.now(timezone.utc)
@@ -178,6 +197,12 @@ def build_forecast_rows():
             continue
 
         dt_london = t["dt_utc"].astimezone(LONDON_TZ)
+
+        # Low tides before 6am or after 7pm aren't useful for planning an
+        # outing, so drop them from the table entirely.
+        if dt_london.time() < dtime(6, 0) or dt_london.time() > dtime(19, 0):
+            continue
+
         wx = _nearest_forecast_point(forecast, dt_london)
         if wx is None:
             continue
@@ -189,9 +214,7 @@ def build_forecast_rows():
 
         wind_ok   = max(wind_mph, gust_mph) < WIND_THRESHOLD_MPH
         rain_ok   = rain_pct < RAIN_THRESHOLD_PCT
-        # Outside 6am-7pm the row is greyed out entirely (no green highlighting).
-        is_night  = dt_london.time() < dtime(6, 0) or dt_london.time() > dtime(19, 0)
-        highlight = (not is_night) and wind_ok
+        highlight = wind_ok
 
         rows.append({
             "time":      dt_london.strftime("%H:%M"),
@@ -205,7 +228,6 @@ def build_forecast_rows():
             "rain_pct":  round(rain_pct),
             "rain_ok":   rain_ok,
             "temp_c":    round(temp_c) if temp_c is not None else None,
-            "is_night":  is_night,
             "highlight": highlight,
         })
 

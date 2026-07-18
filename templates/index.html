@@ -90,8 +90,6 @@
         tr.highlight .tide-day,
         tr.highlight .tide-date { color: #33FF57; }
 
-        tr.night td { color: #555; }
-
         .tide-day  { color: #888; }
         .tide-date { color: #888; }
 
@@ -138,12 +136,12 @@
     </thead>
     <tbody>
         {% for row in rows %}
-        <tr class="{% if row.is_night %}night{% elif row.highlight %}highlight{% endif %}">
+        <tr class="{% if row.highlight %}highlight{% endif %}">
             <td>{{ row.time }} <span class="tide-day">{{ row.day }}</span> <span class="tide-date">{{ row.date }}</span></td>
-            <td class="{% if row.wind_ok and not row.is_night %}ok{% endif %}"
+            <td class="{% if row.wind_ok %}ok{% endif %}"
                 data-mph="{{ row.wind_mph }}/{{ row.gust_mph }}"
                 data-kmh="{{ row.wind_kmh }}/{{ row.gust_kmh }}">{{ row.wind_kmh }}/{{ row.gust_kmh }}</td>
-            <td class="{% if row.rain_ok and not row.is_night %}ok{% endif %}">{{ row.rain_pct }}%</td>
+            <td class="{% if row.rain_ok %}ok{% endif %}">{{ row.rain_pct }}%</td>
             <td>{{ row.temp_c if row.temp_c is not none else '-' }}</td>
         </tr>
         {% endfor %}
