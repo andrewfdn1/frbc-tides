@@ -122,7 +122,8 @@ def _fetch_met_office_forecast():
             wind = e.get("windSpeed10m")
             gust = e.get("max10mWindGust", e.get("windGustSpeed10m"))
             rain = e.get("probOfPrecipitation")
-            if wind is None or gust is None or rain is None:
+            temp = e.get("screenTemperature")
+            if wind is None or gust is None or rain is None or temp is None:
                 continue
 
             key = dt.isoformat()
@@ -133,6 +134,7 @@ def _fetch_met_office_forecast():
                 "wind_mph": _ms_to_mph(wind),
                 "gust_mph": _ms_to_mph(gust),
                 "rain_pct": float(rain),
+                "temp_c":   float(temp),
             }
 
     return sorted(points.values(), key=lambda p: p["dt"])
@@ -178,24 +180,28 @@ def build_forecast_rows():
         wind_mph = wx["wind_mph"]
         gust_mph = wx["gust_mph"]
         rain_pct = wx["rain_pct"]
+        temp_c   = wx["temp_c"]
 
-        wind_ok = max(wind_mph, gust_mph) < WIND_THRESHOLD_MPH
-        rain_ok = rain_pct < RAIN_THRESHOLD_PCT
-        daylight = dtime(8, 0) <= dt_london.time() <= dtime(18, 0)
-        fairweather = daylight and wind_ok and rain_pct == 0
+        wind_ok   = max(wind_mph, gust_mph) < WIND_THRESHOLD_MPH
+        rain_ok   = rain_pct < RAIN_THRESHOLD_PCT
+        # Outside 6am-7pm the row is greyed out entirely (no green highlighting).
+        is_night  = dt_london.time() < dtime(6, 0) or dt_london.time() > dtime(19, 0)
+        highlight = (not is_night) and wind_ok
 
         rows.append({
-            "time":        dt_london.strftime("%H:%M"),
-            "day":         dt_london.strftime("%a"),
-            "date":        dt_london.strftime("%-d %b"),
-            "wind_mph":    round(wind_mph),
-            "gust_mph":    round(gust_mph),
-            "wind_kmh":    round(wind_mph * 1.609344),
-            "gust_kmh":    round(gust_mph * 1.609344),
-            "wind_ok":     wind_ok,
-            "rain_pct":    round(rain_pct),
-            "rain_ok":     rain_ok,
-            "fairweather": fairweather,
+            "time":      dt_london.strftime("%H:%M"),
+            "day":       dt_london.strftime("%a"),
+            "date":      dt_london.strftime("%-d %b"),
+            "wind_mph":  round(wind_mph),
+            "gust_mph":  round(gust_mph),
+            "wind_kmh":  round(wind_mph * 1.609344),
+            "gust_kmh":  round(gust_mph * 1.609344),
+            "wind_ok":   wind_ok,
+            "rain_pct":  round(rain_pct),
+            "rain_ok":   rain_ok,
+            "temp_c":    round(temp_c),
+            "is_night":  is_night,
+            "highlight": highlight,
         })
 
     return rows

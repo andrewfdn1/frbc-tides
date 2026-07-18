@@ -19,13 +19,7 @@
             text-transform: uppercase;
             border-bottom: 1px solid #333;
             padding-bottom: 10px;
-            margin-bottom: 4px;
-        }
-
-        .subtitle {
-            color: #888;
-            font-size: 12px;
-            margin-bottom: 4px;
+            margin-bottom: 16px;
         }
 
         .updated {
@@ -34,20 +28,37 @@
             margin-bottom: 16px;
         }
 
-        .legend {
-            font-size: 11px;
-            color: #aaa;
-            margin-bottom: 16px;
-            line-height: 1.6;
-        }
-        .legend .swatch-green { color: #33FF57; font-weight: bold; }
-        .legend .swatch-bold  { color: #fff; font-weight: bold; }
-
         .error {
             color: #FF5B5B;
             font-size: 13px;
             padding: 16px 0;
             line-height: 1.6;
+        }
+
+        .unit-picker {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            font-size: 12px;
+            color: #888;
+        }
+
+        .unit-btn {
+            font-family: inherit;
+            font-size: 12px;
+            background: #000;
+            color: #888;
+            border: 1px solid #333;
+            padding: 5px 12px;
+            cursor: pointer;
+        }
+
+        .unit-btn.active {
+            color: #000;
+            background: #33FF57;
+            border-color: #33FF57;
+            font-weight: bold;
         }
 
         table {
@@ -59,8 +70,9 @@
         thead th {
             text-align: left;
             text-transform: uppercase;
-            font-size: clamp(9px, 2.6vw, 11px);
-            color: #888;
+            font-size: clamp(13px, 4vw, 16px);
+            font-weight: bold;
+            color: #ccc;
             border-bottom: 1px solid #333;
             padding: 6px 4px;
             white-space: nowrap;
@@ -76,7 +88,12 @@
 
         tbody td.num { text-align: right; }
 
-        tr.fairweather td { font-weight: bold; }
+        tr.highlight td { font-weight: bold; }
+        tr.highlight td:first-child { color: #33FF57; }
+        tr.highlight .tide-day,
+        tr.highlight .tide-date { color: #33FF57; }
+
+        tr.night td { color: #555; }
 
         .tide-day  { color: #888; }
         .tide-date { color: #888; }
@@ -102,33 +119,35 @@
 <body>
 
 <h1>Fairweather Sculler</h1>
-<div class="subtitle">Forecast low tides &mdash; Hammersmith</div>
 <div class="updated">Updated {{ updated }}</div>
-
-<div class="legend">
-    <span class="swatch-bold">Bold</span> = low tide 8am&ndash;6pm, wind &amp; gusts under 10mph, no rain forecast<br>
-    <span class="swatch-green">Green</span> = wind/gusts under 10mph or rain under 10%
-</div>
 
 {% if error %}
 <div class="error">Forecast unavailable: {{ error }}</div>
 {% elif rows %}
+<div class="unit-picker">
+    <span>Wind units:</span>
+    <button type="button" class="unit-btn" data-unit="mph">mph</button>
+    <button type="button" class="unit-btn active" data-unit="kmh">km/h</button>
+</div>
+
 <table>
     <thead>
         <tr>
             <th>Low tide</th>
-            <th class="num">Wind mph</th>
-            <th class="num">Wind km/h</th>
+            <th class="num">Wind/gusts</th>
             <th class="num">Rain %</th>
+            <th class="num">Temp &deg;C</th>
         </tr>
     </thead>
     <tbody>
         {% for row in rows %}
-        <tr{% if row.fairweather %} class="fairweather"{% endif %}>
+        <tr class="{% if row.is_night %}night{% elif row.highlight %}highlight{% endif %}">
             <td>{{ row.time }} <span class="tide-day">{{ row.day }}</span> <span class="tide-date">{{ row.date }}</span></td>
-            <td class="num{% if row.wind_ok %} ok{% endif %}">{{ row.wind_mph }}/{{ row.gust_mph }}</td>
-            <td class="num{% if row.wind_ok %} ok{% endif %}">{{ row.wind_kmh }}/{{ row.gust_kmh }}</td>
-            <td class="num{% if row.rain_ok %} ok{% endif %}">{{ row.rain_pct }}%</td>
+            <td class="num{% if row.wind_ok and not row.is_night %} ok{% endif %}"
+                data-mph="{{ row.wind_mph }}/{{ row.gust_mph }}"
+                data-kmh="{{ row.wind_kmh }}/{{ row.gust_kmh }}">{{ row.wind_kmh }}/{{ row.gust_kmh }}</td>
+            <td class="num{% if row.rain_ok and not row.is_night %} ok{% endif %}">{{ row.rain_pct }}%</td>
+            <td class="num">{{ row.temp_c }}</td>
         </tr>
         {% endfor %}
     </tbody>
@@ -139,8 +158,27 @@
 
 <div class="footer-note">
     Wind shown as speed/gust. Tide times from the Admiralty forecast for Hammersmith;
-    wind and rain from the Met Office Weather DataHub, matched to the nearest forecast point.
+    wind, rain and temperature from the Met Office Weather DataHub, matched to the
+    nearest forecast point.
 </div>
+
+<script>
+(function () {
+    var buttons = document.querySelectorAll('.unit-btn');
+    var cells = document.querySelectorAll('td[data-mph]');
+    function setUnit(unit) {
+        buttons.forEach(function (b) {
+            b.classList.toggle('active', b.dataset.unit === unit);
+        });
+        cells.forEach(function (c) {
+            c.textContent = unit === 'mph' ? c.dataset.mph : c.dataset.kmh;
+        });
+    }
+    buttons.forEach(function (b) {
+        b.addEventListener('click', function () { setUnit(b.dataset.unit); });
+    });
+})();
+</script>
 
 </body>
 </html>
