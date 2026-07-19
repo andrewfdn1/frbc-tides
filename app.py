@@ -324,32 +324,11 @@ def _fetch_pla_json():
 def get_pla_flag():
     """Fetch the PLA widget page and return the current flag colour, heading and body.
     Falls back to Richmond derivation if the scrape fails.
-    Uses slot-based caching to avoid unnecessary re-fetches mid-slot."""
+    Re-scrapes at most once per 15-minute window, all day — PLA doesn't always
+    flip the flag exactly on the 6am/6pm boundary, so a flat cadence catches a
+    late update within 15 minutes instead of it being cached for hours."""
     now = datetime.now(LONDON_TZ)
-    h, m = now.hour, now.minute
-
-    if h < 6:
-        slot = (now.date(), 'pre-dawn')
-    elif h == 6 and m < 15:
-        slot = (now.date(), 'am-early')
-    elif h == 6 and m < 30:
-        slot = (now.date(), 'am-mid')
-    elif h < 7:
-        slot = (now.date(), 'am-late')
-    elif h == 7 and m < 15:
-        slot = (now.date(), 'am-bst-catch')
-    elif h < 18:
-        slot = (now.date(), 'midday')
-    elif h == 18 and m < 15:
-        slot = (now.date(), 'pm-early')
-    elif h == 18 and m < 30:
-        slot = (now.date(), 'pm-mid')
-    elif h < 19:
-        slot = (now.date(), 'pm-late')
-    elif h == 19 and m < 15:
-        slot = (now.date(), 'pm-bst-catch')
-    else:
-        slot = (now.date(), 'evening')
+    slot = (now.date(), now.hour, now.minute // 15)
 
     cached = _cache.get('pla_flag')
     if cached and cached.get('slot') == slot and cached['data'] is not None:
