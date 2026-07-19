@@ -217,6 +217,17 @@ _PLA_IMG_COLOUR_MAP = {
     "flag_black":  "black",
 }
 
+# The widget's heading/body text doesn't use the colour word itself — it uses
+# the fluvial-flow descriptor (e.g. "CAUTION - LOW", "AVERAGE"), matching the
+# same wording as each colour's official meaning. Ordered longest-phrase-first
+# so "very strong" is matched before the "strong" substring it contains.
+_PLA_TEXT_COLOUR_MAP = [
+    ("very strong", "red"),
+    ("strong",      "yellow"),
+    ("average",     "green"),
+    ("low",         "black"),
+]
+
 
 def _scrape_pla_widget():
     """Scrape the PLA ebb tide widget embed page to get the current flag colour,
@@ -250,13 +261,13 @@ def _scrape_pla_widget():
     heading = texts[0] if len(texts) > 0 else ""
     body    = texts[1] if len(texts) > 1 else ""
 
-    # The heading is PLA's own textual confirmation of which flag is showing
-    # (e.g. "GREEN — Average Fluvial Flows") and is the same text a visitor
-    # reads next to the flag in the iframe. It's more trustworthy than the
-    # <img> filename, which can be stale or mismatched, so prefer it and
-    # only fall back to the image when no colour word is found in the text.
-    heading_lower = heading.lower()
-    text_colour = next((name for name in _PLA_IMG_COLOUR_MAP.values() if name in heading_lower), None)
+    # The heading+body text is PLA's own textual confirmation of which flag is
+    # showing (e.g. "CAUTION - LOW" / "Fluvial Flows") and is the same text a
+    # visitor reads next to the flag in the iframe. It's more trustworthy than
+    # the <img> filename, which can be stale or mismatched, so prefer it and
+    # only fall back to the image when no descriptor word is found in the text.
+    combined_lower = f"{heading} {body}".lower()
+    text_colour = next((name for phrase, name in _PLA_TEXT_COLOUR_MAP if phrase in combined_lower), None)
 
     colour = text_colour or img_colour
     if not colour:
