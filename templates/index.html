@@ -89,6 +89,20 @@
         tr.highlight .tide-day,
         tr.highlight .tide-date { color: #33FF57; }
 
+        @media (orientation: landscape) {
+            table {
+                width: auto;
+                font-size: clamp(16px, 1.6vw, 20px);
+            }
+            thead th {
+                font-size: clamp(18px, 2vw, 24px);
+                padding: 8px 20px 8px 4px;
+            }
+            tbody td {
+                padding: 10px 20px 10px 4px;
+            }
+        }
+
         .tide-day  { color: #888; }
         .tide-date { color: #888; }
 
