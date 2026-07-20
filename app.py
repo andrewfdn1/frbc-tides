@@ -141,6 +141,27 @@ def get_tides():
     return get_cached('tides', fetch, ttl_seconds=7200)
 
 
+def get_tides_14d():
+    """Tidal events for the next 14 days, for the /calendar agenda page."""
+    def fetch():
+        r = requests.get(
+            "https://admiraltyapi.azure-api.net/uktidalapi/api/V1/Stations/0115/TidalEvents",
+            headers={"Ocp-Apim-Subscription-Key": TIDE_API_KEY},
+            params={"duration": 14},
+            timeout=10
+        )
+        r.raise_for_status()
+        return sorted([
+            {
+                'dt_utc': datetime.fromisoformat(e['DateTime'].replace('Z', '')).replace(tzinfo=timezone.utc),
+                'EventType': e['EventType'],
+                'Height': e['Height']
+            }
+            for e in r.json()
+        ], key=lambda x: x['dt_utc'])
+    return get_cached('tides_14d', fetch, ttl_seconds=21600)
+
+
 def get_calendar_events():
     global _cal_fail_until
     now_ts = datetime.now(timezone.utc).timestamp()
@@ -1055,6 +1076,45 @@ def get_weather():
     return result, fetched_at
 
 
+# ---------------------------------------------------------------------------
+# Daily weather forecast — 14 days, for the /calendar agenda page
+# ---------------------------------------------------------------------------
+
+def get_daily_weather_14d():
+    """
+    Day-by-day weather summary for the next 14 days, keyed by ISO date string.
+    Uses Open-Meteo's daily forecast (no API key needed, supports 14+ day
+    forecasts) — the other weather sources only cover today's morning/
+    afternoon windows, not a two-week outlook.
+    """
+    def fetch():
+        url = (
+            f"https://api.open-meteo.com/v1/forecast"
+            f"?latitude={LAT}&longitude={LON}"
+            "&daily=temperature_2m_max,precipitation_probability_max,"
+            "wind_speed_10m_max,wind_gusts_10m_max"
+            "&timezone=Europe%2FLondon"
+            "&forecast_days=14"
+            "&wind_speed_unit=mph"
+        )
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        daily = r.json()['daily']
+        return {
+            date_str: {
+                'temp':  round(daily['temperature_2m_max'][i])
+                         if daily['temperature_2m_max'][i] is not None else None,
+                'rain':  round(daily['precipitation_probability_max'][i])
+                         if daily['precipitation_probability_max'][i] is not None else None,
+                'wind':  round(daily['wind_speed_10m_max'][i])
+                         if daily['wind_speed_10m_max'][i] is not None else None,
+                'gusts': round(daily['wind_gusts_10m_max'][i])
+                         if daily['wind_gusts_10m_max'][i] is not None else None,
+            }
+            for i, date_str in enumerate(daily['time'])
+        }
+    return get_cached('daily_weather_14d', fetch, ttl_seconds=7200)
+
 
 # ---------------------------------------------------------------------------
 # Met Office NSWWS weather warnings
@@ -1800,6 +1860,63 @@ def get_thames_temperature():
                 }
         return None
     return get_cached('thames_temp', fetch, ttl_seconds=900)
+
+
+def build_calendar_data():
+    """
+    Diary-agenda data for the /calendar page: the next 14 days, each with
+    its high/low tide events plus one all-day weather summary event.
+    """
+    now_lon  = datetime.now(LONDON_TZ)
+    today    = now_lon.date()
+    end_date = today + timedelta(days=13)
+
+    try:
+        tides, tides_updated = get_tides_14d()
+    except Exception as e:
+        print(f"Thread error tides_14d: {e}")
+        tides, tides_updated = None, ''
+    tides = tides or []
+
+    try:
+        daily_weather, weather_updated = get_daily_weather_14d()
+    except Exception as e:
+        print(f"Thread error daily_weather_14d: {e}")
+        daily_weather, weather_updated = None, ''
+    daily_weather = daily_weather or {}
+
+    tides_by_date = defaultdict(list)
+    for t in tides:
+        dt_london = t['dt_utc'].astimezone(LONDON_TZ)
+        d = dt_london.date()
+        if today <= d <= end_date:
+            tides_by_date[d].append({
+                "time":   dt_london.strftime('%H:%M'),
+                "label":  "High Water" if t['EventType'] == 'HighWater' else "Low Water",
+                "height": f"{t['Height']:.1f}m",
+            })
+
+    days = []
+    for i in range(14):
+        d     = today + timedelta(days=i)
+        w     = daily_weather.get(d.isoformat())
+        if w and all(w.get(k) is not None for k in ("temp", "rain", "wind", "gusts")):
+            weather_summary = f"{w['temp']}c temp, {w['rain']}%rain, {w['wind']}mph wind, {w['gusts']}mph gusts"
+        else:
+            weather_summary = None
+
+        days.append({
+            "label":    d.strftime('%a %-d %b'),
+            "is_today": d == today,
+            "weather":  weather_summary,
+            "tides":    sorted(tides_by_date.get(d, []), key=lambda x: x['time']),
+        })
+
+    return {
+        "days":            days,
+        "tides_updated":   tides_updated,
+        "weather_updated": weather_updated,
+    }
 
 
 def build_dashboard_data():
@@ -2684,6 +2801,10 @@ def radar():
 def links():
     return render_template("links.html")
 
+@app.route("/calendar")
+def calendar_page():
+    return render_template("calendar.html", d=build_calendar_data())
+
 @app.route("/data")
 def data_endpoint():
     return jsonify(build_dashboard_data())
@@ -2802,6 +2923,12 @@ def _prewarm():
         get_weather()
     except Exception as e:
         print(f"Pre-warm weather error: {e!r}")
+    time.sleep(2)
+    for fn in (get_tides_14d, get_daily_weather_14d):
+        try:
+            fn()
+        except Exception as e:
+            print(f"Pre-warm error [{fn.__name__}]: {e!r}")
 
 
 if __name__ == "__main__":

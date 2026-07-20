@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calendar &mdash; FRBC</title>
+    <link rel="icon" type="image/png" href="/static/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+    <link rel="shortcut icon" href="/static/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
+    <link rel="manifest" href="/static/site.webmanifest" />
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
+
+        body {
+            background-color: #000;
+            color: #fff;
+            min-height: 100vh;
+            padding: clamp(20px, 4vw, 48px) clamp(16px, 6vw, 64px);
+        }
+
+        .back-link {
+            display: inline-block;
+            color: #888;
+            text-decoration: none;
+            font-size: clamp(13px, 1.4vw, 16px);
+            margin-bottom: clamp(20px, 3vw, 36px);
+        }
+
+        .back-link:hover { color: #33FF57; }
+
+        h1 {
+            font-size: clamp(24px, 3.2vw, 36px);
+            text-transform: uppercase;
+            border-bottom: 1px solid #333;
+            padding-bottom: 14px;
+            margin-bottom: 6px;
+        }
+
+        .meta {
+            font-size: clamp(11px, 1.1vw, 14px);
+            color: #555;
+            margin-bottom: clamp(20px, 3vw, 36px);
+        }
+
+        .day-block {
+            margin-bottom: clamp(20px, 2.6vw, 30px);
+            border-left: 2px solid #222;
+            padding-left: 16px;
+        }
+
+        .day-block.today {
+            border-left-color: #33FF57;
+        }
+
+        .day-label {
+            font-size: clamp(16px, 1.9vw, 22px);
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+
+        .day-block.today .day-label { color: #33FF57; }
+        .day-label .today-tag {
+            font-size: 0.65em;
+            color: #33FF57;
+            margin-left: 8px;
+            font-weight: normal;
+        }
+
+        .event {
+            display: flex;
+            gap: 14px;
+            font-size: clamp(13px, 1.5vw, 17px);
+            padding: 4px 0;
+            color: #ccc;
+        }
+
+        .event .time {
+            color: #888;
+            min-width: 4.5em;
+            flex-shrink: 0;
+        }
+
+        .event.all-day .time {
+            color: #555;
+        }
+
+        .event.tide-high .label { color: #58a6ff; }
+        .event.tide-low  .label { color: #f0a500; }
+
+        .no-events {
+            font-size: clamp(12px, 1.3vw, 15px);
+            color: #333;
+            font-style: italic;
+            padding: 4px 0;
+        }
+    </style>
+</head>
+<body>
+
+<a href="/" class="back-link">&larr; Back to dashboard</a>
+
+<h1>Calendar</h1>
+<p class="meta">
+    Next 14 days &nbsp;&middot;&nbsp; Hammersmith tides updated {{ d.tides_updated or '&mdash;' }}
+    &nbsp;&middot;&nbsp; Weather forecast updated {{ d.weather_updated or '&mdash;' }}
+</p>
+
+{% for day in d.days %}
+<div class="day-block{% if day.is_today %} today{% endif %}">
+    <div class="day-label">
+        {{ day.label }}{% if day.is_today %}<span class="today-tag">TODAY</span>{% endif %}
+    </div>
+
+    {% if day.weather %}
+    <div class="event all-day">
+        <span class="time">All day</span>
+        <span class="label">{{ day.weather }}</span>
+    </div>
+    {% endif %}
+
+    {% for t in day.tides %}
+    <div class="event {{ 'tide-high' if t.label == 'High Water' else 'tide-low' }}">
+        <span class="time">{{ t.time }}</span>
+        <span class="label">{{ t.label }} &mdash; {{ t.height }}</span>
+    </div>
+    {% endfor %}
+
+    {% if not day.weather and not day.tides %}
+    <div class="no-events">No data available</div>
+    {% endif %}
+</div>
+{% endfor %}
+
+</body>
+</html>
