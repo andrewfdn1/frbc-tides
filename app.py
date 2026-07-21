@@ -141,27 +141,6 @@ def get_tides():
     return get_cached('tides', fetch, ttl_seconds=7200)
 
 
-def get_tides_14d():
-    """Tidal events for the next 14 days, for the /calendar agenda page."""
-    def fetch():
-        r = requests.get(
-            "https://admiraltyapi.azure-api.net/uktidalapi/api/V1/Stations/0115/TidalEvents",
-            headers={"Ocp-Apim-Subscription-Key": TIDE_API_KEY},
-            params={"duration": 14},
-            timeout=10
-        )
-        r.raise_for_status()
-        return sorted([
-            {
-                'dt_utc': datetime.fromisoformat(e['DateTime'].replace('Z', '')).replace(tzinfo=timezone.utc),
-                'EventType': e['EventType'],
-                'Height': e['Height']
-            }
-            for e in r.json()
-        ], key=lambda x: x['dt_utc'])
-    return get_cached('tides_14d', fetch, ttl_seconds=21600)
-
-
 def get_calendar_events():
     global _cal_fail_until
     now_ts = datetime.now(timezone.utc).timestamp()
@@ -1088,6 +1067,10 @@ def get_daily_weather_14d():
     afternoon windows, not a two-week outlook.
     """
     def fetch():
+        now_ts = datetime.now(timezone.utc).timestamp()
+        if now_ts < _get_fail_until('daily_weather_14d'):
+            raise Exception("Daily weather 14d in backoff")
+
         url = (
             f"https://api.open-meteo.com/v1/forecast"
             f"?latitude={LAT}&longitude={LON}"
@@ -1098,6 +1081,10 @@ def get_daily_weather_14d():
             "&wind_speed_unit=mph"
         )
         r = requests.get(url, timeout=10)
+        if r.status_code == 429:
+            retry_after = _retry_after_seconds(r)
+            _set_fail_until('daily_weather_14d', retry_after)
+            raise Exception(f"Open-Meteo rate limited, retry after {retry_after}s")
         r.raise_for_status()
         daily = r.json()['daily']
         return {
@@ -1866,15 +1853,19 @@ def build_calendar_data():
     """
     Diary-agenda data for the /calendar page: the next 14 days, each with
     its high/low tide events plus one all-day weather summary event.
+    Tide events only cover the ~7-day window the Admiralty API's TidalEvents
+    endpoint supports for this subscription tier (duration is always relative
+    to today, capped at 7, with no way to page further forward) — later days
+    in the 14-day agenda show weather only.
     """
     now_lon  = datetime.now(LONDON_TZ)
     today    = now_lon.date()
     end_date = today + timedelta(days=13)
 
     try:
-        tides, tides_updated = get_tides_14d()
+        tides, tides_updated = get_tides()
     except Exception as e:
-        print(f"Thread error tides_14d: {e}")
+        print(f"Thread error tides: {e}")
         tides, tides_updated = None, ''
     tides = tides or []
 
@@ -2924,7 +2915,7 @@ def _prewarm():
     except Exception as e:
         print(f"Pre-warm weather error: {e!r}")
     time.sleep(2)
-    for fn in (get_tides_14d, get_daily_weather_14d):
+    for fn in (get_daily_weather_14d,):
         try:
             fn()
         except Exception as e:
