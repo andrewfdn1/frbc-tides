@@ -90,6 +90,7 @@
 
         .event.tide-high .label { color: #58a6ff; }
         .event.tide-low  .label { color: #f0a500; }
+        .event.diary     .label { color: #33FF57; }
 
         .no-events {
             font-size: clamp(12px, 1.3vw, 15px);
@@ -107,6 +108,7 @@
 <p class="meta">
     Next 14 days &nbsp;&middot;&nbsp; Hammersmith tides updated {{ d.tides_updated or '&mdash;' }}
     &nbsp;&middot;&nbsp; Weather forecast updated {{ d.weather_updated or '&mdash;' }}
+    &nbsp;&middot;&nbsp; Club diary updated {{ d.cal_updated or '&mdash;' }}
 </p>
 
 {% for day in d.days %}
@@ -122,14 +124,21 @@
     </div>
     {% endif %}
 
-    {% for t in day.tides %}
-    <div class="event {{ 'tide-high' if t.label == 'High Water' else 'tide-low' }}">
-        <span class="time">{{ t.time }}</span>
-        <span class="label">{{ t.label }} &mdash; {{ t.height }}</span>
+    {% for summary in day.all_day_events %}
+    <div class="event all-day diary">
+        <span class="time">All day</span>
+        <span class="label">{{ summary }}</span>
     </div>
     {% endfor %}
 
-    {% if not day.weather and not day.tides %}
+    {% for t in day.timed %}
+    <div class="event {{ t.kind }}">
+        <span class="time">{{ t.time }}</span>
+        <span class="label">{{ t.text }}</span>
+    </div>
+    {% endfor %}
+
+    {% if not day.weather and not day.all_day_events and not day.timed %}
     <div class="no-events">No data available</div>
     {% endif %}
 </div>

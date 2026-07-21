@@ -200,6 +200,50 @@ def get_calendar_events():
 
     return get_cached('calendar', fetch, ttl_seconds=1800)
 
+
+def get_calendar_events_14d():
+    """
+    Club diary events for the next 14 days, grouped by ISO date string, for
+    the /calendar agenda page. Same Google Calendar source as the homepage's
+    Club Diary column, but fetched as a single 14-day window instead of one
+    day at a time.
+    """
+    def fetch():
+        now         = datetime.now(LONDON_TZ)
+        range_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        range_end   = range_start + timedelta(days=14)
+
+        url = (
+            f"https://www.googleapis.com/calendar/v3/calendars/"
+            f"{requests.utils.quote(CAL_ID, safe='')}/events"
+            f"?key={GOOGLE_API_KEY}"
+            f"&timeMin={requests.utils.quote(range_start.isoformat())}"
+            f"&timeMax={requests.utils.quote(range_end.isoformat())}"
+            f"&singleEvents=true&orderBy=startTime&maxResults=250"
+        )
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+
+        events_by_date = defaultdict(list)
+        for e in r.json().get('items', []):
+            start   = e.get('start', {})
+            end     = e.get('end', {})
+            summary = e.get('summary', '(no title)')
+            if 'dateTime' in start:
+                dt_s = datetime.fromisoformat(start['dateTime']).astimezone(LONDON_TZ)
+                time_str = dt_s.strftime('%H:%M')
+                if 'dateTime' in end:
+                    dt_e = datetime.fromisoformat(end['dateTime']).astimezone(LONDON_TZ)
+                    time_str = f"{time_str}-{dt_e.strftime('%H:%M')}"
+                events_by_date[dt_s.date().isoformat()].append({"summary": summary, "time": time_str})
+            elif 'date' in start:
+                ev_date = datetime.strptime(start['date'], '%Y-%m-%d').date()
+                events_by_date[ev_date.isoformat()].append({"summary": summary, "time": "All Day"})
+
+        return dict(events_by_date)
+
+    return get_cached('calendar_14d', fetch, ttl_seconds=1800)
+
 # ---------------------------------------------------------------------------
 # PLA Ebb Flag
 # ---------------------------------------------------------------------------
@@ -1852,11 +1896,12 @@ def get_thames_temperature():
 def build_calendar_data():
     """
     Diary-agenda data for the /calendar page: the next 14 days, each with
-    its high/low tide events plus one all-day weather summary event.
+    its high/low tide events, club diary events, and one all-day weather
+    summary event.
     Tide events only cover the ~7-day window the Admiralty API's TidalEvents
     endpoint supports for this subscription tier (duration is always relative
     to today, capped at 7, with no way to page further forward) — later days
-    in the 14-day agenda show weather only.
+    in the 14-day agenda show weather and club events only.
     """
     now_lon  = datetime.now(LONDON_TZ)
     today    = now_lon.date()
@@ -1876,37 +1921,59 @@ def build_calendar_data():
         daily_weather, weather_updated = None, ''
     daily_weather = daily_weather or {}
 
+    try:
+        club_events_by_date, cal_updated = get_calendar_events_14d()
+    except Exception as e:
+        print(f"Thread error calendar_14d: {e}")
+        club_events_by_date, cal_updated = None, ''
+    club_events_by_date = club_events_by_date or {}
+
     tides_by_date = defaultdict(list)
     for t in tides:
         dt_london = t['dt_utc'].astimezone(LONDON_TZ)
         d = dt_london.date()
         if today <= d <= end_date:
             tides_by_date[d].append({
-                "time":   dt_london.strftime('%H:%M'),
-                "label":  "High Water" if t['EventType'] == 'HighWater' else "Low Water",
-                "height": f"{t['Height']:.1f}m",
+                "time": dt_london.strftime('%H:%M'),
+                "kind": "tide-high" if t['EventType'] == 'HighWater' else "tide-low",
+                "text": f"{'High Water' if t['EventType'] == 'HighWater' else 'Low Water'} — {t['Height']:.1f}m",
             })
 
     days = []
     for i in range(14):
-        d     = today + timedelta(days=i)
-        w     = daily_weather.get(d.isoformat())
+        d = today + timedelta(days=i)
+        w = daily_weather.get(d.isoformat())
         if w and all(w.get(k) is not None for k in ("temp", "rain", "wind", "gusts")):
-            weather_summary = f"{w['temp']}c temp, {w['rain']}%rain, {w['wind']}mph wind, {w['gusts']}mph gusts"
+            weather_summary = f"{w['temp']}c temp, {w['rain']}% rain, {w['wind']}mph wind, {w['gusts']}mph gusts"
         else:
             weather_summary = None
 
+        club_events = club_events_by_date.get(d.isoformat(), [])
+        all_day_events = [e["summary"] for e in club_events if e["time"] == "All Day"]
+
+        timed = list(tides_by_date.get(d, []))
+        for e in club_events:
+            if e["time"] != "All Day":
+                timed.append({
+                    "time": e["time"].split('-')[0],
+                    "kind": "diary",
+                    "text": f"{e['summary']} ({e['time']})",
+                })
+        timed.sort(key=lambda x: x['time'])
+
         days.append({
-            "label":    d.strftime('%a %-d %b'),
-            "is_today": d == today,
-            "weather":  weather_summary,
-            "tides":    sorted(tides_by_date.get(d, []), key=lambda x: x['time']),
+            "label":          d.strftime('%a %-d %b'),
+            "is_today":       d == today,
+            "weather":        weather_summary,
+            "all_day_events": all_day_events,
+            "timed":          timed,
         })
 
     return {
         "days":            days,
         "tides_updated":   tides_updated,
         "weather_updated": weather_updated,
+        "cal_updated":     cal_updated,
     }
 
 
@@ -2915,7 +2982,7 @@ def _prewarm():
     except Exception as e:
         print(f"Pre-warm weather error: {e!r}")
     time.sleep(2)
-    for fn in (get_daily_weather_14d,):
+    for fn in (get_daily_weather_14d, get_calendar_events_14d):
         try:
             fn()
         except Exception as e:
