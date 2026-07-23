@@ -184,10 +184,14 @@ def get_calendar_events():
                 dt_s = datetime.fromisoformat(start['dateTime']).astimezone(LONDON_TZ)
                 if dt_s.date() == target_date:
                     time_str = dt_s.strftime('%H:%M')
+                    dt_e = dt_s
                     if 'dateTime' in end:
                         dt_e = datetime.fromisoformat(end['dateTime']).astimezone(LONDON_TZ)
                         time_str = f"{time_str}-{dt_e.strftime('%H:%M')}"
-                    events_list.append({"summary": summary, "time": time_str})
+                    events_list.append({
+                        "summary": summary, "time": time_str,
+                        "start_iso": dt_s.isoformat(), "end_iso": dt_e.isoformat(),
+                    })
             elif 'date' in start:
                 ev_date = datetime.strptime(start['date'], '%Y-%m-%d').date()
                 if ev_date == target_date:
@@ -232,10 +236,14 @@ def get_calendar_events_14d():
             if 'dateTime' in start:
                 dt_s = datetime.fromisoformat(start['dateTime']).astimezone(LONDON_TZ)
                 time_str = dt_s.strftime('%H:%M')
+                dt_e = dt_s
                 if 'dateTime' in end:
                     dt_e = datetime.fromisoformat(end['dateTime']).astimezone(LONDON_TZ)
                     time_str = f"{time_str}-{dt_e.strftime('%H:%M')}"
-                events_by_date[dt_s.date().isoformat()].append({"summary": summary, "time": time_str})
+                events_by_date[dt_s.date().isoformat()].append({
+                    "summary": summary, "time": time_str,
+                    "start_iso": dt_s.isoformat(), "end_iso": dt_e.isoformat(),
+                })
             elif 'date' in start:
                 ev_date = datetime.strptime(start['date'], '%Y-%m-%d').date()
                 events_by_date[ev_date.isoformat()].append({"summary": summary, "time": "All Day"})
@@ -1893,6 +1901,103 @@ def get_thames_temperature():
     return get_cached('thames_temp', fetch, ttl_seconds=900)
 
 
+# ---------------------------------------------------------------------------
+# Flag hazard markers for diary events
+#
+# Red (🟥): the event overlaps a 6am/6pm flag window (current or, if a
+#   Richmond low-tide reading has already predicted the next one, predicted)
+#   where that window's colour is red — for the whole window, any tide state.
+# Yellow (🟨): as above but colour is yellow, AND only for the portion of
+#   that window that is also an ebb tide (Hammersmith HighWater->LowWater
+#   leg) — yellow risk is specifically an ebb-tide hazard, red is not.
+# Red always takes precedence over yellow when both would apply.
+# Only the current + one predicted window are ever known, so this can only
+# ever mark events in roughly the next ~24h — anything further out in the
+# 14-day agenda is correctly left unmarked (colour: unknown, not "safe").
+# ---------------------------------------------------------------------------
+
+def _flag_slot_boundaries(now_lon):
+    """Return (current_start, current_end, next_end) — the three 6am/18:00
+    boundaries bracketing `now_lon` and the one after, as aware London
+    datetimes. [current_start, current_end) is the window the live flag
+    applies to; [current_end, next_end) is the window a predicted flag
+    (if any) applies to."""
+    d = now_lon.date()
+    candidates = sorted(
+        datetime(day.year, day.month, day.day, hour, 0, tzinfo=LONDON_TZ)
+        for delta in (-1, 0, 1, 2)
+        for day, hour in [(d + timedelta(days=delta), 6), (d + timedelta(days=delta), 18)]
+    )
+    idx = max(i for i, c in enumerate(candidates) if c <= now_lon)
+    return candidates[idx], candidates[idx + 1], candidates[idx + 2]
+
+
+def _ebb_intervals_from_tides(tides, range_start, range_end):
+    """Ebb-tide intervals (HighWater -> following LowWater, Hammersmith)
+    that overlap [range_start, range_end). `tides` is the already-fetched,
+    already-cached get_tides() list — no extra network/DB cost."""
+    if not tides:
+        return []
+    events = sorted(tides, key=lambda t: t['dt_utc'])
+    intervals = []
+    for a, b in zip(events, events[1:]):
+        if a['EventType'] == 'HighWater' and b['EventType'] == 'LowWater':
+            start = a['dt_utc'].astimezone(LONDON_TZ)
+            end   = b['dt_utc'].astimezone(LONDON_TZ)
+            if start < range_end and end > range_start:
+                intervals.append((start, end))
+    return intervals
+
+
+def _build_flag_context(pla_flag, richmond_next_flag, tides, now_lon):
+    """Bundle the (<=2) known flag windows and the ebb intervals inside them
+    into the small structure _event_flag_marker() checks events against.
+    Colours are compared using the lowercase widget vocabulary
+    ("red"/"yellow"/"green"/"black") already used by get_pla_flag()."""
+    cur_start, cur_end, next_end = _flag_slot_boundaries(now_lon)
+    windows = []
+    if pla_flag and pla_flag.get("colour"):
+        windows.append({"start": cur_start, "end": cur_end, "colour": pla_flag["colour"]})
+    if richmond_next_flag and richmond_next_flag.get("css_class"):
+        windows.append({"start": cur_end, "end": next_end, "colour": richmond_next_flag["css_class"]})
+    return {
+        "windows": windows,
+        "ebb_intervals": _ebb_intervals_from_tides(tides, cur_start, next_end),
+    }
+
+
+def _event_flag_marker(start_dt, end_dt, flag_ctx):
+    """Return '🟥', '🟨', or None for a single event's [start_dt, end_dt)."""
+    def overlaps(a_start, a_end, b_start, b_end):
+        return a_start < b_end and b_start < a_end
+
+    for w in flag_ctx["windows"]:
+        if w["colour"] == "red" and overlaps(start_dt, end_dt, w["start"], w["end"]):
+            return "🟥"
+    for w in flag_ctx["windows"]:
+        if w["colour"] != "yellow":
+            continue
+        for ebb_start, ebb_end in flag_ctx["ebb_intervals"]:
+            seg_start = max(w["start"], ebb_start)
+            seg_end   = min(w["end"], ebb_end)
+            if seg_start < seg_end and overlaps(start_dt, end_dt, seg_start, seg_end):
+                return "🟨"
+    return None
+
+
+def _event_marker_from_iso(event, flag_ctx):
+    """Marker for an event dict carrying start_iso/end_iso, or None (incl.
+    All Day events, which have no start_iso/end_iso and are never marked)."""
+    if not event.get("start_iso") or not event.get("end_iso"):
+        return None
+    try:
+        s  = datetime.fromisoformat(event["start_iso"])
+        en = datetime.fromisoformat(event["end_iso"])
+    except ValueError:
+        return None
+    return _event_flag_marker(s, en, flag_ctx)
+
+
 def build_calendar_data():
     """
     Diary-agenda data for the /calendar page: the next 14 days, each with
@@ -1928,6 +2033,26 @@ def build_calendar_data():
         club_events_by_date, cal_updated = None, ''
     club_events_by_date = club_events_by_date or {}
 
+    # Flag context for hazard markers — reuses the same cached fetches the
+    # homepage dashboard uses (get_pla_flag / get_richmond_observed_low_tide
+    # are both TTL-cached already, so this is a cache hit in the common case
+    # where the dashboard has been loaded recently, not a fresh fetch).
+    try:
+        pla_flag_data, _ = get_pla_flag()
+    except Exception as e:
+        print(f"Thread error pla_flag: {e}")
+        pla_flag_data = None
+
+    try:
+        richmond_lw_raw, _ = get_richmond_observed_low_tide()
+    except Exception as e:
+        print(f"Thread error richmond_lw: {e}")
+        richmond_lw_raw = None
+    lw_after = richmond_lw_raw.get("after_flag") if richmond_lw_raw else None
+    richmond_next_flag = {"css_class": lw_after["flag"].lower()} if lw_after else None
+
+    flag_ctx = _build_flag_context(pla_flag_data, richmond_next_flag, tides, now_lon)
+
     tides_by_date = defaultdict(list)
     for t in tides:
         dt_london = t['dt_utc'].astimezone(LONDON_TZ)
@@ -1954,10 +2079,12 @@ def build_calendar_data():
         timed = list(tides_by_date.get(d, []))
         for e in club_events:
             if e["time"] != "All Day":
+                marker = _event_marker_from_iso(e, flag_ctx)
+                prefix = f"{marker} " if marker else ""
                 timed.append({
                     "time": e["time"].split('-')[0],
                     "kind": "diary",
-                    "text": f"{e['summary']} ({e['time']})",
+                    "text": f"{prefix}{e['summary']} ({e['time']})",
                 })
         timed.sort(key=lambda x: x['time'])
 
@@ -2216,6 +2343,17 @@ def build_dashboard_data():
             "next_slot": next_slot_label,
         }
 
+    # Flag hazard markers (🟥/🟨) for today's/tomorrow's diary events — see
+    # _build_flag_context / _event_flag_marker. Reuses pla_f, richmond_next_flag
+    # and tides, already fetched above, so this adds no new network calls.
+    flag_ctx = _build_flag_context(pla_f, richmond_next_flag, tides or [], now_lon)
+    cal_list_marked = []
+    for _e in (cal_data or {}).get("list", []):
+        _marker = _event_marker_from_iso(_e, flag_ctx)
+        if _marker:
+            _e = {**_e, "summary": f"{_marker} {_e['summary']}"}
+        cal_list_marked.append(_e)
+
     # Consolidated flag warning — shown when any sources disagree or are missing.
     # Compares widget scrape colour, Richmond before_flag colour, and JSON colour.
     # If any two disagree, or the widget scrape failed, warn the user to check PLA.
@@ -2292,6 +2430,7 @@ def build_dashboard_data():
         "weather":             weather,
         "cal": {
             **(cal_data or {"day_label": "TODAY", "list": []}),
+            "list": cal_list_marked,
             "updated": cal_up
         },
         "cal_updated":         cal_up,
