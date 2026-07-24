@@ -76,6 +76,8 @@
             font-size: clamp(13px, 1.5vw, 17px);
             padding: 4px 0;
             color: #ccc;
+            border-left: 3px solid #444;
+            padding-left: 8px;
         }
 
         .event .time {
@@ -88,9 +90,8 @@
             color: #555;
         }
 
-        .event.tide-high .label { color: #58a6ff; }
-        .event.tide-low  .label { color: #f0a500; }
-        .event.diary     .label { color: #33FF57; }
+        .event.tide-high, .event.tide-low { border-left-color: #00CED1; }
+        .event.diary                      { border-left-color: #33FF57; }
 
         .no-events {
             font-size: clamp(12px, 1.3vw, 15px);
@@ -132,7 +133,15 @@
     {% endfor %}
 
     {% for t in day.timed %}
-    <div class="event {{ t.kind }}">
+        {% set flag_border = none %}
+        {% if t.kind == 'diary' %}
+            {% if t.text.startswith('🟥') %}
+                {% set flag_border = '#FF4B4B' %}
+            {% elif t.text.startswith('🟨') %}
+                {% set flag_border = '#FFFF00' %}
+            {% endif %}
+        {% endif %}
+    <div class="event {{ t.kind }}" style="{{ 'border-left-color:' ~ flag_border ~ ';' if flag_border else '' }}">
         <span class="time">{{ t.time }}</span>
         <span class="label">{{ t.text }}</span>
     </div>
