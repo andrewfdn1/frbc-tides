@@ -885,7 +885,14 @@
                     {% endfor %}
 
                     {% set is_past = e_end < d.last_updated[:5] %}
-                    <div class="cal-event" style="{{ 'opacity:0.35;' if is_past else '' }}">
+                    {% if e.summary.startswith('🟥') %}
+                        {% set flag_border = '#FF4B4B' %}
+                    {% elif e.summary.startswith('🟨') %}
+                        {% set flag_border = '#FFFF00' %}
+                    {% else %}
+                        {% set flag_border = none %}
+                    {% endif %}
+                    <div class="cal-event" style="{{ 'border-left-color:' ~ flag_border ~ ';' if flag_border else '' }}{{ 'opacity:0.35;' if is_past else '' }}">
                         <span class="cal-time">{{ e.time }}</span><br>{{ e.summary }}
                     </div>
                 {% endif %}
