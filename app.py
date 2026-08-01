@@ -3002,6 +3002,10 @@ def links():
 def calendar_page():
     return render_template("calendar.html", d=build_calendar_data())
 
+@app.route("/distances")
+def distances_page():
+    return render_template("distances.html")
+
 @app.route("/data")
 def data_endpoint():
     return jsonify(build_dashboard_data())

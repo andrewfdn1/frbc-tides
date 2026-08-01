@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rowing Distances &mdash; FRBC</title>
+    <link rel="icon" type="image/png" href="/static/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+    <link rel="shortcut icon" href="/static/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
+    <link rel="manifest" href="/static/site.webmanifest" />
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
+
+        body {
+            background-color: #000;
+            color: #fff;
+            min-height: 100vh;
+            padding: clamp(20px, 4vw, 48px) clamp(16px, 6vw, 64px);
+        }
+
+        .back-link {
+            display: inline-block;
+            color: #888;
+            text-decoration: none;
+            font-size: clamp(13px, 1.4vw, 16px);
+            margin-bottom: clamp(20px, 3vw, 36px);
+        }
+
+        .back-link:hover { color: #33FF57; }
+
+        h1 {
+            font-size: clamp(24px, 3.2vw, 36px);
+            text-transform: uppercase;
+            border-bottom: 1px solid #333;
+            padding-bottom: 14px;
+            margin-bottom: clamp(20px, 3vw, 36px);
+        }
+
+        .note {
+            font-size: clamp(13px, 1.4vw, 16px);
+            color: #ccc;
+            line-height: 1.5;
+            max-width: 720px;
+            margin-bottom: 10px;
+        }
+
+        .source {
+            font-size: clamp(11px, 1.1vw, 14px);
+            color: #555;
+            margin-bottom: clamp(24px, 3.4vw, 40px);
+        }
+
+        h2 {
+            font-size: clamp(18px, 2.2vw, 24px);
+            font-weight: bold;
+            color: #33FF57;
+            text-transform: uppercase;
+            margin: clamp(24px, 3vw, 36px) 0 12px;
+        }
+
+        table {
+            width: 100%;
+            max-width: 640px;
+            border-collapse: collapse;
+            margin-bottom: clamp(20px, 2.6vw, 30px);
+        }
+
+        th, td {
+            text-align: left;
+            padding: 8px 10px;
+            font-size: clamp(13px, 1.5vw, 16px);
+            border-bottom: 1px solid #222;
+        }
+
+        th {
+            color: #888;
+            text-transform: uppercase;
+            font-size: clamp(11px, 1.1vw, 13px);
+            letter-spacing: 0.04em;
+            border-bottom: 1px solid #333;
+        }
+
+        td.dest { color: #fff; }
+        td.num  { color: #ccc; text-align: right; }
+        th.num  { text-align: right; }
+
+        tr:hover td { color: #33FF57; }
+    </style>
+</head>
+<body>
+
+<a href="/links" class="back-link">&larr; Back to links</a>
+
+<h1>FRBC Rowing Distances</h1>
+
+<p class="note">
+    Distances depend on what line you take in the river (inshore vs fairway
+    etc), so the table below is a guide, most useful for those outings
+    without GPS etc.
+</p>
+<p class="source">Source: St Paul&rsquo;s Boat Club, with addition of FRBC from Google Maps</p>
+
+<h2>Upstream / West</h2>
+<table>
+    <tr>
+        <th>FRBC to</th>
+        <th class="num">Return</th>
+        <th class="num">One way</th>
+    </tr>
+    <tr><td class="dest">Hammersmith Bridge</td><td class="num">520</td><td class="num">260</td></tr>
+    <tr><td class="dest">St Paul&rsquo;s</td><td class="num">1,306</td><td class="num">653</td></tr>
+    <tr><td class="dest">Chiswick Pier</td><td class="num">4,108</td><td class="num">2,054</td></tr>
+    <tr><td class="dest">The Bandstand</td><td class="num">5,440</td><td class="num">2,720</td></tr>
+    <tr><td class="dest">Barnes Bridge</td><td class="num">6,368</td><td class="num">3,184</td></tr>
+    <tr><td class="dest">Chiswick Bridge</td><td class="num">8,834</td><td class="num">4,417</td></tr>
+    <tr><td class="dest">UL Boathouse</td><td class="num">10,876</td><td class="num">5,438</td></tr>
+    <tr><td class="dest">Kew Rail Bridge</td><td class="num">11,608</td><td class="num">5,804</td></tr>
+    <tr><td class="dest">Kew Road Bridge</td><td class="num">12,918</td><td class="num">6,459</td></tr>
+    <tr><td class="dest">Brentford Lock</td><td class="num">14,882</td><td class="num">7,441</td></tr>
+    <tr><td class="dest">Pink Lodge</td><td class="num">18,534</td><td class="num">9,267</td></tr>
+    <tr><td class="dest">Richmond Lock</td><td class="num">20,834</td><td class="num">10,417</td></tr>
+</table>
+
+<h2>Downstream / East</h2>
+<table>
+    <tr>
+        <th>FRBC to</th>
+        <th class="num">Return</th>
+        <th class="num">One way</th>
+    </tr>
+    <tr><td class="dest">Far end Harrod&rsquo;s Wharf</td><td class="num">480</td><td class="num">240</td></tr>
+    <tr><td class="dest">Mile Post</td><td class="num">1,804</td><td class="num">902</td></tr>
+    <tr><td class="dest">Barn Elms</td><td class="num">2,848</td><td class="num">1,424</td></tr>
+    <tr><td class="dest">Beverly Brook</td><td class="num">3,360</td><td class="num">1,680</td></tr>
+    <tr><td class="dest">Black Buoy</td><td class="num">3,770</td><td class="num">1,885</td></tr>
+    <tr><td class="dest">Putney Pier</td><td class="num">4,766</td><td class="num">2,383</td></tr>
+    <tr><td class="dest">Putney Bridge</td><td class="num">5,132</td><td class="num">2,566</td></tr>
+    <tr><td class="dest">Fulham Rail Bridge</td><td class="num">5,642</td><td class="num">2,821</td></tr>
+    <tr><td class="dest">Wandsworth Bridge</td><td class="num">8,788</td><td class="num">4,394</td></tr>
+</table>
+
+</body>
+</html>
