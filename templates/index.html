@@ -22,10 +22,10 @@
 
         :root {
             --fs-header:  clamp(20px, 2.4vw, 28px);
-            --fs-updated: clamp(11px, 1.1vw, 15px);
+            --fs-updated: clamp(13px, 1.3vw, 17px);
             --fs-data:    clamp(15px, 1.9vw, 26px);
             --fs-metric:  clamp(20px, 2.8vw, 38px);
-            --fs-footer:  clamp(10px, 0.9vw, 13px);
+            --fs-footer:  clamp(12px, 1.05vw, 15px);
         }
 
         .logo-img {
@@ -200,12 +200,12 @@
         }
 
         .wx-table th {
-            font-size: calc(var(--fs-data) * 0.75);
+            font-size: calc(var(--fs-data) * 0.82);
             font-weight: bold;
             text-align: left;
             padding: clamp(2px, 0.4vw, 5px) clamp(4px, 0.5vw, 8px) clamp(2px, 0.4vw, 5px) 0;
             border-bottom: 1px solid #333;
-            color: #aaa;
+            color: #fff;
         }
 
         .wx-table th:first-child { min-width: 5em; }
@@ -237,7 +237,7 @@
 
         .wx-source {
             font-size: var(--fs-updated);
-            color: #555;
+            color: #fff;
             margin-top: 4px;
         }
 
@@ -263,7 +263,7 @@
             border-top: 1px solid #333;
             padding: 6px 16px;
             font-size: var(--fs-footer);
-            color: #666;
+            color: #fff;
             display: flex;
             justify-content: space-between;
             background: #000;
@@ -326,8 +326,8 @@
         }
 
         .radar-legend-label {
-            color: #777;
-            font-size: clamp(8px, 0.75vw, 11px);
+            color: #fff;
+            font-size: clamp(10px, 0.85vw, 13px);
             text-transform: uppercase;
             letter-spacing: 0.05em;
             min-width: 44px;
@@ -413,7 +413,7 @@
     </table>
     {% if d.tides.tidal_range %}
     {% set tr = d.tides.tidal_range %}
-    <p style="font-size:var(--fs-updated); color:#888; margin-top:6px;">
+    <p style="font-size:var(--fs-updated); color:#fff; margin-top:6px;">
         Tidal range {{ tr.range }}m, High {{ tr.hw }}m &ndash; Low {{ tr.lw }}m{% if tr.trend %} &mdash; Moving to {{ tr.trend }} tides{% endif %}
     </p>
     {% endif %}
@@ -456,7 +456,7 @@
 
         {# ── Richmond low tide data ── #}
         {% if d.richmond_lw_before or d.richmond_lw_after %}
-        <div style="font-size:clamp(11px, 1.1vw, 14px); color:#888; margin-top:6px; line-height:1.8;">
+        <div style="font-size:clamp(13px, 1.2vw, 16px); color:#fff; margin-top:6px; line-height:1.8;">
             <div>Richmond low tide data:</div>
             <ul style="margin:2px 0 0 1.2em; padding:0; line-height:1.8;">
                 {% if d.richmond_lw_before %}
@@ -473,17 +473,17 @@
         {% endif %}
 
         {# ── PLA JSON crosscheck ── #}
-        <div style="font-size:clamp(11px, 1.1vw, 14px); color:#888; margin-top:4px; line-height:1.8;">
+        <div style="font-size:clamp(13px, 1.2vw, 16px); color:#fff; margin-top:4px; line-height:1.8;">
             {% if d.pla_json_flag %}
                 {% set jc = d.pla_json_flag.colour %}
                 {% set js = d.pla_json_flag.stale %}
                 <div>PLA JSON: <span class="c-{{ jc }}">{{ jc | capitalize }}</span>
-                    {% if js %}<span style="color:#888;"> (stale &mdash; {{ d.pla_json_flag.last_updated }})</span>
-                    {% else %}<span style="color:#888;"> ({{ d.pla_json_flag.last_updated }})</span>{% endif %}
+                    {% if js %}<span style="color:#fff;"> (stale &mdash; {{ d.pla_json_flag.last_updated }})</span>
+                    {% else %}<span style="color:#fff;"> ({{ d.pla_json_flag.last_updated }})</span>{% endif %}
                     {% if jc != fc %} <span style="color:#FF4B4B;">&#9888; differs from displayed flag</span>{% endif %}
                 </div>
             {% else %}
-                <div style="color:#888;">PLA JSON: unavailable</div>
+                <div style="color:#fff;">PLA JSON: unavailable</div>
             {% endif %}
         </div>
 
@@ -500,9 +500,9 @@
             {% elif fraw >= 80 %}
                 {% set fcol = '#FFFF00' %}
             {% else %}
-                {% set fcol = '#888' %}
+                {% set fcol = '#fff' %}
             {% endif %}
-            <div style="font-size:clamp(11px,1.1vw,13px); color:{{ fcol }}; margin-top:4px;">
+            <div style="font-size:clamp(13px,1.2vw,15px); color:{{ fcol }}; margin-top:4px;">
                 Kingston Flow {{ d.kingston_flow.flow }}&thinsp;{{ d.kingston_flow.unit }} &middot; Updated {{ d.flow_updated }}
             </div>
         {% endif %}
@@ -525,16 +525,16 @@
     </div>
 
     {# ── Water Quality (combined CSO + E. coli) ── #}
-    <h3>WATER QUALITY (DRAFT) <span class="updated">Updated {{ d.cso_updated }} &nbsp;<a href="/waterquality" style="font-size:0.8em; color:#555; text-decoration:none;" target="_blank">detail &#8599;</a></span></h3>
-    <div style="font-size:clamp(11px,1.15vw,14px); line-height:2;">
+    <h3>WATER QUALITY (DRAFT) <span class="updated">Updated {{ d.cso_updated }} &nbsp;<a href="/waterquality" style="font-size:0.95em; color:#fff; text-decoration:none;" target="_blank">detail &#8599;</a></span></h3>
+    <div style="font-size:clamp(12px,1.2vw,15px); line-height:2;">
         {% if d.cso_discharge %}
         {# Grid columns: zone name + one column per configured window (e.g. 24h, 7d, 30d) #}
         <div style="display:grid; grid-template-columns:auto {% for w in d.cso_discharge.windows %}1fr {% endfor %}; gap:0 1em; align-items:baseline;">
 
             {# — CSO header row — #}
-            <span style="color:#888;">CSO discharge</span>
+            <span style="color:#fff;">CSO discharge</span>
             {% for w in d.cso_discharge.windows %}
-            <span style="color:#888; text-align:right;">{{ w.label }}</span>
+            <span style="color:#fff; text-align:right;">{{ w.label }}</span>
             {% endfor %}
 
             {# — CSO rows, one per zone — #}
@@ -553,7 +553,7 @@
 
         </div>
         {% else %}
-        <span style="color:#555;">CSO data unavailable</span>
+        <span style="color:#fff;">CSO data unavailable</span>
         {% endif %}
 
         <div style="display:grid; grid-template-columns:auto 1fr; gap:0 1em; align-items:baseline; margin-top:4px;">
@@ -561,32 +561,32 @@
             <span style="grid-column:1/-1; border-top:1px solid #333; margin:4px 0; display:block;"></span>
 
             {# — E. coli header — #}
-            <span style="color:#888;"></span>
-            <span style="color:#888; text-align:right;">E. coli CFU/100ml</span>
+            <span style="color:#fff;"></span>
+            <span style="color:#fff; text-align:right;">E. coli CFU/100ml</span>
 
             {# — E. coli rows — #}
             {% if d.water_quality %}
                 {% set f = d.water_quality.frbc %}
-                <span style="color:{% if f.stale %}#555{% else %}#ccc{% endif %};">FRBC E. coli</span>
+                <span style="color:{% if f.stale %}#888{% else %}#ccc{% endif %};">FRBC E. coli</span>
                 {% if f.available %}
                     <span style="color:{{ f.colour }}; text-align:right; font-weight:bold;">
                         {{ f.ecoli_str }} &middot; {{ f.date_str }} &middot; {{ f.days_ago_str }}
                     </span>
                 {% else %}
-                    <span style="color:#555; text-align:right;">&mdash; unavailable</span>
+                    <span style="color:#fff; text-align:right;">&mdash; unavailable</span>
                 {% endif %}
 
                 {% set p = d.water_quality.ptrc %}
-                <span style="color:{% if p.stale %}#555{% else %}#ccc{% endif %};">PTRC E. coli</span>
+                <span style="color:{% if p.stale %}#888{% else %}#ccc{% endif %};">PTRC E. coli</span>
                 {% if p.available %}
                     <span style="color:{{ p.colour }}; text-align:right; font-weight:bold;">
                         {{ p.ecoli_str }} &middot; {{ p.date_str }} &middot; {{ p.days_ago_str }}
                     </span>
                 {% else %}
-                    <span style="color:#555; text-align:right;">&mdash; unavailable</span>
+                    <span style="color:#fff; text-align:right;">&mdash; unavailable</span>
                 {% endif %}
             {% else %}
-                <span style="color:#555; grid-column:1/-1;">Water quality data unavailable</span>
+                <span style="color:#fff; grid-column:1/-1;">Water quality data unavailable</span>
             {% endif %}
 
         </div>
