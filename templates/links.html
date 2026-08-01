@@ -37,31 +37,32 @@
             margin-bottom: clamp(20px, 3vw, 36px);
         }
 
-        .link-block {
-            margin-bottom: clamp(24px, 3.4vw, 40px);
+        .link-list {
+            display: flex;
+            flex-direction: column;
+            gap: clamp(12px, 1.8vw, 18px);
+            max-width: 640px;
         }
 
-        .link-label {
-            font-size: clamp(18px, 2.2vw, 26px);
+        .link-button {
+            display: block;
+            font-size: clamp(17px, 2vw, 22px);
             font-weight: bold;
             color: #33FF57;
-            text-transform: uppercase;
-            margin-bottom: 6px;
-        }
-
-        .link-url {
-            display: inline-block;
-            font-size: clamp(15px, 1.8vw, 20px);
-            color: #fff;
             text-decoration: none;
-            word-break: break-all;
-            border-bottom: 1px solid #333;
-            padding-bottom: 2px;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            background-color: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 16px 20px;
+            transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
         }
 
-        .link-url:hover {
-            color: #33FF57;
-            border-bottom-color: #33FF57;
+        .link-button:hover {
+            border-color: #33FF57;
+            background-color: rgba(51, 255, 87, 0.08);
+            color: #fff;
         }
     </style>
 </head>
@@ -71,39 +72,20 @@
 
 <h1>Links</h1>
 
-<div class="link-block">
-    <div class="link-label">Incident report</div>
-    <a class="link-url" href="https://docs.google.com/forms/d/e/1FAIpQLSdsuWobvXfYjHm-lmqi8OTXx1oeicnnQi1sXoLWngWTdSIa-Q/viewform?pli=1" target="_blank" rel="noopener">https://docs.google.com/forms/d/e/1FAIpQLSdsuWobvXfYjHm-lmqi8OTXx1oeicnnQi1sXoLWngWTdSIa-Q/viewform?pli=1</a>
-</div>
+<div class="link-list">
+    <a class="link-button" href="https://docs.google.com/forms/d/e/1FAIpQLSdsuWobvXfYjHm-lmqi8OTXx1oeicnnQi1sXoLWngWTdSIa-Q/viewform?pli=1" target="_blank" rel="noopener">FRBC Incident report</a>
 
-<div class="link-block">
-    <div class="link-label">Distances</div>
-    <a class="link-url" href="https://andrewdoughty.com/distances/" target="_blank" rel="noopener">https://andrewdoughty.com/distances/</a>
-</div>
+    <a class="link-button" href="https://pla.co.uk/resolver" target="_blank" rel="noopener">PLA incident report</a>
 
-<div class="link-block">
-    <div class="link-label">Safety</div>
-    <a class="link-url" href="https://www.fulhamreachboatclub.co.uk/safety" target="_blank" rel="noopener">https://www.fulhamreachboatclub.co.uk/safety</a>
-</div>
+    <a class="link-button" href="https://andrewdoughty.com/distances/" target="_blank" rel="noopener">FRBC rowing distances</a>
 
-<div class="link-block">
-    <div class="link-label">Tideway Code</div>
-    <a class="link-url" href="https://pla.co.uk/tideway-code" target="_blank" rel="noopener">https://pla.co.uk/tideway-code</a>
-</div>
+    <a class="link-button" href="https://www.fulhamreachboatclub.co.uk/safety" target="_blank" rel="noopener">Safety</a>
 
-<div class="link-block">
-    <div class="link-label">Dashboard</div>
-    <a class="link-url" href="/">Home page on Render</a>
-</div>
+    <a class="link-button" href="https://pla.co.uk/tideway-code" target="_blank" rel="noopener">Tideway Code</a>
 
-<div class="link-block">
-    <div class="link-label">Calendar</div>
-    <a class="link-url" href="/calendar">Tides &amp; weather &mdash; next 14 days</a>
-</div>
+    <a class="link-button" href="/calendar">14 day calendar</a>
 
-<div class="link-block">
-    <div class="link-label">Fairweather Sculler</div>
-    <a class="link-url" href="https://fairweather-sculler.onrender.com/" target="_blank" rel="noopener">https://fairweather-sculler.onrender.com/</a>
+    <a class="link-button" href="https://fairweather-sculler.onrender.com/" target="_blank" rel="noopener">Fairweather Sculler</a>
 </div>
 
 </body>
