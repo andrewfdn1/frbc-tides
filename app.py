@@ -1195,14 +1195,15 @@ def _nswws_issued_url_from_feed(feed_xml):
 
 def _nswws_request_headers():
     return {
-        "x-api-key": NSWWS_API_KEY,
-        "Accept": "application/json, application/vnd.geo+json;q=0.9, */*;q=0.8",
+        "apikey": NSWWS_API_KEY,
+        "Accept": "application/atom+xml",
         "User-Agent": "frbc-tides/1.0",
     }
 
 
 def _nswws_read_json(response, label):
-    """Parse a Met Office NSWWS JSON body; tolerate empty issued-warning collections."""
+    """Parse a Met Office NSWWS GeoJSON body from the issued warnings endpoint.
+    Tolerates empty warning collections."""
     body = (response.content or b"").strip()
     if not body:
         print(
@@ -1227,7 +1228,7 @@ def _fetch_nswws():
     """
     Fetch Met Office NSWWS warnings for Hammersmith (LAT, LON).
 
-    Step 1: GET /v1.1/objects/feed (Atom XML) with X-Api-Key.
+    Step 1: GET /v1.1/objects/feed (Atom XML) with apikey header.
     Step 2: GET the link[@rel=related] URL for issued warnings (GeoJSON).
 
     Returns a list sorted highest severity first. Each item:
