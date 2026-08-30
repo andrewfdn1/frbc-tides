@@ -238,7 +238,7 @@ Optional:
 
 Optional (not currently used):
 - `METOFFICE_ATMOSPHERIC` - Atmospheric API key (returns GRIB2, not compatible)
-- `METOFFICE_NSWWS_FEED_URL` - Custom NSWWS feed URL (defaults to official)
+- `METOFFICE_NSWWS_FEED_URL` - Custom NSWWS v1.1 feed URL (defaults to `https://data.hub.api.metoffice.gov.uk/nswws/v1.1/objects/feed`)
 
 ## Local Development
 
