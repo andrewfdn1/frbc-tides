@@ -1161,7 +1161,7 @@ def get_daily_weather_14d():
 
 _NSWWS_FEED_URL  = os.environ.get(
     "METOFFICE_NSWWS_FEED_URL",
-    "https://prd.nswws.api.metoffice.gov.uk/v1.0/objects/feed",
+    "https://prd.nswws.api.metoffice.gov.uk/v1.1/objects/feed",
 )
 _NSWWS_ATOM_NS   = "{http://www.w3.org/2005/Atom}"
 _LEVEL_ORDER     = {"RED": 3, "AMBER": 2, "YELLOW": 1}
@@ -1227,7 +1227,7 @@ def _fetch_nswws():
     """
     Fetch Met Office NSWWS warnings for Hammersmith (LAT, LON).
 
-    Step 1: GET /v1.0/objects/feed (Atom XML) with X-Api-Key.
+    Step 1: GET /v1.1/objects/feed (Atom XML) with X-Api-Key.
     Step 2: GET the link[@rel=related] URL for issued warnings (GeoJSON).
 
     Returns a list sorted highest severity first. Each item:

@@ -7,6 +7,8 @@ services:
     envVars:
       - key: METOFFICE_NSWWS
         sync: false
+      - key: METOFFICE_NSWWS_FEED_URL
+        sync: false
       - key: METOFFICE_SITESPECIFIC
         sync: false
       - key: METOFFICE_ATMOSPHERIC

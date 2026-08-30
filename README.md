@@ -44,7 +44,8 @@ The dashboard displays real-time information in a three-column layout (landscape
 |-----|---------|---------------------|
 | **UK Hydrographic Office (Admiralty) Tidal API** | Tidal events for Hammersmith (Station 0115) | `TIDE_API_KEY` |
 | **Met Office Weather DataHub (Site-Specific)** | Hourly/three-hourly weather forecasts | `METOFFICE_SITESPECIFIC` |
-| **Met Office NSWWS** | National Severe Weather Warning Service | `METOFFICE_NSWWS` |
+| **Met Office NSWWS (v1.1)** | National Severe Weather Warning Service - v1.1 on Weather DataHub, replacing v1.0 before Spring 2027 retirement | `METOFFICE_NSWWS` |
+| **Met Office NSWWS (v1.0)** | National Severe Weather Warning Service - legacy version, will be retired Spring 2027 | `METOFFICE_NSWWS_LEGACY` |
 | **Met Office Observations** | Actual observations, used to backfill each weather window once it has fully passed | `METOFFICE_OBSERVATIONS` |
 | **Google Calendar API** | Club calendar events | `GOOGLE_CALENDAR_API_KEY` |
 
