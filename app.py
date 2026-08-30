@@ -1161,7 +1161,7 @@ def get_daily_weather_14d():
 
 _NSWWS_FEED_URL  = os.environ.get(
     "METOFFICE_NSWWS_FEED_URL",
-    "https://prd.nswws.api.metoffice.gov.uk/v1.1/objects/feed",
+    "https://data.hub.api.metoffice.gov.uk/nswws/v1.1/objects/feed",
 )
 _NSWWS_ATOM_NS   = "{http://www.w3.org/2005/Atom}"
 _LEVEL_ORDER     = {"RED": 3, "AMBER": 2, "YELLOW": 1}
