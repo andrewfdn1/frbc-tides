@@ -1632,7 +1632,11 @@ def get_cso_discharge():
         def fetch_all(alert_type):
             items = []
             offset = 0
+            pages = 0
             while True:
+                pages += 1
+                if pages > 6:   # safety cap: avoid unbounded pagination loops
+                    break
                 params = {
                     "alertType": alert_type,
                     "dateStart":  date_start,
@@ -2138,7 +2142,7 @@ def build_dashboard_data():
         threading.Thread(target=run, args=('water_quality',  get_water_quality)),
     ]
     for t in threads: t.start()
-    for t in threads: t.join(timeout=15)
+    for t in threads: t.join(timeout=8)
 
     # Tides
     tides, t_up = results.get('tides', (None, ''))
