@@ -1040,11 +1040,12 @@
             doubleClickZoom: false,
             touchZoom: false
         });
-
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_329x_1_d4626b73f4dce02eba06fdef', {
             opacity: 0.8
         }).addTo(radarMap);
 
+    
         loadRadar();
         loadWindArrows();
         setInterval(loadRadar, 300000);        // refresh radar every 5 min
