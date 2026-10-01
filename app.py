@@ -46,6 +46,10 @@ MO_SITE_KEY       = os.environ.get("METOFFICE_SITESPECIFIC", "")
 MO_ATMO_KEY       = os.environ.get("METOFFICE_ATMOSPHERIC", "")
 MO_OBS_KEY        = os.environ.get("METOFFICE_OBSERVATIONS", "")
 LONDON_TZ         = ZoneInfo("Europe/London")
+
+# Pontoon warning window around a low tide, in seconds
+PONTOON_WARN_BEFORE = 1800   # switch on this far ahead of the low tide
+PONTOON_WARN_AFTER  = 5400   # stay on this long after it
 CAL_ID            = "info@fulhamreachboatclub.com"
 
 # Hammersmith, London
@@ -3098,14 +3102,16 @@ def api_overlay():
         # hw_iso initialisation for days while the overlay showed no tide text.
         print(f"ERROR [overlay/next-tide]: {e!r}")
 
-    # Pontoon warning — within 60 mins after low tide
+    # Pontoon warning — from PONTOON_WARN_BEFORE before a low tide until
+    # PONTOON_WARN_AFTER after it
     pontoon_warning = False
     try:
         tides, _ = get_tides()
-        past_lows = [e for e in tides if "Low" in e['EventType'] and e['dt_utc'] < now]
-        if past_lows:
-            diff = (now - past_lows[-1]['dt_utc']).total_seconds()
-            pontoon_warning = 0 <= diff <= 3600
+        low_times = [e['dt_utc'] for e in tides if "Low" in e['EventType']]
+        if low_times:
+            nearest = min(low_times, key=lambda dt: abs((dt - now).total_seconds()))
+            delta_s = (nearest - now).total_seconds()
+            pontoon_warning = -PONTOON_WARN_BEFORE <= delta_s <= PONTOON_WARN_AFTER
     except Exception as e:
         print(f"ERROR [overlay/pontoon]: {e!r}")
 
