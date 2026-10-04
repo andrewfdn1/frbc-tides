@@ -12,7 +12,6 @@ from collections import defaultdict
 import os
 import json
 import pathlib
-import tempfile
 import xml.etree.ElementTree as ET
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -43,8 +42,6 @@ GOOGLE_API_KEY    = os.environ.get("GOOGLE_CALENDAR_API_KEY", "")
 WEATHERAPI_KEY    = os.environ.get("WEATHERAPI_KEY", "")
 NSWWS_API_KEY     = os.environ.get("METOFFICE_NSWWS", "")
 MO_SITE_KEY       = os.environ.get("METOFFICE_SITESPECIFIC", "")
-MO_ATMO_KEY       = os.environ.get("METOFFICE_ATMOSPHERIC", "")
-MO_OBS_KEY        = os.environ.get("METOFFICE_OBSERVATIONS", "")
 LONDON_TZ         = ZoneInfo("Europe/London")
 
 # Pontoon warning window around a low tide, in seconds
@@ -59,22 +56,6 @@ _cache           = {}
 _cache_locks     = {}
 _cache_locks_mu  = threading.Lock()
 _cal_fail_until  = 0
-
-# File-based morning weather store — survives process restarts
-_MORNING_FILE  = pathlib.Path(tempfile.gettempdir()) / "morning_weather.json"
-
-
-
-
-
-def _retry_after_seconds(response, default=3600):
-    """Parse a Retry-After header as integer seconds. Servers may send the
-    HTTP-date form instead of seconds — fall back to the default rather than
-    letting int() raise and skip the backoff bookkeeping entirely."""
-    try:
-        return int(response.headers.get("Retry-After", default))
-    except (TypeError, ValueError):
-        return default
 
 
 def _get_lock(key):
@@ -545,164 +526,8 @@ def prevailing_direction(degrees_list):
 # ---------------------------------------------------------------------------
 
 _MO_SS_BASE  = "https://data.hub.api.metoffice.gov.uk/sitespecific/v0/point/"
-_MO_OBS_BASE = "https://data.hub.api.metoffice.gov.uk/observation-land/1/"
 _MO_FOG_CODES = {5, 6}          # mist, fog
 _MO_STORM_CODES = {28, 29, 30}  # thunder showers / thunder
-
-# Geohash file — persists the nearest station geohash across process restarts
-_GEOHASH_FILE = pathlib.Path(tempfile.gettempdir()) / "mo_obs_geohash.json"
-# Calculated fallback for Hammersmith (51.488, -0.224) — used if nearest call fails
-_MO_OBS_FALLBACK_GEOHASH = "gcpufv"
-
-# In-process cache
-_mo_obs_geohash      = None
-_mo_obs_geohash_fail = 0   # timestamp after which we retry a failed nearest lookup
-
-
-def _load_geohash():
-    """Load cached geohash from file."""
-    try:
-        data = json.loads(_GEOHASH_FILE.read_text())
-        return data.get("geohash")
-    except Exception:
-        return None
-
-
-def _save_geohash(geohash):
-    """Persist geohash to file."""
-    try:
-        _GEOHASH_FILE.write_text(json.dumps({"geohash": geohash}))
-    except Exception as e:
-        print(f"Could not persist geohash: {e}")
-
-
-def _get_mo_obs_geohash():
-    """
-    Return the nearest observation station geohash for our lat/lon.
-    Priority: in-process cache → file cache → API call → hardcoded fallback.
-    """
-    global _mo_obs_geohash, _mo_obs_geohash_fail
-
-    # 1. In-process cache (fastest)
-    if _mo_obs_geohash:
-        return _mo_obs_geohash
-
-    # 2. File cache (survives restarts)
-    saved = _load_geohash()
-    if saved:
-        _mo_obs_geohash = saved
-        return _mo_obs_geohash
-
-    # 3. API call — skip if in backoff
-    now = datetime.now(timezone.utc).timestamp()
-    if now >= _mo_obs_geohash_fail:
-        try:
-            # lat/lon go in the query string and must be at most 2 decimal places
-            url = f"{_MO_OBS_BASE}nearest"
-            headers = {"apikey": MO_OBS_KEY, "accept": "application/json"}
-            params = {"lat": round(LAT, 2), "lon": round(LON, 2), "max": 1}
-            r = requests.get(url, headers=headers, params=params, timeout=15)
-            if r.status_code in (401, 403):
-                _mo_obs_geohash_fail = now + 3600
-                raise Exception("Met Office Observations auth failed")
-            if r.status_code == 429:
-                _mo_obs_geohash_fail = now + 3600
-                raise Exception("Met Office Observations rate limited")
-            if not r.ok:
-                _mo_obs_geohash_fail = now + 1800
-                r.raise_for_status()
-            data = r.json()
-            if data and isinstance(data, list):
-                geohash = data[0].get("geohash")
-                if geohash:
-                    _mo_obs_geohash = geohash
-                    _save_geohash(geohash)
-                    print(f"Met Office Observations geohash from API: {geohash}")
-                    return _mo_obs_geohash
-            _mo_obs_geohash_fail = now + 1800
-        except Exception as e:
-            print(f"Met Office Observations nearest failed, using fallback geohash: {e}")
-
-    # 4. Hardcoded fallback — Hammersmith nearest station
-    print(f"Met Office Observations using fallback geohash: {_MO_OBS_FALLBACK_GEOHASH}")
-    return _MO_OBS_FALLBACK_GEOHASH
-
-
-def _fetch_mo_observations():
-    """
-    Fetch ~7 days of hourly observations for our nearest station.
-    Returns a list of hourly records as in the sample data.
-    """
-    global _mo_obs_geohash
-    geohash = _get_mo_obs_geohash()
-    url = _MO_OBS_BASE + geohash
-    headers = {"apikey": MO_OBS_KEY, "accept": "application/json"}
-    r = requests.get(url, headers=headers, timeout=15)
-    if r.status_code in (401, 403):
-        raise Exception("Met Office Observations auth failed")
-    if r.status_code == 429:
-        raise Exception("Met Office Observations rate limited")
-    if r.status_code == 404:
-        # Geohash not supported by the API — drop caches so the next
-        # refresh does a fresh nearest-station lookup
-        _mo_obs_geohash = None
-        try:
-            _GEOHASH_FILE.unlink()
-        except Exception:
-            pass
-        raise Exception(f"Met Office Observations: geohash {geohash} not recognised")
-    r.raise_for_status()
-    data = r.json()
-    if not isinstance(data, list):
-        raise Exception("Met Office Observations: unexpected response format")
-    return data
-
-
-def _parse_mo_observations_morning(obs_records, existing_morning):
-    """
-    Build a morning window dict (06:00–12:00 local) from observed hourly records.
-    Preserves rain_min/rain_max and uv_max from the forecast (not available in obs).
-    Wind speeds are in m/s in the observations API — same as site-specific forecast.
-    Wind direction is already a cardinal string (e.g. "NNW") — take the mode.
-    """
-    today = datetime.now(LONDON_TZ).date()
-    entries = []
-    for rec in obs_records:
-        try:
-            dt = datetime.fromisoformat(rec["datetime"].replace("Z", "+00:00")).astimezone(LONDON_TZ)
-        except Exception:
-            continue
-        if dt.date() == today and 6 <= dt.hour < 12:
-            entries.append(rec)
-
-    if not entries:
-        return None
-
-    temps  = [float(e["temperature"])  for e in entries if e.get("temperature")  is not None]
-    winds  = [float(e["wind_speed"])   for e in entries if e.get("wind_speed")   is not None]
-    gusts  = [float(e["wind_gust"])    for e in entries if e.get("wind_gust")    is not None]
-    dirs   = [e["wind_direction"]      for e in entries if e.get("wind_direction")]
-    codes  = [int(e["weather_code"])   for e in entries if e.get("weather_code") is not None]
-
-    # Prevailing direction: most frequent cardinal string
-    direction = max(set(dirs), key=dirs.count) if dirs else None
-
-    result = {
-        "temp_min":  round(min(temps))        if temps  else None,
-        "temp_max":  round(max(temps))        if temps  else None,
-        "wind_min":  _ms_to_kmh(min(winds))   if winds  else None,
-        "wind_max":  _ms_to_kmh(max(winds))   if winds  else None,
-        "gust_min":  _ms_to_kmh(min(gusts))   if gusts  else None,
-        "gust_max":  _ms_to_kmh(max(gusts))   if gusts  else None,
-        "direction": direction,
-        "fog":       any(c in _MO_FOG_CODES   for c in codes),
-        "storm":     any(c in _MO_STORM_CODES for c in codes),
-        # Preserve forecast values for fields not available in observations
-        "rain_min":  existing_morning.get("rain_min")  if existing_morning else None,
-        "rain_max":  existing_morning.get("rain_max")  if existing_morning else None,
-        "uv_max":    existing_morning.get("uv_max")    if existing_morning else None,
-    }
-    return result
 
 
 def _ms_to_kmh(ms):
@@ -2826,9 +2651,6 @@ td.r { text-align:right; white-space:nowrap; }
 def index():
     return render_template("index.html", d=build_dashboard_data())
 
-@app.route('/radar')
-def radar():
-    return render_template("index2.html", d=build_dashboard_data())
 
 @app.route("/links")
 def links():

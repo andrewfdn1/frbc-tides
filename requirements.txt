@@ -3,8 +3,5 @@ requests
 beautifulsoup4
 urllib3
 gunicorn
-python-dateutil
-pytz
 tzdata
 shapely
-websocket-client

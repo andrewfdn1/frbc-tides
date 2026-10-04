@@ -10,7 +10,7 @@ The dashboard displays real-time information in a three-column layout (landscape
 - **Hammersmith Tides** - Current tide direction (FLOOD/EBB), time until next tide, upcoming tide schedule with heights
 - **Bridge Tides** - Predicted times at Putney, Hammersmith, Chiswick and Richmond, derived as fixed minute offsets from the Hammersmith prediction
 - **Spring/Neap Trend** - "Moving to Spring/Neap tides" indicator computed from the tidal range trend over the last 7 days
-- **PLA Ebb Flag** - Port of London Authority flag status image with associated safety text, plus two crosscheck lines: PLA JSON endpoint result and Richmond low tide prior to the flag. A "sources disagree" warning is shown if the widget scrape, Richmond fallback and JSON crosscheck don't all agree
+- **PLA Ebb Flag** - Port of London Authority flag status with associated safety text, plus two crosscheck lines: PLA JSON endpoint result and Richmond low tide prior to the flag. A "sources disagree" warning is shown if the widget scrape, Richmond fallback and JSON crosscheck don't all agree
 - **Richmond Low Tide** - Lowest observed tide in the 12 hours before the current flag slot, colour-coded by PLA thresholds; with a next-flag prediction if a low tide has been recorded since the current flag was set
 - **Kingston Flow** - River flow rate at Kingston with threshold-based colour coding
 - **Water Quality** - Combined CSO (Combined Sewer Overflow) discharge status and E. coli readings, with drill-down pages at `/waterquality` (banded discharge table) and `/csomap` (interactive monitor map)
@@ -23,7 +23,6 @@ The dashboard displays real-time information in a three-column layout (landscape
   - UV index
   - Fog and storm indicators
   - Air + Water temperature sum (cold water risk)
-  - Each window is backfilled with actual Met Office observations once it has fully passed (morning after 12:00, afternoon after 20:00), when `METOFFICE_OBSERVATIONS` is configured; a window still in progress or upcoming stays as forecast
 - **Met Office Warnings** - NSWWS severe weather warnings by time period, plus a 7-day-lookahead list of warnings not yet active today
 - **Rain Radar & Wind Map** - Leaflet map with a RainViewer radar overlay and a 4x4 wind-arrow grid, refreshed client-side (radar every 5 minutes, wind hourly)
 
@@ -43,18 +42,17 @@ The dashboard displays real-time information in a three-column layout (landscape
 | API | Purpose | Environment Variable |
 |-----|---------|---------------------|
 | **UK Hydrographic Office (Admiralty) Tidal API** | Tidal events for Hammersmith (Station 0115) | `TIDE_API_KEY` |
-| **Met Office Weather DataHub (Site-Specific)** | Hourly/three-hourly weather forecasts | `METOFFICE_SITESPECIFIC` |
-| **Met Office NSWWS (v1.1)** | National Severe Weather Warning Service - v1.1 on Weather DataHub, replacing v1.0 before Spring 2027 retirement | `METOFFICE_NSWWS` |
-| **Met Office NSWWS (v1.0)** | National Severe Weather Warning Service - legacy version, will be retired Spring 2027 | `METOFFICE_NSWWS_LEGACY` |
-| **Met Office Observations** | Actual observations, used to backfill each weather window once it has fully passed | `METOFFICE_OBSERVATIONS` |
+| **Met Office Weather DataHub (Site-Specific)** | Hourly/three-hourly weather forecasts, and the source for the 14-day calendar daily summary | `METOFFICE_SITESPECIFIC` |
+| **Met Office NSWWS (v1.1)** | National Severe Weather Warning Service - v1.1 on Weather DataHub | `METOFFICE_NSWWS` |
 | **Google Calendar API** | Club calendar events | `GOOGLE_CALENDAR_API_KEY` |
 
 ### Fallback APIs
 
 | API | Purpose | Environment Variable |
 |-----|---------|---------------------|
-| **WeatherAPI.com** | Weather forecast fallback, sunrise/sunset fallback | `WEATHERAPI_KEY` |
-| **Open-Meteo** | Weather fallback, lightning risk, sunrise/sunset | None (free) |
+| **WeatherAPI.com** | Weather forecast fallback, sunrise/sunset | `WEATHERAPI_KEY` |
+
+> **Note:** Open-Meteo was previously used for weather/wind/sunrise fallbacks. It has been removed entirely; the weather chain is now Met Office → WeatherAPI only.
 
 ### Open Data APIs (No Key Required)
 
@@ -77,19 +75,18 @@ All API responses are cached in memory with per-source TTL (time-to-live):
 |-------------|-----|-----------|
 | Tides | 2 hours | Predicted data changes slowly |
 | Weather | 2 hours | Forecasts updated infrequently |
-| Met Office Observations | 1 hour | Backfills each weather window once it has fully passed |
-| PLA Flag | Time-slot based | Refreshes at key times (06:00, 18:00, etc.) |
+| Daily weather (14-day calendar) | 2 hours | Forecasts updated infrequently |
+| Calendar (today) | 30 minutes | Events change infrequently |
+| Calendar (14-day agenda) | 30 minutes | Events change infrequently |
+| PLA Flag | 15-minute window | Re-scrapes at most once per 15-minute slot, all day |
 | PLA JSON (crosscheck) | 5 minutes | Independent check against the widget/Richmond-derived colour |
 | Richmond Observed Low Tide | 1 minute | Needs to catch a new low tide reading quickly for next-flag prediction |
-| Calendar | 30 minutes | Events change infrequently |
 | Kingston Flow | 15 minutes | River conditions change moderately |
 | Thames Temp | 15 minutes | Water temperature changes slowly |
 | NSWWS Warnings | 15 minutes | Warnings updated regularly |
 | CSO Discharge | 30 minutes | Discharge alerts change moderately |
 | Water Quality (E. coli) | 6 hours | Sheet is updated infrequently |
 | Wind Grid | 1 hour | Wind forecast changes slowly |
-
-A file-based backoff system (`openmeteo_backoff.json`) persists rate-limit state across process restarts for Open-Meteo. A separate file-based store (`_MORNING_FILE`) persists each day's captured forecast windows across process restarts, so the observations backfill has rain/UV values to borrow once a window has passed. This file lives in ephemeral per-deploy storage, so a Render redeploy clears it — if that happens between roughly 06:00 and 20:00, that day's rain/UV values for the backfilled window(s) may be unavailable until the next day's forecast is captured fresh.
 
 ### Parallel Fetching
 
@@ -101,12 +98,10 @@ All data sources are fetched concurrently using threads to minimise page load ti
 Weather data follows a priority fallback chain:
 1. **Met Office DataHub** (Site-Specific) - tries hourly, then three-hourly
 2. **WeatherAPI.com** - if Met Office unavailable or unconfigured
-3. **Open-Meteo** - final fallback with rate-limit backoff
-4. **Met Office Observations** - if `METOFFICE_OBSERVATIONS` is configured, each window (whichever source supplied it) is replaced with actual observations once it has fully passed: morning after 12:00 local, afternoon after 20:00 local
 
-All sources return normalised data with morning/afternoon windows.
+Both sources return normalised morning/afternoon windows. Sunrise/sunset is fetched from WeatherAPI independently of which source served the main forecast; if it fails, the sun markers are simply omitted.
 
-Sunrise/sunset is fetched via its own independent fallback chain (WeatherAPI.com, then Open-Meteo), regardless of which source served the main forecast.
+The `/calendar` page's 14-day daily summary is built from the Met Office site-specific timeseries (three-hourly, falling back to hourly), aggregated per local day (max temperature, max rain probability, max wind, max gust). It covers however many days the Met Office response returns — later calendar days without data simply show no weather entry.
 
 ### Tide Calculations
 
@@ -116,19 +111,15 @@ Sunrise/sunset is fetched via its own independent fallback chain (WeatherAPI.com
 
 ### PLA Ebb Flag Logic
 
-The flag image and colour are determined by a fallback chain, attempted in order when the cache slot expires:
+The flag colour is determined by a fallback chain, attempted when the 15-minute cache slot expires:
 
-1. **PLA widget scrape** (primary) — the app scrapes the PLA's own ebb-tide-flag widget embed page for the current flag colour. The flag image URL is then constructed using the PLA's fixed pattern `flag_{colour}.png`.
+1. **PLA widget scrape** (primary) — the app scrapes the PLA's own ebb-tide-flag widget embed page for the current flag colour. The heading/body text is preferred over the image filename when they disagree.
+2. **Richmond gauge fallback** — if the widget scrape fails, the colour is derived from the Richmond observed low tide that applies to the current flag slot time (06:00 or 18:00). This replicates what the PLA would have seen when setting the flag. A "double check with PLA" warning is shown when this source is used.
+3. **Error state** — if both sources fail and there is no stale cache, a warning message is shown in place of the flag.
 
-2. **Richmond gauge fallback** — if the widget scrape fails, the colour is derived from the Richmond observed low tide (see below) that applies to the current flag slot time (06:00 or 18:00). This replicates what the PLA would have seen when setting the flag. A "double check with PLA" warning is shown when this source is used.
+The PLA JSON endpoint (`pla.co.uk/pla-proxy/five-minute?url=tides/ebb-flag`) is **not** part of this fallback chain — it's fetched independently as a crosscheck and compared against the widget/Richmond-derived colour. If the sources disagree, a blinking "sources disagree" warning is shown.
 
-3. **Error state** — if both sources fail and there is no stale cache, a warning message is shown in place of the flag image.
-
-The flag image is always a PLA-hosted PNG; the app determines which colour to put in the filename.
-
-The PLA JSON endpoint (`pla.co.uk/pla-proxy/five-minute?url=tides/ebb-flag`) is **not** part of this fallback chain — it's fetched independently as a crosscheck (see below) and compared against the widget/Richmond-derived colour. If the sources disagree, a blinking "sources disagree" warning is shown.
-
-Two crosscheck lines are displayed beneath the flag image:
+Two crosscheck lines are displayed beneath the flag:
 - **PLA JSON** — the raw result from the JSON endpoint, fetched and cached independently of the primary flag colour
 - **Richmond low tide prior to flag** — the time and height of the observed low tide the PLA used when setting the current flag
 
@@ -184,21 +175,6 @@ Air temperature + water temperature sum displayed with red warning if < 14°C.
 - Interleaves tide, sunrise and sunset markers among the day's events
 - Past events dimmed based on current time
 
-### PLA Flag Time Slots
-
-Flag refreshes at specific times to catch flag changes:
-- Pre-dawn (< 06:00)
-- AM early (06:00-06:14)
-- AM mid (06:15-06:29)
-- AM late (06:30-06:59)
-- AM BST catch (07:00-07:14) - safety fetch during BST
-- Midday (07:15-17:59)
-- PM early (18:00-18:14)
-- PM mid (18:15-18:29)
-- PM late (18:30-18:59)
-- PM BST catch (19:00-19:14)
-- Evening (19:15+)
-
 ## File Structure
 
 ```
@@ -206,14 +182,15 @@ frbc-tides/
 ├── app.py                          # Flask app + all API logic
 ├── cso_monitors.json                # CSO monitor/zone/grid-ref config (source of truth for /csomap, /waterquality)
 ├── requirements.txt
-├── render.yaml                     # Render.com deployment config
-├── gunicorn.conf.py                 # Gunicorn server config
-├── site.webmanifest
+├── .gitignore
 ├── README.md
 ├── templates/
-│   └── index.html                  # Jinja2 template
+│   ├── index.html                   # Main dashboard
+│   ├── calendar.html                # 14-day diary agenda
+│   ├── links.html                   # Links page
+│   └── distances.html               # FRBC rowing distances
 └── static/
-    ├── FRBC logo White on black.png   # Copy your logo here
+    ├── FRBC logo White on black.png
     ├── favicon.ico / favicon.svg / favicon-96x96.png
     ├── apple-touch-icon.png
     ├── site.webmanifest
@@ -233,12 +210,9 @@ METOFFICE_SITESPECIFIC=your_metoffice_site_key
 ```
 
 Optional:
-- `METOFFICE_OBSERVATIONS` - Met Office Observations key, used to backfill each weather window with actuals once it has fully passed (morning after 12:00, afternoon after 20:00). Falls back gracefully (feature is simply skipped) if unset
-- `FLASK_DEBUG` - set to `1` to run local `python app.py` with Flask debug mode on (defaults off)
-
-Optional (not currently used):
-- `METOFFICE_ATMOSPHERIC` - Atmospheric API key (returns GRIB2, not compatible)
 - `METOFFICE_NSWWS_FEED_URL` - Custom NSWWS v1.1 feed URL (defaults to `https://data.hub.api.metoffice.gov.uk/nswws/v1.1/objects/feed`)
+- `ENABLE_PREWARM` - set to `1`/`true`/`yes` to warm the cache in a background thread at startup. **Leave unset on Render's free tier** (see below)
+- `FLASK_DEBUG` - set to `1` to run local `python app.py` with Flask debug mode on (defaults off)
 
 ## Local Development
 
@@ -248,30 +222,37 @@ python app.py
 # Visit http://localhost:5000
 ```
 
-Optional: Install shapely for precise NSWWS location filtering:
-```bash
-pip install shapely
-```
+Optional: Install `shapely` for precise NSWWS location filtering (it is already in `requirements.txt`; without it, the app falls back to a London bounding-box check).
 
 ## Deploying to Render (free)
 
-1. Push this repository to GitHub
-2. Go to https://render.com and sign in with GitHub
-3. Click **New → Web Service**
-4. Select your repository
-5. Add all environment variables from the Render dashboard
-6. Render will detect `render.yaml` and configure automatically
-7. Click **Deploy** — your app will be live at `yourapp.onrender.com`
+This service is **dashboard-managed** on Render (there is no `render.yaml`):
 
-Note: Render free tier spins down after 15 minutes inactivity. The first request after spin-down may be slower due to cache pre-warming.
+1. Push this repository to GitHub.
+2. Create/serve the Web Service in the Render dashboard and connect the repo.
+3. Set the environment variables above in the Render dashboard.
+4. Start command:
+   ```
+   gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1
+   ```
+5. Health Check Path: `/healthz` (cheap liveness probe; returns `ok` immediately).
+6. Render auto-deploys on each push to `main`.
 
-**Important deploy sequencing**: always upload `app.py` before `index.html`. The template references data keys produced by `app.py`; deploying `index.html` first against an old `app.py` can cause template rendering errors.
+### Free-tier notes
+
+- Render's free tier spins down after ~15 minutes of inactivity; the first request after spin-down is slower because the cache is cold.
+- **Cache pre-warming is opt-in and off by default.** At startup the worker binds its port immediately and the first request warms the cache. On the free tier this avoids the memory spike (OOM/SIGKILL) and port-detection flapping caused by fetching every source in the background during boot. If you want pre-warming, set `ENABLE_PREWARM=1` — but note it competes with the first request on the single worker.
+- `/healthz` deliberately does **not** trigger pre-warming; Render's health checks therefore stay cheap.
 
 ## API Endpoints
 
 - `GET /` - Main dashboard HTML page
 - `GET /data` - JSON endpoint with all dashboard data (for AJAX updates)
-- `GET /ping` - Health check endpoint
+- `GET /healthz` - Lightweight liveness check (returns `ok`)
+- `GET /ping` - Simple health check endpoint (returns `ok`)
+- `GET /links` - Links page
+- `GET /calendar` - 14-day diary agenda (tides, weather, club events)
+- `GET /distances` - FRBC rowing distances
 - `GET /api/nswws-status` - Diagnostic endpoint for NSWWS connectivity
 - `GET /api/wind` - JSON wind-grid data for the radar map's wind-arrow overlay
 - `GET /api/overlay` - Compact JSON summary (PLA flag colour, next tide label/time, pontoon warning) for external/embedded consumers
@@ -285,7 +266,7 @@ Note: Render free tier spins down after 15 minutes inactivity. The first request
 - **Responsive design** - adapts to portrait/landscape orientations
 - **Graceful degradation** - continues operating if individual APIs fail
 - **Threaded fetching** - 11 parallel API calls for fast page loads
-- **Cache pre-warming** - starts at import time (not just under `if __name__ == "__main__"`), so it also runs under gunicorn/Render to reduce first-request latency
-- **Rate-limit handling** - file-based backoff for Open-Meteo 429 responses
+- **Opt-in cache pre-warming** - off by default; enable with `ENABLE_PREWARM=1`
+- **Weather chain** - Met Office DataHub → WeatherAPI (no Open-Meteo)
 - **Water quality tracking** - combines Thames Water CSO discharge data with E. coli readings, with map and table drill-downs
 - **Source-disagreement warnings** - flags when the PLA widget scrape, Richmond fallback, and PLA JSON crosscheck don't agree on the current flag colour
