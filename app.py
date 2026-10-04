@@ -60,31 +60,11 @@ _cache_locks     = {}
 _cache_locks_mu  = threading.Lock()
 _cal_fail_until  = 0
 
-# File-based backoff — survives process restarts and is shared across workers
-_BACKOFF_FILE  = pathlib.Path(tempfile.gettempdir()) / "openmeteo_backoff.json"
 # File-based morning weather store — survives process restarts
 _MORNING_FILE  = pathlib.Path(tempfile.gettempdir()) / "morning_weather.json"
 
 
-def _get_fail_until(key):
-    try:
-        data = json.loads(_BACKOFF_FILE.read_text())
-        return data.get(key, 0)
-    except Exception:
-        return 0
 
-
-def _set_fail_until(key, seconds):
-    try:
-        try:
-            data = json.loads(_BACKOFF_FILE.read_text())
-        except Exception:
-            data = {}
-        data[key] = datetime.now(timezone.utc).timestamp() + seconds
-        _BACKOFF_FILE.write_text(json.dumps(data))
-        print(f"Open-Meteo {key} 429 — backing off for {seconds}s")
-    except Exception as e:
-        print(f"Could not persist backoff state: {e}")
 
 
 def _retry_after_seconds(response, default=3600):
@@ -729,6 +709,10 @@ def _ms_to_kmh(ms):
     return round(float(ms) * 3.6)
 
 
+def _ms_to_mph(ms):
+    return round(float(ms) * 2.23694)
+
+
 def _fetch_metoffice_timeseries(api_key, timestep="hourly"):
     """Fetch GeoJSON timeSeries from Met Office Global Spot API."""
     url = f"{_MO_SS_BASE}{timestep}"
@@ -801,35 +785,23 @@ def _metoffice_window_from_entries(entries):
 
 
 def _fetch_sunrise_sunset():
-    """Sunrise/sunset — tries WeatherAPI first, falls back to Open-Meteo."""
-    if WEATHERAPI_KEY:
-        try:
-            url = (
-                f"https://api.weatherapi.com/v1/forecast.json"
-                f"?key={WEATHERAPI_KEY}"
-                f"&q={LAT},{LON}"
-                f"&days=1&aqi=no&alerts=no"
-            )
-            r = requests.get(url, timeout=10)
-            r.raise_for_status()
-            astro = r.json()['forecast']['forecastday'][0]['astro']
-            def to_24h(t):
-                return datetime.strptime(t, '%I:%M %p').strftime('%H:%M')
-            return to_24h(astro['sunrise']), to_24h(astro['sunset'])
-        except Exception as e:
-            print(f"WeatherAPI sunrise/sunset failed, trying Open-Meteo: {e}")
-
+    """Sunrise/sunset — WeatherAPI only (Open-Meteo removed). Returns
+    ("", "") when the key is absent or the call fails, so callers degrade
+    to no sun markers instead of erroring."""
+    if not WEATHERAPI_KEY:
+        return "", ""
     url = (
-        f"https://api.open-meteo.com/v1/forecast"
-        f"?latitude={LAT}&longitude={LON}"
-        "&daily=sunrise,sunset"
-        "&timezone=Europe%2FLondon"
-        "&forecast_days=1"
+        f"https://api.weatherapi.com/v1/forecast.json"
+        f"?key={WEATHERAPI_KEY}"
+        f"&q={LAT},{LON}"
+        f"&days=1&aqi=no&alerts=no"
     )
     r = requests.get(url, timeout=10)
     r.raise_for_status()
-    daily = r.json()["daily"]
-    return daily["sunrise"][0][-5:], daily["sunset"][0][-5:]
+    astro = r.json()['forecast']['forecastday'][0]['astro']
+    def to_24h(t):
+        return datetime.strptime(t, '%I:%M %p').strftime('%H:%M')
+    return to_24h(astro['sunrise']), to_24h(astro['sunset'])
 
 
 def _parse_metoffice_timeseries(time_series, source_label):
@@ -961,200 +933,102 @@ def get_weather_weatherapi():
     return _parse_weatherapi(r.json())
 
 
-# ---------------------------------------------------------------------------
-# Weather: Met Office DataHub → Open-Meteo → WeatherAPI
-# ---------------------------------------------------------------------------
-
-def _fetch_openmeteo():
-    wx_url = (
-        f"https://api.open-meteo.com/v1/forecast"
-        f"?latitude={LAT}&longitude={LON}"
-        "&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,"
-        "wind_gusts_10m,weather_code,precipitation_probability,uv_index"
-        "&daily=sunrise,sunset"
-        "&timezone=Europe%2FLondon"
-        "&forecast_days=1"
-        "&past_hours=12"
-    )
-
-    wx_res = requests.get(wx_url, timeout=10)
-    if wx_res.status_code == 429:
-        retry_after = _retry_after_seconds(wx_res)
-        _set_fail_until('weather_openmeteo', retry_after)
-        raise Exception(f"Open-Meteo rate limited, retry after {retry_after}s")
-    wx_res.raise_for_status()
-    d = wx_res.json()
-
-    hourly = d['hourly']
-    daily  = d['daily']
-    times  = hourly['time']
-
-    def window(start_h, end_h):
-        today_str = datetime.now(LONDON_TZ).strftime('%Y-%m-%d')
-        indices = [i for i, t in enumerate(times) if t[:10] == today_str and start_h <= int(t[11:13]) < end_h]
-        if not indices:
-            return None
-
-        def vals(key):
-            return [hourly[key][i] for i in indices if hourly[key][i] is not None]
-
-        return {
-            'temp_min':  round(min(vals('temperature_2m'))) if vals('temperature_2m') else None,
-            'temp_max':  round(max(vals('temperature_2m'))) if vals('temperature_2m') else None,
-            'wind_min':  round(min(vals('wind_speed_10m'))) if vals('wind_speed_10m') else None,
-            'wind_max':  round(max(vals('wind_speed_10m'))) if vals('wind_speed_10m') else None,
-            'gust_min':  round(min(vals('wind_gusts_10m'))) if vals('wind_gusts_10m') else None,
-            'gust_max':  round(max(vals('wind_gusts_10m'))) if vals('wind_gusts_10m') else None,
-            'direction': prevailing_direction(vals('wind_direction_10m')),
-            'rain_min':  round(min(vals('precipitation_probability'))) if vals('precipitation_probability') else None,
-            'rain_max':  round(max(vals('precipitation_probability'))) if vals('precipitation_probability') else None,
-            'uv_max':    round(max(vals('uv_index')), 1) if vals('uv_index') else None,
-            'fog':       any(c in [45, 48] for c in vals('weather_code')),
-            'storm':     any(c >= 95 for c in vals('weather_code')),
-        }
-
-    return {
-        'morning':   window(6,  12),
-        'afternoon': window(12, 20),
-        'sunrise':   daily['sunrise'][0][-5:],
-        'sunset':    daily['sunset'][0][-5:],
-        'source':    'Open-Meteo',
-    }
-
-
 def _fetch_weather_with_fallbacks():
-    """Try Met Office DataHub, then WeatherAPI, then Open-Meteo."""
+    """
+    Try Met Office DataHub, then WeatherAPI. Open-Meteo has been removed,
+    so this is the complete chain and there is no Open-Meteo rate-limit
+    backoff state to maintain.
+    """
+    last_err = None
     if MO_SITE_KEY:
         try:
             return get_weather_metoffice()
         except Exception as e:
-            print(f"Met Office weather failed, trying fallbacks: {e}")
-
+            last_err = e
+            print(f"Met Office weather failed, trying WeatherAPI: {e}")
     if WEATHERAPI_KEY:
         try:
             return get_weather_weatherapi()
         except Exception as e:
-            print(f"WeatherAPI failed, trying Open-Meteo: {e}")
-
-    now_ts = datetime.now(timezone.utc).timestamp()
-    if now_ts >= _get_fail_until('weather_openmeteo'):
-        try:
-            return _fetch_openmeteo()
-        except Exception as e:
-            print(f"Open-Meteo failed: {e}")
-    else:
-        print("Open-Meteo in backoff")
-
-    raise Exception("All weather sources failed")
-
-
-def _load_morning_store():
-    """Load morning weather data from file, returns {date_str: morning_dict}."""
-    try:
-        return json.loads(_MORNING_FILE.read_text())
-    except Exception:
-        return {}
-
-
-def _save_morning_store(store):
-    """Persist morning weather data to file."""
-    try:
-        _MORNING_FILE.write_text(json.dumps(store))
-    except Exception as e:
-        print(f"Could not persist morning store: {e}")
-
-
-def _fetch_weather_with_observations():
-    """
-    Fetch weather, persist morning data to file, and after midday replace
-    morning forecast with actual observations if available.
-    Called inside get_cached so it only runs when the cache expires.
-    """
-    result = _fetch_weather_with_fallbacks()
-    today_str = datetime.now(LONDON_TZ).date().isoformat()
-    now_lon   = datetime.now(LONDON_TZ)
-    store     = _load_morning_store()
-
-    # Purge old dates
-    store = {k: v for k, v in store.items() if k == today_str}
-
-    # Save morning forecast data if we have it
-    if result.get('morning') is not None:
-        store[today_str] = result['morning']
-        _save_morning_store(store)
-
-    # After midday: try to replace with actual observations (own cache — refreshes hourly)
-    if now_lon.hour >= 12 and MO_OBS_KEY:
-        try:
-            obs, _ = get_cached('mo_observations', _fetch_mo_observations, ttl_seconds=3600)
-            if obs:
-                obs_morning = _parse_mo_observations_morning(obs, store.get(today_str))
-                if obs_morning:
-                    store[today_str] = obs_morning
-                    _save_morning_store(store)
-                    print("Met Office Observations: morning data updated")
-        except Exception as e:
-            print(f"Met Office Observations morning fetch failed, keeping forecast: {e}")
-
-    # Restore morning from file (covers both: no morning in result, and always-prefer-observed)
-    if today_str in store:
-        result = dict(result)
-        result['morning'] = store[today_str]
-
-    return result
+            last_err = e
+            print(f"WeatherAPI failed: {e}")
+    raise last_err or Exception("All weather sources failed")
 
 
 def get_weather():
-    result, fetched_at = get_cached('weather', _fetch_weather_with_observations, ttl_seconds=7200)
+    result, fetched_at = get_cached('weather', _fetch_weather_with_fallbacks, ttl_seconds=7200)
     if result is None:
         raise Exception("Weather unavailable")
     return result, fetched_at
 
 
 # ---------------------------------------------------------------------------
-# Daily weather forecast — 14 days, for the /calendar agenda page
+# Weather: Met Office DataHub → WeatherAPI (Open-Meteo removed)
 # ---------------------------------------------------------------------------
 
 def get_daily_weather_14d():
     """
     Day-by-day weather summary for the next 14 days, keyed by ISO date string.
-    Uses Open-Meteo's daily forecast (no API key needed, supports 14+ day
-    forecasts) — the other weather sources only cover today's morning/
-    afternoon windows, not a two-week outlook.
+    Built from the Met Office site-specific timeseries (Open-Meteo removed),
+    so it covers however many days that API returns — later calendar days
+    simply have no weather entry. Cached for 2 hours.
     """
     def fetch():
-        now_ts = datetime.now(timezone.utc).timestamp()
-        if now_ts < _get_fail_until('daily_weather_14d'):
-            raise Exception("Daily weather 14d in backoff")
+        if not MO_SITE_KEY:
+            raise Exception("No Met Office site-specific key for daily weather")
 
-        url = (
-            f"https://api.open-meteo.com/v1/forecast"
-            f"?latitude={LAT}&longitude={LON}"
-            "&daily=temperature_2m_max,precipitation_probability_max,"
-            "wind_speed_10m_max,wind_gusts_10m_max"
-            "&timezone=Europe%2FLondon"
-            "&forecast_days=14"
-            "&wind_speed_unit=mph"
-        )
-        r = requests.get(url, timeout=10)
-        if r.status_code == 429:
-            retry_after = _retry_after_seconds(r)
-            _set_fail_until('daily_weather_14d', retry_after)
-            raise Exception(f"Open-Meteo rate limited, retry after {retry_after}s")
-        r.raise_for_status()
-        daily = r.json()['daily']
+        time_series = None
+        last_err = None
+        # three-hourly tends to cover the longest range; fall back to hourly.
+        for timestep in ("three-hourly", "hourly"):
+            try:
+                time_series = _fetch_metoffice_timeseries(MO_SITE_KEY, timestep)
+                break
+            except Exception as e:
+                last_err = e
+                print(f"Daily weather Met Office {timestep} failed: {e}")
+        if time_series is None:
+            raise last_err or Exception("Met Office daily weather unavailable")
+
+        by_day = defaultdict(lambda: {"temps": [], "rains": [], "winds": [], "gusts": []})
+        for e in time_series:
+            t_str = e.get("time", "")
+            if not t_str:
+                continue
+            try:
+                t = datetime.fromisoformat(t_str.replace("Z", "+00:00")).astimezone(LONDON_TZ)
+            except Exception:
+                continue
+
+            bucket = by_day[t.date().isoformat()]
+
+            temp = None
+            for k in ("maxScreenAirTemp", "screenTemperature", "minScreenAirTemp"):
+                if e.get(k) is not None:
+                    temp = float(e[k])
+            if temp is not None:
+                bucket["temps"].append(temp)
+
+            if e.get("probOfPrecipitation") is not None:
+                bucket["rains"].append(float(e["probOfPrecipitation"]))
+
+            if e.get("windSpeed10m") is not None:
+                bucket["winds"].append(float(e["windSpeed10m"]))
+
+            gust = e.get("max10mWindGust")
+            if gust is None:
+                gust = e.get("windGustSpeed10m")
+            if gust is not None:
+                bucket["gusts"].append(float(gust))
+
         return {
             date_str: {
-                'temp':  round(daily['temperature_2m_max'][i])
-                         if daily['temperature_2m_max'][i] is not None else None,
-                'rain':  round(daily['precipitation_probability_max'][i])
-                         if daily['precipitation_probability_max'][i] is not None else None,
-                'wind':  round(daily['wind_speed_10m_max'][i])
-                         if daily['wind_speed_10m_max'][i] is not None else None,
-                'gusts': round(daily['wind_gusts_10m_max'][i])
-                         if daily['wind_gusts_10m_max'][i] is not None else None,
+                "temp":  round(max(v["temps"])) if v["temps"] else None,
+                "rain":  round(max(v["rains"])) if v["rains"] else None,
+                "wind":  _ms_to_mph(max(v["winds"])) if v["winds"] else None,
+                "gusts": _ms_to_mph(max(v["gusts"])) if v["gusts"] else None,
             }
-            for i, date_str in enumerate(daily['time'])
+            for date_str, v in by_day.items()
         }
     return get_cached('daily_weather_14d', fetch, ttl_seconds=7200)
 
@@ -2464,7 +2338,7 @@ def build_dashboard_data():
     }
 
 # ---------------------------------------------------------------------------
-# Wind grid data for radar overlay — Open-Meteo with caching
+# Wind grid data for radar overlay — fallback with caching
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -2557,50 +2431,12 @@ def _fetch_wind_weatherapi():
     return (round(float(speed), 1), round(float(dirn)), round(float(gusts), 1) if gusts else None)
 
 
-def _fetch_wind_openmeteo():
-    """
-    Fetch wind grid from Open-Meteo (16-point batch).
-    Returns wind_data list or raises (including backoff).
-    """
-    now_ts = datetime.now(timezone.utc).timestamp()
-    if now_ts < _get_fail_until('wind_grid'):
-        raise Exception("Wind grid in backoff")
-
-    points = _wind_grid_points()
-    lat_str = ",".join(str(p[0]) for p in points)
-    lon_str = ",".join(str(p[1]) for p in points)
-    url = (
-        f"https://api.open-meteo.com/v1/forecast"
-        f"?latitude={lat_str}&longitude={lon_str}"
-        "&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m"
-        "&timezone=Europe%2FLondon"
-    )
-    r = requests.get(url, timeout=15)
-    if r.status_code == 429:
-        retry_after = _retry_after_seconds(r)
-        _set_fail_until('wind_grid', retry_after)
-        raise Exception(f"Open-Meteo rate limited, retry after {retry_after}s")
-    r.raise_for_status()
-    locations = r.json() if isinstance(r.json(), list) else [r.json()]
-    wind_data = []
-    for i, loc in enumerate(locations):
-        current = loc.get("current", {})
-        wind_data.append({
-            "lat": points[i][0],
-            "lon": points[i][1],
-            "speed":     current.get("wind_speed_10m"),
-            "direction": current.get("wind_direction_10m"),
-            "gusts":     current.get("wind_gusts_10m"),
-        })
-    return wind_data
-
-
 def get_wind_grid():
     """
     Fetch wind data for the map arrow overlay.
-    Fallback chain: Met Office DataHub → WeatherAPI → Open-Meteo.
+    Fallback chain: Met Office DataHub → WeatherAPI → fallback.
     Met Office and WeatherAPI return a single point spread across the grid.
-    Open-Meteo returns a true 16-point grid when available.
+    fallback returns a true 16-point grid when available.
     Cached for 1 hour.
     """
     def fetch():
@@ -2620,18 +2456,9 @@ def get_wind_grid():
                 print(f"Wind grid: WeatherAPI ({speed} km/h, {dirn}°)")
                 return _wind_grid_from_single(speed, dirn, gusts)
             except Exception as e:
-                print(f"Wind grid: WeatherAPI failed ({e}), trying Open-Meteo")
+                print(f"Wind grid: WeatherAPI failed ({e}), trying fallback")
 
-        # 3. Open-Meteo — full 16-point grid (may be in backoff)
-        try:
-            wind_data = _fetch_wind_openmeteo()
-            print("Wind grid: Open-Meteo (full grid)")
-            return {
-                "points": wind_data,
-                "generated_at": datetime.now(LONDON_TZ).isoformat(),
-            }
-        except Exception as e:
-            raise Exception(f"All wind sources failed. Last error: {e}")
+        raise Exception("All wind sources failed")
 
     return get_cached('wind_grid', fetch, ttl_seconds=3600)  # 1 hour cache
 
@@ -3130,17 +2957,27 @@ def _prewarm():
             fn()
         except Exception as e:
             print(f"Pre-warm error [{fn.__name__}]: {e!r}")
-    time.sleep(2)
+    time.sleep(1)
     try:
         get_weather()
     except Exception as e:
         print(f"Pre-warm weather error: {e!r}")
-    time.sleep(2)
+    time.sleep(1)
     for fn in (get_daily_weather_14d, get_calendar_events_14d):
         try:
             fn()
         except Exception as e:
             print(f"Pre-warm error [{fn.__name__}]: {e!r}")
+
+
+@app.route("/healthz")
+def healthz():
+    """Cheap liveness probe. Deliberately does NOT trigger pre-warming:
+    Render hits this during/after startup, and a concurrent prewarm sharing
+    the single free-tier worker was a major source of the OOM/SIGKILL
+    restarts and the resulting port-detection flap. Pre-warming is opt-in
+    via ENABLE_PREWARM and fires exactly once from the bottom of this module."""
+    return "ok", 200
 
 
 if __name__ == "__main__":
@@ -3350,11 +3187,13 @@ def get_water_quality():
 
 
 # ---------------------------------------------------------------------------
-# Cache pre-warm — started at import time (bottom of the module, after every
-# function it calls is defined) so it also runs under gunicorn on Render.
-# Previously this only started under `if __name__ == "__main__"`, which never
-# executes when Render runs `gunicorn app:app`, so production workers always
-# started cold and the first request after each deploy paid the full fetch
-# cost for every data source.
+# Cache pre-warm — the one and only trigger, at the very bottom of the module
+# so every function _prewarm references (including get_water_quality, defined
+# above) already exists. Opt-in via ENABLE_PREWARM so the default free-tier
+# boot doesn't run a background fetch storm alongside the first request.
+# Leave ENABLE_PREWARM unset on Render's free tier: the worker then binds its
+# port immediately and the first request warms the cache itself.
 # ---------------------------------------------------------------------------
-threading.Thread(target=_prewarm, daemon=True).start()
+if os.environ.get("ENABLE_PREWARM", "").lower() in ("1", "true", "yes"):
+    threading.Thread(target=_prewarm, daemon=True).start()
+
