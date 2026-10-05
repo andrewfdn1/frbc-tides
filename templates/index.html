@@ -527,12 +527,12 @@
             {# — CSO spill status, one row per waterway — #}
             {% if d.cso_status and d.cso_status.zones %}
             <span style="color:#fff;">Sewage (CSO)</span>
-            <span style="color:#fff; text-align:right;">{{ d.cso_status.discharging }} discharging</span>
+            <span style="color:#fff; text-align:right;">discharge last 48h</span>
             {% for z in d.cso_status.zones %}
             <span style="color:#ccc;">{{ z.name }}</span>
             <span style="text-align:right; font-weight:bold;
-                  color:{% if z.discharging %}#FF4B4B{% elif z.offline %}#888{% else %}#555{% endif %};">
-                {{ z.discharging }} discharging{% if z.offline %} &middot; {{ z.offline }} offline{% endif %}
+                  color:{% if z.secs_48h > 0 %}#FF4B4B{% else %}#555{% endif %};">
+                {{ z.hours_48h }}
             </span>
             {% endfor %}
             {% else %}

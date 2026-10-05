@@ -1937,8 +1937,11 @@ def get_wind_grid():
 # ---------------------------------------------------------------------------
 
 _CSO_STATUS_URL    = "https://api.thameswater.co.uk/opendata/v2/discharge/status"
+_CSO_ALERTS_URL    = "https://api.thameswater.co.uk/opendata/v2/discharge/alerts"
 _CSO_HAMMERSMITH_X = 523100   # Hammersmith Bridge, BNG easting
 _CSO_HAMMERSMITH_Y = 178000   # Hammersmith Bridge, BNG northing
+_CSO_WINDOW_HOURS  = 48       # discharge-hours window shown on the dashboard
+_CSO_LOOKBACK_DAYS = 14       # alerts lookback (catches long/ongoing events)
 
 # Inclusion filter: only CSOs on these waterways are tracked (receivingWaterCourse
 # keyword -> waterway name). "tideway tunnel" is handled before this (excluded).
@@ -1988,6 +1991,79 @@ def _fmt_cso_ts(s):
         return s
 
 
+def _fmt_hrs(seconds):
+    if seconds <= 0:
+        return "0h 00m"
+    return f"{int(seconds // 3600)}h {int((seconds % 3600) // 60):02d}m"
+
+
+def _parse_cso_dt(s):
+    """Parse a Thames Water datetime, forcing UTC onto anything naive."""
+    dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _fetch_alerts(alert_type, date_start, date_end):
+    """Page the Thames Water alerts endpoint (1000/page) for one alert type."""
+    items, offset = [], 0
+    for _ in range(20):  # safety cap on pagination
+        r = requests.get(_CSO_ALERTS_URL, params={
+            "alertType": alert_type, "dateStart": date_start,
+            "dateEnd": date_end, "limit": 1000, "offset": offset,
+        }, timeout=25)
+        if r.status_code == 429:
+            raise Exception("Thames Water alerts rate limited")
+        r.raise_for_status()
+        page = r.json().get("items", [])
+        items.extend(page)
+        if len(page) < 1000:
+            break
+        offset += 1000
+        time.sleep(1)
+    return items
+
+
+def _cso_discharge_secs():
+    """Discharge seconds per permit over the last _CSO_WINDOW_HOURS, computed
+    from paired Start/Stop alerts (a still-open event is counted to now)."""
+    now     = datetime.now(timezone.utc)
+    win     = now - timedelta(hours=_CSO_WINDOW_HOURS)
+    d_end   = now.strftime("%Y-%m-%d")
+    d_start = (now - timedelta(days=_CSO_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+
+    starts = _fetch_alerts("Start", d_start, d_end)
+    time.sleep(1)
+    stops  = _fetch_alerts("Stop",  d_start, d_end)
+
+    stops_by = defaultdict(list)
+    for s in stops:
+        permit, dt_str = s.get("permitNumber"), s.get("datetime")
+        if permit and dt_str:
+            try:
+                stops_by[permit].append(_parse_cso_dt(dt_str))
+            except ValueError:
+                pass
+    for lst in stops_by.values():
+        lst.sort()
+
+    secs = defaultdict(float)
+    for it in starts:
+        permit, dt_str = it.get("permitNumber"), it.get("datetime")
+        if not permit or not dt_str:
+            continue
+        try:
+            start = _parse_cso_dt(dt_str)
+        except ValueError:
+            continue
+        stop = next((c for c in stops_by.get(permit, []) if c >= start), now)
+        cs, ce = max(start, win), min(stop, now)
+        if ce > cs:
+            secs[permit] += (ce - cs).total_seconds()
+    return secs
+
+
 def get_cso_status():
     """Live CSO spill status for the waterways near the club, from a single
     Thames Water 'discharge/status' pull (cached 15 min)."""
@@ -2000,6 +2076,8 @@ def get_cso_status():
         if not items:
             raise Exception("Thames Water status returned no items")
 
+        secs_by_permit = _cso_discharge_secs()
+
         by_reach = {}
         for it in items:
             water = _cso_zone(it.get("receivingWaterCourse"))
@@ -2010,18 +2088,17 @@ def get_cso_status():
             if x and y:
                 km = round((((x - _CSO_HAMMERSMITH_X) ** 2 +
                              (y - _CSO_HAMMERSMITH_Y) ** 2) ** 0.5) / 1000.0, 1)
-            status = (it.get("alertStatus") or "Unknown").strip()
+            permit = it.get("permitNumber")
+            s48 = secs_by_permit.get(permit, 0.0)
             by_reach.setdefault(_cso_reach(x), []).append({
-                "permit":      it.get("permitNumber"),
-                "name":        it.get("locationName") or it.get("permitNumber"),
-                "water":       water,
-                "status":      status,
-                "discharging": status.lower() == "discharging",
-                "offline":     status.lower() == "offline",
-                "past48":      bool(it.get("alertPast48Hours")),
-                "last_start":  _fmt_cso_ts(it.get("mostRecentDischargeAlertStart")),
-                "last_stop":   _fmt_cso_ts(it.get("mostRecentDischargeAlertStop")),
-                "km":          km,
+                "permit":     permit,
+                "name":       it.get("locationName") or permit,
+                "water":      water,
+                "secs_48h":   s48,
+                "hours_48h":  _fmt_hrs(s48),
+                "last_start": _fmt_cso_ts(it.get("mostRecentDischargeAlertStart")),
+                "last_stop":  _fmt_cso_ts(it.get("mostRecentDischargeAlertStop")),
+                "km":         km,
             })
 
         out = []
@@ -2029,21 +2106,23 @@ def get_cso_status():
             stations = by_reach.get(reach)
             if not stations:
                 continue
-            stations.sort(key=lambda s: s["km"] if s["km"] is not None else 1e9)
+            stations.sort(key=lambda s: (-s["secs_48h"], s["km"] if s["km"] is not None else 1e9))
+            total_secs = sum(s["secs_48h"] for s in stations)
             out.append({
-                "name":        reach,
-                "groups":      [{"name": None, "stations": stations}],
-                "discharging": sum(1 for s in stations if s["discharging"]),
-                "offline":     sum(1 for s in stations if s["offline"]),
-                "total":       len(stations),
+                "name":      reach,
+                "groups":    [{"name": None, "stations": stations}],
+                "secs_48h":  total_secs,
+                "hours_48h": _fmt_hrs(total_secs),
+                "total":     len(stations),
             })
 
+        total_secs = sum(z["secs_48h"] for z in out)
         return {
-            "zones":       out,
-            "total":       sum(z["total"] for z in out),
-            "discharging": sum(z["discharging"] for z in out),
-            "offline":     sum(z["offline"] for z in out),
-            "updated":     datetime.now(LONDON_TZ).strftime("%H:%M"),
+            "zones":     out,
+            "total":     sum(z["total"] for z in out),
+            "secs_48h":  total_secs,
+            "hours_48h": _fmt_hrs(total_secs),
+            "updated":   datetime.now(LONDON_TZ).strftime("%H:%M"),
         }
     return get_cached("cso_status", fetch, ttl_seconds=900)
 
@@ -2089,24 +2168,23 @@ td { padding:5px 12px 5px 0; border-bottom:1px solid #141414; vertical-align:top
 <body>
 <h1>Water Quality</h1>
 <p class="meta">
-  CSO status updated {{ cso_up or '&mdash;' }} &nbsp;&middot;&nbsp; E. coli updated {{ wq_up or '&mdash;' }}<br>
+  CSO hours updated {{ cso_up or '&mdash;' }} &nbsp;&middot;&nbsp; E. coli updated {{ wq_up or '&mdash;' }}<br>
   Source: <a href="https://docs.api.thameswater.co.uk/" target="_blank" rel="noopener">Thames Water Open Data API v2</a>
   &nbsp;&middot;&nbsp; <a href="/">&#8592; Dashboard</a>
 </p>
 
 {% if cso and cso.zones %}
 {% for zone in cso.zones %}
-<h2>{{ zone.name }} <span class="zone-sum">{{ zone.discharging }} discharging &middot; {{ zone.offline }} offline &middot; {{ zone.total }} monitored</span></h2>
+<h2>{{ zone.name }} <span class="zone-sum">{{ zone.hours_48h }} discharge in last 48h &middot; {{ zone.total }} monitored</span></h2>
 {% for g in zone.groups %}
 {% if g.name %}<h3>{{ g.name }}</h3>{% endif %}
 <table>
-  <thead><tr><th>Outfall</th><th class="r">Status</th><th class="r">48h</th><th class="r">Last event</th><th class="r">km</th></tr></thead>
+  <thead><tr><th>Outfall</th><th class="r">Last 48h</th><th class="r">Last event</th><th class="r">km</th></tr></thead>
   <tbody>
   {% for s in g.stations %}
   <tr>
     <td class="name">{{ s.name }}{% if s.water %} <span class="dim">&middot; {{ s.water }}</span>{% endif %}</td>
-    <td class="r {% if s.discharging %}st-discharging{% elif s.offline %}st-offline{% else %}st-ok{% endif %}">{{ s.status }}</td>
-    <td class="r {% if s.past48 %}past-yes{% else %}dim{% endif %}">{{ 'Yes' if s.past48 else '&mdash;' }}</td>
+    <td class="r {% if s.secs_48h > 0 %}st-discharging{% else %}st-ok{% endif %}">{{ s.hours_48h }}</td>
     <td class="r dim">{% if s.last_start %}{{ s.last_start }}{% if s.last_stop %}&ndash;{{ s.last_stop }}{% else %} (ongoing){% endif %}{% else %}&mdash;{% endif %}</td>
     <td class="r dim">{{ s.km if s.km is not none else '&mdash;' }}</td>
   </tr>

@@ -84,7 +84,7 @@ All API responses are cached in memory with per-source TTL (time-to-live):
 | Kingston Flow | 15 minutes | River conditions change moderately |
 | Thames Temp | 15 minutes | Water temperature changes slowly |
 | NSWWS Warnings | 15 minutes | Warnings updated regularly |
-| CSO spill status | 15 minutes | Source updates ~every 30 min; single national pull |
+| CSO discharge hours | 15 minutes | Source updates ~every 30 min; status + 48h alerts pull |
 | Water Quality (E. coli) | 6 hours | Sheet is updated infrequently |
 | Wind Grid | 1 hour | Wind forecast changes slowly |
 
@@ -164,9 +164,9 @@ Air temperature + water temperature sum displayed with red warning if < 14°C.
 
 ### Water Quality Logic
 
-- **CSO spill status** — `get_cso_status()` makes a single `GET .../discharge/status?limit=1000` call (all ~570 national permits) every 15 minutes, keeps only the waterways near the club (River Thames, River Brent, River Wandle & Mitchell Brook, Beverley Brook, and the smaller NW brooks: Graveney, Dollis, Wealdstone, Wembley, Hanwell), and groups them into three reaches by BNG easting: **Upstream of Teddington** (x < 517550), **Tideway to Putney** (517550–524075, Teddington Lock to Putney Bridge) and **Downstream** (x > 524075). Each outfall keeps its waterway label. Tunnel-captured permits (`receivingWaterCourse` contains "via the Tideway tunnel") are excluded — they discharge nothing to the river. Each outfall shows live status (`Discharging` / `Not discharging` / `Offline`), an `alertPast48Hours` flag and the most recent discharge start/stop. No API key, no database, no scheduler.
+- **CSO discharge hours** — `get_cso_status()` (cached 15 min) does a `GET .../discharge/status?limit=1000` (all ~570 national permits, for the monitor list/positions) plus `GET .../discharge/alerts` Start+Stop over a 14-day lookback, pairs each Start with its next Stop, clips the intervals to the **last 48 hours** and sums seconds per permit. It keeps only the waterways near the club (River Thames, River Brent, River Wandle & Mitchell Brook, Beverley Brook, and the smaller NW brooks: Graveney, Dollis, Wealdstone, Wembley, Hanwell) and groups them into three reaches by BNG easting: **Upstream of Teddington** (x < 517550), **Tideway to Putney** (517550–524075, Teddington Lock to Putney Bridge) and **Downstream** (x > 524075). Each zone shows its **total discharge hours in the last 48h**, and each outfall shows its own 48h hours plus the most recent discharge start/stop. Each outfall keeps its waterway label. Tunnel-captured permits (`receivingWaterCourse` contains "via the Tideway tunnel") are excluded — they discharge nothing to the river. No API key, no database, no scheduler.
 - **E. coli readings** — `get_water_quality()` reads FRBC and PTRC monitoring-site CSV exports from Google Sheets and derives a risk colour per reading. Shown in the dashboard's Water Quality tile and on `/waterquality`.
-- The homepage Water Quality tile shows a per-reach summary ("N discharging · N offline") beside the E. coli readings; `/waterquality` shows the full grouped tables.
+- The homepage Water Quality tile shows each reach's **total discharge hours in the last 48h** (e.g. "1h 30m") beside the E. coli readings; `/waterquality` shows the full grouped tables with per-outfall 48h hours.
 
 ### Calendar Logic
 
