@@ -10,13 +10,13 @@ The dashboard displays real-time information in a three-column layout (landscape
 - **Hammersmith Tides** - Current tide direction (FLOOD/EBB), time until next tide, upcoming tide schedule with heights
 - **Bridge Tides** - Predicted times at Putney, Hammersmith, Chiswick and Richmond, derived as fixed minute offsets from the Hammersmith prediction
 - **Spring/Neap Trend** - "Moving to Spring/Neap tides" indicator computed from the tidal range trend over the last 7 days
-- **PLA Ebb Flag** - Port of London Authority flag status with associated safety text, plus two crosscheck lines: PLA JSON endpoint result and Richmond low tide prior to the flag. A "sources disagree" warning is shown if the widget scrape, Richmond fallback and JSON crosscheck don't all agree
+- **PLA Ebb Flag** - Port of London Authority flag status with associated safety text, plus a Richmond low tide crosscheck line. The flag image links to the PLA ebb tide flag warning page. A "sources disagree" warning is shown if the widget scrape, Richmond fallback and PLA JSON crosscheck don't all agree
 - **Richmond Low Tide** - Lowest observed tide in the 12 hours before the current flag slot, colour-coded by PLA thresholds; with a next-flag prediction if a low tide has been recorded since the current flag was set
 - **Kingston Flow** - River flow rate at Kingston with threshold-based colour coding
-- **Water Quality** - Combined CSO (Combined Sewer Overflow) discharge status and E. coli readings, with drill-down pages at `/waterquality` (banded discharge table) and `/csomap` (interactive monitor map)
+- **Water Quality** - Live CSO/sewage-spill status for the local waterways (Thames Water Open Data API) plus E. coli readings, with a grouped detail page at `/waterquality`
 
 **Column 2 - Weather & Hazards:**
-- **Weather Forecast** - Morning (0600-1200) and afternoon (1200-2000) windows showing:
+- **Weather Forecast** - Morning (0600-1200) and afternoon (1200-2000) windows. The heading is "WEATHER TODAY" by default and switches to "WEATHER TOMORROW" after 20:00 (showing tomorrow's same two windows, with tomorrow's sunrise/sunset), reverting at midnight. Showing:
   - Temperature range
   - Wind speed and gusts with direction
   - Rain probability
@@ -60,7 +60,7 @@ The dashboard displays real-time information in a three-column layout (landscape
 |-----|---------|
 | **Port of London Authority** | Ebb tide flag (widget scrape + JSON endpoint crosscheck), Richmond observed low tide chart |
 | **Environment Agency** | Kingston river flow, Thames water temperature |
-| **Thames Water Open Data API v2** | CSO (Combined Sewer Overflow) discharge alerts and status, by monitor location |
+| **Thames Water Open Data API v2** | Live CSO/EDM discharge status (`discharge/status?limit=1000`, one call) — open, no key |
 | **Google Sheets (CSV export)** | E. coli water-quality readings for FRBC and PTRC monitoring sites |
 | **RainViewer** | Rain radar tile overlay (fetched client-side) |
 | **CartoDB / OpenStreetMap** | Basemap tiles for the radar/wind map (fetched client-side) |
@@ -84,14 +84,14 @@ All API responses are cached in memory with per-source TTL (time-to-live):
 | Kingston Flow | 15 minutes | River conditions change moderately |
 | Thames Temp | 15 minutes | Water temperature changes slowly |
 | NSWWS Warnings | 15 minutes | Warnings updated regularly |
-| CSO Discharge | 30 minutes | Discharge alerts change moderately |
+| CSO spill status | 15 minutes | Source updates ~every 30 min; single national pull |
 | Water Quality (E. coli) | 6 hours | Sheet is updated infrequently |
 | Wind Grid | 1 hour | Wind forecast changes slowly |
 
 ### Parallel Fetching
 
 All data sources are fetched concurrently using threads to minimise page load time. The `build_dashboard_data()` function spawns 11 threads for:
-- Tides, Calendar, PLA Flag, PLA JSON (crosscheck), Weather, Kingston Flow, CSO Discharge, Richmond LW, Thames Temp, NSWWS, Water Quality
+- Tides, Calendar, PLA Flag, PLA JSON (crosscheck), Weather, Kingston Flow, Richmond LW, Thames Temp, NSWWS, Water Quality, CSO Status
 
 ### Weather Fallback Chain
 
@@ -119,9 +119,10 @@ The flag colour is determined by a fallback chain, attempted when the 15-minute 
 
 The PLA JSON endpoint (`pla.co.uk/pla-proxy/five-minute?url=tides/ebb-flag`) is **not** part of this fallback chain — it's fetched independently as a crosscheck and compared against the widget/Richmond-derived colour. If the sources disagree, a blinking "sources disagree" warning is shown.
 
-Two crosscheck lines are displayed beneath the flag:
-- **PLA JSON** — the raw result from the JSON endpoint, fetched and cached independently of the primary flag colour
+One crosscheck line is displayed beneath the flag:
 - **Richmond low tide prior to flag** — the time and height of the observed low tide the PLA used when setting the current flag
+
+(The PLA JSON endpoint still feeds the backend "sources disagree" check, but is no longer shown as a display row.)
 
 ### Richmond Low Tide Display and Next-Flag Prediction
 
@@ -161,11 +162,11 @@ River flow colour coding:
 
 Air temperature + water temperature sum displayed with red warning if < 14°C.
 
-### Water Quality / CSO Logic
+### Water Quality Logic
 
-- **CSO discharge** — `get_cso_discharge()` polls the Thames Water Open Data API v2 (`discharge/alerts` and `discharge/status`) for every monitor listed in `cso_monitors.json` (the source of truth for monitor IDs, zones, and grid references). British National Grid references are converted to WGS84 for map display (`/csomap`).
-- **E. coli readings** — `get_water_quality()` reads FRBC and PTRC monitoring-site CSV exports from Google Sheets and derives a risk colour per reading.
-- The combined summary appears in the main dashboard's Water Quality tile; `/waterquality` shows a detailed table banded by geography (downstream of Putney / Hammersmith-Putney / upstream), and `/csomap` shows every tracked monitor on a Leaflet map colour-coded by zone.
+- **CSO spill status** — `get_cso_status()` makes a single `GET .../discharge/status?limit=1000` call (all ~570 national permits) every 15 minutes, keeps only the waterways near the club (River Thames, River Brent, River Wandle & Mitchell Brook, Beverley Brook, and the smaller NW brooks: Graveney, Dollis, Wealdstone, Wembley, Hanwell), and groups them into three reaches by BNG easting: **Upstream of Teddington** (x < 517550), **Tideway to Putney** (517550–524075, Teddington Lock to Putney Bridge) and **Downstream** (x > 524075). Each outfall keeps its waterway label. Tunnel-captured permits (`receivingWaterCourse` contains "via the Tideway tunnel") are excluded — they discharge nothing to the river. Each outfall shows live status (`Discharging` / `Not discharging` / `Offline`), an `alertPast48Hours` flag and the most recent discharge start/stop. No API key, no database, no scheduler.
+- **E. coli readings** — `get_water_quality()` reads FRBC and PTRC monitoring-site CSV exports from Google Sheets and derives a risk colour per reading. Shown in the dashboard's Water Quality tile and on `/waterquality`.
+- The homepage Water Quality tile shows a per-reach summary ("N discharging · N offline") beside the E. coli readings; `/waterquality` shows the full grouped tables.
 
 ### Calendar Logic
 
@@ -180,7 +181,6 @@ Air temperature + water temperature sum displayed with red warning if < 14°C.
 ```
 frbc-tides/
 ├── app.py                          # Flask app + all API logic
-├── cso_monitors.json                # CSO monitor/zone/grid-ref config (source of truth for /csomap, /waterquality)
 ├── requirements.txt
 ├── .gitignore
 ├── README.md
@@ -256,8 +256,7 @@ This service is **dashboard-managed** on Render (there is no `render.yaml`):
 - `GET /api/nswws-status` - Diagnostic endpoint for NSWWS connectivity
 - `GET /api/wind` - JSON wind-grid data for the radar map's wind-arrow overlay
 - `GET /api/overlay` - Compact JSON summary (PLA flag colour, next tide label/time, pontoon warning) for external/embedded consumers
-- `GET /csomap` - Leaflet map of all tracked CSO monitors, colour-coded by zone
-- `GET /waterquality` - Detailed CSO discharge table banded by geographic zone
+- `GET /waterquality` - CSO spill status grouped by reach (Upstream of Teddington / Tideway to Putney / Downstream) plus FRBC/PTRC E. coli readings
 
 ## Key Features
 
@@ -265,8 +264,8 @@ This service is **dashboard-managed** on Render (there is no `render.yaml`):
 - **Auto-refresh** every 10 minutes via lightweight fetch
 - **Responsive design** - adapts to portrait/landscape orientations
 - **Graceful degradation** - continues operating if individual APIs fail
-- **Threaded fetching** - 11 parallel API calls for fast page loads
+- **Threaded fetching** - 10 parallel API calls for fast page loads
 - **Opt-in cache pre-warming** - off by default; enable with `ENABLE_PREWARM=1`
 - **Weather chain** - Met Office DataHub → WeatherAPI (no Open-Meteo)
-- **Water quality tracking** - combines Thames Water CSO discharge data with E. coli readings, with map and table drill-downs
+- **Water quality** - live CSO spill status for the local waterways (single Thames Water API call, no key) plus FRBC/PTRC E. coli readings
 - **Source-disagreement warnings** - flags when the PLA widget scrape, Richmond fallback, and PLA JSON crosscheck don't agree on the current flag colour

@@ -11,7 +11,6 @@ import time
 from collections import defaultdict
 import os
 import json
-import pathlib
 import xml.etree.ElementTree as ET
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -610,50 +609,63 @@ def _metoffice_window_from_entries(entries):
 
 
 def _fetch_sunrise_sunset():
-    """Sunrise/sunset — WeatherAPI only (Open-Meteo removed). Returns
-    ("", "") when the key is absent or the call fails, so callers degrade
-    to no sun markers instead of erroring."""
+    """Sunrise/sunset for today and tomorrow — WeatherAPI only. Returns
+    ("", "", "", "") when the key is absent or the call fails, so callers
+    degrade to no sun markers instead of erroring."""
     if not WEATHERAPI_KEY:
-        return "", ""
+        return "", "", "", ""
     url = (
         f"https://api.weatherapi.com/v1/forecast.json"
         f"?key={WEATHERAPI_KEY}"
         f"&q={LAT},{LON}"
-        f"&days=1&aqi=no&alerts=no"
+        f"&days=2&aqi=no&alerts=no"
     )
     r = requests.get(url, timeout=10)
     r.raise_for_status()
-    astro = r.json()['forecast']['forecastday'][0]['astro']
+    days = r.json()['forecast']['forecastday']
+
     def to_24h(t):
         return datetime.strptime(t, '%I:%M %p').strftime('%H:%M')
-    return to_24h(astro['sunrise']), to_24h(astro['sunset'])
+
+    def astro(i):
+        a = days[i]['astro']
+        return to_24h(a['sunrise']), to_24h(a['sunset'])
+
+    rise0, set0 = astro(0)
+    rise1, set1 = astro(1) if len(days) > 1 else ("", "")
+    return rise0, set0, rise1, set1
 
 
 def _parse_metoffice_timeseries(time_series, source_label):
     today = datetime.now(LONDON_TZ).date()
+    tomorrow = today + timedelta(days=1)
 
-    def bucket(start_h, end_h):
+    def bucket(day, start_h, end_h):
         entries = []
         for e in time_series:
             t = datetime.fromisoformat(e["time"].replace("Z", "+00:00")).astimezone(LONDON_TZ)
-            if t.date() != today:
+            if t.date() != day:
                 continue
             if start_h <= t.hour < end_h:
                 entries.append(e)
         return _metoffice_window_from_entries(entries)
 
     try:
-        sunrise, sunset = _fetch_sunrise_sunset()
+        sunrise, sunset, tmrw_sunrise, tmrw_sunset = _fetch_sunrise_sunset()
     except Exception as e:
         print(f"Sunrise/sunset fallback failed: {e}")
-        sunrise, sunset = "", ""
+        sunrise = sunset = tmrw_sunrise = tmrw_sunset = ""
 
     return {
-        "morning":   bucket(6, 12),
-        "afternoon": bucket(12, 20),
-        "sunrise":   sunrise,
-        "sunset":    sunset,
-        "source":    source_label,
+        "morning":            bucket(today, 6, 12),
+        "afternoon":          bucket(today, 12, 20),
+        "tomorrow_morning":   bucket(tomorrow, 6, 12),
+        "tomorrow_afternoon": bucket(tomorrow, 12, 20),
+        "sunrise":            sunrise,
+        "sunset":             sunset,
+        "tomorrow_sunrise":   tmrw_sunrise,
+        "tomorrow_sunset":    tmrw_sunset,
+        "source":             source_label,
     }
 
 
@@ -685,15 +697,13 @@ def get_weather_metoffice():
 def _parse_weatherapi(data):
     """Map WeatherAPI.com forecast response to the same shape as get_weather()."""
     try:
-        day = data['forecast']['forecastday'][0]
-        sunrise = day['astro']['sunrise']   # e.g. "06:12 AM"
-        sunset  = day['astro']['sunset']
+        days = data['forecast']['forecastday']
 
         # Normalise to HH:MM 24-hour
         def to_24h(t):
             return datetime.strptime(t, '%I:%M %p').strftime('%H:%M')
 
-        def window(start_h, end_h):
+        def window(day, start_h, end_h):
             hours = [
                 h for h in day['hour']
                 if start_h <= int(h['time'][11:13]) < end_h
@@ -728,13 +738,27 @@ def _parse_weatherapi(data):
                 'storm':     any(c in STORM_CODES for c in codes),
             }
 
-        return {
-            'morning':   window(6,  12),
-            'afternoon': window(12, 20),
-            'sunrise':   to_24h(sunrise),
-            'sunset':    to_24h(sunset),
-            'source':    'WeatherAPI',
+        def astro(day):
+            return to_24h(day['astro']['sunrise']), to_24h(day['astro']['sunset'])
+
+        d0 = days[0]
+        out = {
+            'morning':            window(d0, 6,  12),
+            'afternoon':          window(d0, 12, 20),
+            'sunrise':            astro(d0)[0],
+            'sunset':             astro(d0)[1],
+            'tomorrow_morning':   None,
+            'tomorrow_afternoon': None,
+            'tomorrow_sunrise':   "",
+            'tomorrow_sunset':    "",
+            'source':             'WeatherAPI',
         }
+        if len(days) > 1:
+            d1 = days[1]
+            out['tomorrow_morning']   = window(d1, 6,  12)
+            out['tomorrow_afternoon'] = window(d1, 12, 20)
+            out['tomorrow_sunrise'], out['tomorrow_sunset'] = astro(d1)
+        return out
     except Exception as e:
         raise Exception(f"WeatherAPI parse error: {e}")
 
@@ -747,7 +771,7 @@ def get_weather_weatherapi():
         f"https://api.weatherapi.com/v1/forecast.json"
         f"?key={WEATHERAPI_KEY}"
         f"&q={LAT},{LON}"
-        f"&days=1"
+        f"&days=2"
         f"&aqi=no"
         f"&alerts=no"
     )
@@ -1156,405 +1180,6 @@ def get_nswws_warnings():
     """Cached wrapper — refreshes every 15 minutes."""
     return get_cached("nswws", _fetch_nswws, ttl_seconds=900)
 
-_CSO_API_BASE = "https://api.thameswater.co.uk/opendata/v2/discharge/alerts"
-_CSO_API_LIMIT = 200  # fetch in pages of 200
-
-# --- CSO monitor / zone / window config, loaded from cso_monitors.json ---
-# This is the single source of truth for which permits are tracked, which
-# zone each belongs to, which permits are Tideway Tunnel-connected, and
-# which discharge time windows to compute. Edit cso_monitors.json and
-# redeploy to change any of this — no code changes needed here.
-_CSO_CONFIG_PATH = pathlib.Path(__file__).parent / "cso_monitors.json"
-
-def _load_cso_config():
-    with open(_CSO_CONFIG_PATH) as f:
-        cfg = json.load(f)
-
-    zone_ids = {}
-    for zone_name, zone_data in cfg["zones"].items():
-        zone_ids[zone_name] = set(zone_data["monitors"])
-
-    # Tideway Tunnel is just another entry in "zones" in the JSON, but
-    # app.py treats it specially (subtracted from river zone totals,
-    # rendered as its own row) — pull it out by name.
-    tunnel_ids = zone_ids.pop("Tideway Tunnel", set())
-
-    windows = cfg.get("_config", {}).get("windows", [
-        {"key": "48h", "label": "48 hours", "hours": 48}
-    ])
-    default_window = cfg.get("_config", {}).get("default_window", windows[0]["key"])
-    lookback_days = cfg.get("_config", {}).get("fetch_lookback_days", 7)
-
-    # Permit -> official site name, from cso_monitors.json's monitors{} block.
-    # Used as a fallback when the live API's locationName field is missing
-    # on a given event — without this, a tracked permit with real discharge
-    # seconds but no locationName in its Start row would be silently
-    # dropped from the per-station table while still counting toward the
-    # zone total, making the zone header show non-zero hours with every
-    # visible row reading zero.
-    site_names = {
-        permit: info.get("site_name")
-        for permit, info in cfg.get("monitors", {}).items()
-        if info.get("site_name")
-    }
-
-    # Permit -> tunnel_connected (True/False/"not_applicable"/None), from
-    # cso_monitors.json's monitors{} block. Used by /csomap to show
-    # tunnel-connection status per point, independent of geographic zone
-    # (a monitor can be tunnel-connected but live in a non-tunnel zone,
-    # e.g. Acton SR / Falconbrook PS — see cso_monitors.json notes).
-    tunnel_status = {
-        permit: info.get("tunnel_connected")
-        for permit, info in cfg.get("monitors", {}).items()
-    }
-
-    return {
-        "zone_ids":        zone_ids,
-        "tunnel_ids":      tunnel_ids,
-        "all_ids":         {mid for ids in zone_ids.values() for mid in ids} | tunnel_ids,
-        "windows":         windows,
-        "default_window":  default_window,
-        "lookback_days":   lookback_days,
-        "site_names":      site_names,
-        "tunnel_status":   tunnel_status,
-    }
-
-_cso_cfg = _load_cso_config()
-_CSO_ZONE_IDS       = _cso_cfg["zone_ids"]
-_CSO_TUNNEL_IDS     = _cso_cfg["tunnel_ids"]
-_CSO_ALL_IDS        = _cso_cfg["all_ids"]
-_CSO_WINDOWS        = _cso_cfg["windows"]
-_CSO_SITE_NAMES     = _cso_cfg["site_names"]
-_CSO_TUNNEL_STATUS  = _cso_cfg["tunnel_status"]
-
-def _fmt_cso_hrs(seconds):
-    if seconds <= 0:
-        return "0h 00m"
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    return f"{h}h {m:02d}m"
-
-
-def _bng_to_wgs84(easting, northing):
-    """
-    Convert British National Grid (OSGB36) easting/northing to WGS84
-    lat/lon, for building Google Maps links from the x/y coordinates the
-    Thames Water API returns per monitor. Uses the standard Ordnance
-    Survey transformation (Airy 1830 ellipsoid -> WGS84), accurate to a
-    few metres -- good enough for a map pin, not for survey-grade work.
-    Returns (lat, lon) or None if conversion fails.
-    """
-    try:
-        import math
-
-        a, b = 6377563.396, 6356256.909  # Airy 1830 semi-major/minor axes
-        F0 = 0.9996012717                 # scale factor on central meridian
-        lat0 = math.radians(49)           # true origin latitude
-        lon0 = math.radians(-2)           # true origin longitude
-        N0, E0 = -100000, 400000          # true origin northing/easting
-        e2 = 1 - (b * b) / (a * a)        # eccentricity squared
-        n = (a - b) / (a + b)
-
-        lat = lat0
-        M = 0
-        while True:
-            lat = (northing - N0 - M) / (a * F0) + lat
-            Ma = (1 + n + (5 / 4) * n**2 + (5 / 4) * n**3) * (lat - lat0)
-            Mb = (3 * n + 3 * n**2 + (21 / 8) * n**3) * math.sin(lat - lat0) * math.cos(lat + lat0)
-            Mc = ((15 / 8) * n**2 + (15 / 8) * n**3) * math.sin(2 * (lat - lat0)) * math.cos(2 * (lat + lat0))
-            Md = (35 / 24) * n**3 * math.sin(3 * (lat - lat0)) * math.cos(3 * (lat + lat0))
-            M = b * F0 * (Ma - Mb + Mc - Md)
-            if abs(northing - N0 - M) < 0.00001:
-                break
-
-        sin_lat = math.sin(lat)
-        cos_lat = math.cos(lat)
-        tan_lat = math.tan(lat)
-
-        nu = a * F0 / math.sqrt(1 - e2 * sin_lat**2)
-        rho = a * F0 * (1 - e2) / (1 - e2 * sin_lat**2) ** 1.5
-        eta2 = nu / rho - 1
-
-        tan_lat2 = tan_lat**2
-        tan_lat4 = tan_lat**4
-        tan_lat6 = tan_lat**6
-
-        VII = tan_lat / (2 * rho * nu)
-        VIII = tan_lat / (24 * rho * nu**3) * (5 + 3 * tan_lat2 + eta2 - 9 * tan_lat2 * eta2)
-        IX = tan_lat / (720 * rho * nu**5) * (61 + 90 * tan_lat2 + 45 * tan_lat4)
-        X = 1 / (cos_lat * nu)
-        XI = 1 / (cos_lat * 6 * nu**3) * (nu / rho + 2 * tan_lat2)
-        XII = 1 / (cos_lat * 120 * nu**5) * (5 + 28 * tan_lat2 + 24 * tan_lat4)
-        XIIA = 1 / (cos_lat * 5040 * nu**7) * (61 + 662 * tan_lat2 + 1320 * tan_lat4 + 720 * tan_lat6)
-
-        dE = easting - E0
-        lat_rad = lat - VII * dE**2 + VIII * dE**4 - IX * dE**6
-        lon_rad = lon0 + X * dE - XI * dE**3 + XII * dE**5 - XIIA * dE**7
-
-        lat_deg = math.degrees(lat_rad)
-        lon_deg = math.degrees(lon_rad)
-
-        # OSGB36 -> WGS84 is technically a separate small datum shift
-        # (~tens of metres); skipped here since it's well within the
-        # precision needed for a Google Maps pin pointing at a CSO outfall.
-        return round(lat_deg, 6), round(lon_deg, 6)
-    except Exception:
-        return None
-
-
-def _parse_cso_dt(dt_str):
-    """
-    Parse a Thames Water API datetime string into an always-tz-aware UTC
-    datetime. Some responses include a trailing Z or +00:00 offset; some
-    (observed in production) come back as a bare ISO string with no offset
-    at all. Relying on .replace("Z", "+00:00") alone silently produces a
-    naive datetime in that case, which later crashes when compared against
-    an aware datetime (now_utc) — "can't compare offset-naive and
-    offset-aware datetimes". This helper forces UTC onto anything naive
-    instead of trusting the string format.
-    """
-    dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
-
-def get_cso_discharge():
-    def fetch():
-        now_utc  = datetime.now(timezone.utc)
-        date_end   = now_utc.strftime("%Y-%m-%d")
-        date_start = (now_utc - timedelta(days=_cso_cfg["lookback_days"])).strftime("%Y-%m-%d")
-
-        # --- Collect all Start events for our permit numbers over the
-        # configured lookback period --- Key: permitNumber → list of
-        # {"start": datetime, "stop": datetime|None}
-        # We fetch all Start alerts then pair each with its matching Stop.
-        # Strategy: fetch Start events, then fetch Stop events, match by permitNumber
-        # and proximity. Because the API returns one row per alert event, multiple
-        # discharges per monitor in the window each appear as a separate Start row.
-
-        def fetch_all(alert_type):
-            items = []
-            offset = 0
-            pages = 0
-            while True:
-                pages += 1
-                if pages > 6:   # safety cap: avoid unbounded pagination loops
-                    break
-                params = {
-                    "alertType": alert_type,
-                    "dateStart":  date_start,
-                    "dateEnd":    date_end,
-                    "limit":      _CSO_API_LIMIT,
-                    "offset":     offset,
-                }
-                # Retry up to 3 times on 429
-                for attempt in range(3):
-                    r = requests.get(
-                        _CSO_API_BASE,
-                        params=params,
-                        headers={"User-Agent": "Mozilla/5.0"},
-                        timeout=20,
-                    )
-                    if r.status_code == 429:
-                        time.sleep(2 ** attempt)  # 1s, 2s, 4s
-                        continue
-                    break
-                r.raise_for_status()
-                data = r.json()
-                page = data.get("items", [])
-                items.extend(page)
-                if len(page) < _CSO_API_LIMIT:
-                    break  # last page
-                offset += _CSO_API_LIMIT
-                time.sleep(1)  # 1 req/sec between pages
-            return items
-
-        starts = fetch_all("Start")
-        time.sleep(1)  # pause between Start and Stop fetches
-        stops  = fetch_all("Stop")
-
-        # Index stops by permitNumber → sorted list of stop datetimes
-        stops_by_permit = defaultdict(list)
-        for s in stops:
-            permit = s.get("permitNumber")
-            dt_str = s.get("datetime")
-            if permit and dt_str:
-                try:
-                    stops_by_permit[permit].append(_parse_cso_dt(dt_str))
-                except ValueError:
-                    pass
-        for lst in stops_by_permit.values():
-            lst.sort()
-
-        # For each Start event at a permit we care about, find the next Stop
-        # after it (or treat as still active/ongoing-to-now if none found).
-        # Build a flat list of (permit, start_dt, stop_dt) discharge intervals —
-        # NOT summed yet, so we can later clip each interval against however
-        # many time windows are configured (24h, 7d, 30d, etc.) without
-        # needing to re-fetch from the API per window.
-        discharge_intervals = []  # list of (permit, start_dt, stop_dt)
-
-        for item in starts:
-            permit = item.get("permitNumber")
-            if permit not in _CSO_ALL_IDS:
-                continue
-            dt_str = item.get("datetime")
-            if not dt_str:
-                continue
-            try:
-                start_dt = _parse_cso_dt(dt_str)
-            except ValueError:
-                continue
-
-            # Find the first Stop for this permit that is >= start_dt
-            stop_dt = None
-            for candidate in stops_by_permit.get(permit, []):
-                if candidate >= start_dt:
-                    stop_dt = candidate
-                    break
-
-            if stop_dt is None:
-                # Still active (or stop not yet in window): treat as ongoing to now
-                stop_dt = now_utc
-
-            if stop_dt > start_dt:
-                discharge_intervals.append((permit, start_dt, stop_dt))
-
-        def discharge_secs_for_window(window_hours):
-            """
-            Sum discharge seconds per permit, clipped to the window
-            [now_utc - window_hours, now_utc]. An event that started before
-            the window but is still ongoing (or stopped inside the window)
-            is partially counted — only the portion inside the window.
-            """
-            window_start = now_utc - timedelta(hours=window_hours)
-            secs = defaultdict(float)
-            for permit, start_dt, stop_dt in discharge_intervals:
-                clipped_start = max(start_dt, window_start)
-                clipped_stop  = min(stop_dt, now_utc)
-                if clipped_stop > clipped_start:
-                    secs[permit] += (clipped_stop - clipped_start).total_seconds()
-            return secs
-
-        # Compute discharge_secs per permit for every configured window
-        secs_by_window = {
-            w["key"]: discharge_secs_for_window(w["hours"])
-            for w in _CSO_WINDOWS
-        }
-
-        # Also fetch current status to count monitors found per zone
-        # (so the x/y monitor count stays accurate)
-        status_r = requests.get(
-            "https://api.thameswater.co.uk/opendata/v2/discharge/status",
-            params={"limit": 2000},
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=20,
-        )
-        found_permits = set()
-        if status_r.ok:
-            for item in status_r.json().get("items", []):
-                permit = item.get("permitNumber")
-                if permit in _CSO_ALL_IDS:
-                    found_permits.add(permit)
-
-        # Build location name + coordinate lookup from alerts data
-        location_names = {}
-        location_x = {}
-        location_y = {}
-        for item in starts:
-            p = item.get("permitNumber")
-            n = item.get("locationName")
-            x = item.get("x")
-            y = item.get("y")
-            if p and n:
-                location_names[p] = n
-            if p and x:
-                location_x[p] = x
-            if p and y:
-                location_y[p] = y
-
-        default_key = _cso_cfg["default_window"]
-
-        def hours_by_window(permit):
-            """Dict of window_key -> formatted hours string, for one permit."""
-            return {
-                w["key"]: _fmt_cso_hrs(secs_by_window[w["key"]].get(permit, 0))
-                for w in _CSO_WINDOWS
-            }
-
-        def secs_for_default(permit):
-            return secs_by_window[default_key].get(permit, 0)
-
-        def build_stations(ids):
-            return [
-                {
-                    "permit":        mid,
-                    # Prefer the live API's locationName; fall back to the
-                    # official site_name from cso_monitors.json so a permit
-                    # is never silently dropped from this table just because
-                    # one particular Start event happened not to include it.
-                    "name":          location_names.get(mid) or _CSO_SITE_NAMES.get(mid, mid),
-                    "hours":         _fmt_cso_hrs(secs_for_default(mid)),  # default window, for back-compat
-                    "hours_by_window": hours_by_window(mid),
-                    "secs":          secs_for_default(mid),
-                    "active":        secs_for_default(mid) > 0,
-                    "x":             location_x.get(mid, None),
-                    "y":             location_y.get(mid, None),
-                }
-                for mid in ids
-                # Include every tracked permit — previously this filtered
-                # out any permit with no locationName in the alerts feed,
-                # which could silently drop a station that had real
-                # discharge seconds (still counted in the zone total),
-                # making the zone header non-zero while every visible row
-                # underneath read 0h 00m.
-            ]
-
-        def zone_totals_by_window(ids):
-            return {
-                w["key"]: _fmt_cso_hrs(sum(secs_by_window[w["key"]].get(mid, 0) for mid in ids))
-                for w in _CSO_WINDOWS
-            }
-
-        # Build zone summaries with per-station detail
-        zones = []
-        for zone_name, zone_ids in _CSO_ZONE_IDS.items():
-            river_ids = zone_ids - _CSO_TUNNEL_IDS
-            total_secs_default = sum(secs_for_default(mid) for mid in river_ids)
-            found = len([mid for mid in river_ids if mid in found_permits])
-            zones.append({
-                "name":            zone_name,
-                "found":           found,
-                "expected":        len(river_ids),
-                "hours":           _fmt_cso_hrs(total_secs_default),  # default window, for back-compat
-                "hours_by_window": zone_totals_by_window(river_ids),
-                "active":          total_secs_default > 0,
-                "stations":        build_stations(river_ids),
-            })
-
-        # Tunnel zone
-        tunnel_secs_default = sum(secs_for_default(mid) for mid in _CSO_TUNNEL_IDS)
-        tunnel_found = len([mid for mid in _CSO_TUNNEL_IDS if mid in found_permits])
-        zones.append({
-            "name":            "Tideway Tunnel",
-            "found":           tunnel_found,
-            "expected":        len(_CSO_TUNNEL_IDS),
-            "hours":           _fmt_cso_hrs(tunnel_secs_default),  # default window, for back-compat
-            "hours_by_window": zone_totals_by_window(_CSO_TUNNEL_IDS),
-            "active":          tunnel_secs_default > 0,
-            "stations":        build_stations(_CSO_TUNNEL_IDS),
-        })
-
-        return {
-            "zones":          zones,
-            "windows":        _CSO_WINDOWS,        # [{key,label,hours}, ...] for template to render headers/tabs
-            "default_window": default_key,
-            "total_found":    len(found_permits),
-            "total_expected": len(_CSO_ALL_IDS),
-        }
-
-    return get_cached("cso_discharge", fetch, ttl_seconds=1800)
-
 
 def get_kingston_flow():
     def fetch():
@@ -1838,11 +1463,11 @@ def build_dashboard_data():
         threading.Thread(target=run, args=('pla_json',       _fetch_pla_json)),
         threading.Thread(target=run, args=('weather',       get_weather)),
         threading.Thread(target=run, args=('kingston_flow', get_kingston_flow)),
-        threading.Thread(target=run, args=('cso_discharge', get_cso_discharge)),
         threading.Thread(target=run, args=('richmond_lw',   get_richmond_observed_low_tide)),
         threading.Thread(target=run, args=('thames_temp', get_thames_temperature)),
         threading.Thread(target=run, args=('nswws',          get_nswws_warnings)),
         threading.Thread(target=run, args=('water_quality',  get_water_quality)),
+        threading.Thread(target=run, args=('cso_status',     get_cso_status)),
     ]
     for t in threads: t.start()
     for t in threads: t.join(timeout=8)
@@ -2003,20 +1628,34 @@ def build_dashboard_data():
 
     # Weather
     w_res, w_up = results.get('weather', (None, ''))
-    weather = {"error": True, "updated": w_up}
+    weather = {"error": True, "updated": w_up, "day_label": "TODAY"}
 
     if w_res:
-        m = w_res.get('morning')
-        a = w_res.get('afternoon')
+        # After 20:00 show tomorrow's 06:00-12:00 / 12:00-20:00 windows and the
+        # heading "WEATHER TOMORROW"; from midnight it reverts to today.
+        show_tomorrow = now_lon.hour >= 20
+        if show_tomorrow:
+            m        = w_res.get('tomorrow_morning')
+            a        = w_res.get('tomorrow_afternoon')
+            sunrise  = w_res.get('tomorrow_sunrise') or w_res.get('sunrise', '')
+            sunset   = w_res.get('tomorrow_sunset') or w_res.get('sunset', '')
+            day_label = "TOMORROW"
+        else:
+            m        = w_res.get('morning')
+            a        = w_res.get('afternoon')
+            sunrise  = w_res.get('sunrise', '')
+            sunset   = w_res.get('sunset', '')
+            day_label = "TODAY"
 
         weather.update({
             "error":     False,
             "updated":   w_up,
             "source":    w_res.get('source', ''),
-            "sunrise":   w_res['sunrise'],
-            "sunset":    w_res['sunset'],
+            "sunrise":   sunrise,
+            "sunset":    sunset,
             "morning":   m,
             "afternoon": a,
+            "day_label": day_label,
         })
 
 
@@ -2084,11 +1723,12 @@ def build_dashboard_data():
     # Kingston Flow
     flow_data, flow_up = results.get('kingston_flow', (None, ''))
 
-    # CSO Discharge Hours
-    cso_data, cso_up = results.get('cso_discharge', (None, ''))
 
     # Water Quality (E. coli — FRBC / PTRC)
     wq_data, wq_up = results.get('water_quality', (None, ''))
+
+    # CSO / sewage spill status (Thames Water Open Data API v2)
+    cso_status, cso_status_up = results.get('cso_status', (None, ''))
 
     # Thames water temperature
     thames_temp_data, thames_temp_up = results.get('thames_temp', (None, ''))
@@ -2144,9 +1784,9 @@ def build_dashboard_data():
         "cal_updated":         cal_up,
         "kingston_flow":       flow_data,
         "flow_updated":        flow_up,
-        "cso_discharge":       cso_data,
-        "cso_updated":         cso_up,
         "water_quality":       wq_data,
+        "cso_status":          cso_status,
+        "cso_status_updated":  cso_status_up,
         "last_updated":        now_lon.strftime('%H:%M:%S'),
         "tz_label":            "BST" if is_bst else "GMT",
         "today_markers":       _markers,
@@ -2287,365 +1927,206 @@ def get_wind_grid():
 
     return get_cached('wind_grid', fetch, ttl_seconds=3600)  # 1 hour cache
 
-@app.route("/csomap")
-def cso_map():
-    """
-    Map view of every tracked CSO monitor, colour-coded by zone.
-    Reuses get_cso_discharge() (same 30-min cache as / and /waterquality)
-    so this costs no extra API calls. Coordinates come from the live API's
-    x/y per station, converted to WGS84 via _bng_to_wgs84 -- if the JSON
-    config changes (new monitor, zone move), this page reflects it on the
-    next request with no code changes needed, same as / and /waterquality.
-    """
-    cso_data, cso_up = get_cso_discharge()
 
-    ZONE_COLOURS = {
-        "Hammersmith":          "#FF4B4B",
-        "Richmond to Putney":   "#FFC233",
-        "Tideway Tributaries":  "#33B5FF",
-        "Beyond":               "#888888",
-        "Tideway Tunnel":       "#33FF57",
-    }
+# ---------------------------------------------------------------------------
+# CSO / sewage spill status — Thames Water Open Data API v2 "discharge/status".
+# One call (limit=1000 returns all ~570 permits) is cached and filtered to the
+# waterways near the club. No key, no database, no scheduler. Tunnel-captured
+# permits (receivingWaterCourse contains "via the Tideway tunnel") discharge
+# nothing to the river and are excluded.
+# ---------------------------------------------------------------------------
 
-    points = []
-    if cso_data:
-        for zone in cso_data.get("zones", []):
-            zone_name = zone["name"]
-            for s in zone.get("stations", []):
-                x, y = s.get("x"), s.get("y")
-                if not (x and y):
-                    continue
-                latlon = _bng_to_wgs84(x, y)
-                if not latlon:
-                    continue
-                lat, lon = latlon
-                permit = s["permit"]
-                tunnel_connected = _CSO_TUNNEL_STATUS.get(permit)
-                points.append({
-                    "permit": permit,
-                    "name": s["name"],
-                    "zone": zone_name,
-                    "lat": lat,
-                    "lon": lon,
-                    "tunnel_connected": tunnel_connected,
-                })
+_CSO_STATUS_URL    = "https://api.thameswater.co.uk/opendata/v2/discharge/status"
+_CSO_HAMMERSMITH_X = 523100   # Hammersmith Bridge, BNG easting
+_CSO_HAMMERSMITH_Y = 178000   # Hammersmith Bridge, BNG northing
 
-    return render_template_string("""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>(DRAFT) CSO Monitor Map — FRBC</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; font-family: 'Courier New', monospace; background: #000; color: #fff; }
-  #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+# Inclusion filter: only CSOs on these waterways are tracked (receivingWaterCourse
+# keyword -> waterway name). "tideway tunnel" is handled before this (excluded).
+_CSO_WATERWAY_ZONES = [
+    ("River Thames",                  ("thames",)),
+    ("River Brent",                   ("brent",)),
+    ("River Wandle & Mitchell Brook", ("wandle", "mitchell")),
+    ("Beverley Brook",                ("beverley",)),
+    ("Smaller NW brooks",             ("graveney", "dollis", "wealdstone", "wembley", "hanwell")),
+]
 
-  #header {
-    position: absolute; top: 0; left: 0; right: 0; z-index: 1000;
-    background: linear-gradient(to bottom, rgba(0,0,0,0.92), rgba(0,0,0,0));
-    padding: 14px 18px 30px;
-    pointer-events: none;
-  }
-  #header h1 {
-    font-size: 1.05em; letter-spacing: 0.08em; text-transform: uppercase;
-    color: #33FF57; font-weight: normal;
-  }
-  #header .sub { font-size: 0.72em; color: #777; margin-top: 2px; }
-  #header .sub a { color: #888; pointer-events: auto; text-decoration: none; }
-  #header .sub a:hover { color: #33FF57; }
+# Reach boundaries (BNG eastings): Teddington Lock and Putney Bridge.
+_CSO_TEDDINGTON_X = 517550
+_CSO_PUTNEY_X     = 524075
+_CSO_REACHES      = ["Upstream of Teddington", "Tideway to Putney", "Downstream"]
 
-  #legend {
-    position: absolute; bottom: 18px; left: 18px; z-index: 1000;
-    background: rgba(0,0,0,0.88); border: 1px solid #2a2a2a;
-    padding: 10px 14px; font-size: 0.74em; min-width: 200px;
-  }
-  #legend .row {
-    display: flex; align-items: center; gap: 8px; padding: 3px 0;
-    cursor: pointer; user-select: none;
-  }
-  #legend .row.off { opacity: 0.35; }
-  #legend .swatch {
-    width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0;
-    border: 1px solid rgba(255,255,255,0.3);
-  }
-  #legend .count { color: #555; margin-left: auto; }
-  #legend .title {
-    color: #888; text-transform: uppercase; letter-spacing: 0.06em;
-    font-size: 0.85em; margin-bottom: 6px; border-bottom: 1px solid #222;
-    padding-bottom: 5px;
-  }
 
-  .leaflet-popup-content-wrapper {
-    background: #0a0a0a; color: #fff; border: 1px solid #333;
-    border-radius: 0; font-family: 'Courier New', monospace;
-  }
-  .leaflet-popup-tip { background: #0a0a0a; }
-  .leaflet-popup-content { margin: 10px 12px; font-size: 0.8em; }
-  .leaflet-popup-content .pname { color: #fff; font-weight: bold; margin-bottom: 4px; }
-  .leaflet-popup-content .pzone { font-size: 0.85em; }
-  .leaflet-popup-content .ppermit { color: #555; font-size: 0.8em; margin-top: 4px; }
-  .leaflet-popup-content .ptunnel { color: #33FF57; font-size: 0.8em; margin-top: 2px; }
-  .leaflet-popup-content a { color: #888; text-decoration: none; font-size: 0.8em; }
-  .leaflet-popup-content a:hover { color: #33FF57; }
-  .leaflet-container { background: #111; }
-</style>
-</head>
-<body>
+def _cso_zone(water):
+    """Return the waterway name for a receivingWaterCourse, or None to exclude."""
+    w = (water or "").lower()
+    if "tideway tunnel" in w:
+        return None  # captured by the Tideway Tunnel: no river discharge
+    for zone, keys in _CSO_WATERWAY_ZONES:
+        if any(k in w for k in keys):
+            return zone
+    return None
 
-<div id="header">
-  <h1>(DRAFT) FRBC &mdash; CSO Monitor Map</h1>
-  <div class="sub" id="header-sub">
-    {{ points|length }} monitors &middot; updated {{ cso_up }} &middot; click a dot for detail &middot;
-    <a href="/waterquality">water quality detail &#8599;</a> &middot;
-    <a href="/">&#8592; dashboard</a>
-  </div>
-</div>
 
-<div id="map"></div>
+def _cso_reach(x):
+    """Reach by BNG easting: west of Teddington Lock, Teddington-Putney
+    (the Tideway), or downstream of Putney Bridge."""
+    if x is None:
+        return _CSO_REACHES[2]
+    if x < _CSO_TEDDINGTON_X:
+        return _CSO_REACHES[0]
+    if x <= _CSO_PUTNEY_X:
+        return _CSO_REACHES[1]
+    return _CSO_REACHES[2]
 
-<div id="legend">
-  <div class="title">Zones</div>
-  <div id="legend-rows"></div>
-</div>
 
-<script>
-const ZONE_COLOURS = {{ zone_colours | tojson }};
-const POINTS = {{ points | tojson }};
+def _fmt_cso_ts(s):
+    if not s:
+        return ""
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).strftime("%d %b %H:%M")
+    except Exception:
+        return s
 
-const map = L.map('map', { zoomControl: true }).setView([51.4836, -0.2305], 12);
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; OpenStreetMap &copy; CARTO',
-  subdomains: 'abcd',
-  maxZoom: 19,
-}).addTo(map);
+def get_cso_status():
+    """Live CSO spill status for the waterways near the club, from a single
+    Thames Water 'discharge/status' pull (cached 15 min)."""
+    def fetch():
+        r = requests.get(_CSO_STATUS_URL, params={"limit": 1000}, timeout=25)
+        if r.status_code == 429:
+            raise Exception("Thames Water status rate limited")
+        r.raise_for_status()
+        items = r.json().get("items", [])
+        if not items:
+            raise Exception("Thames Water status returned no items")
 
-const layersByZone = {};
-const countsByZone = {};
+        by_reach = {}
+        for it in items:
+            water = _cso_zone(it.get("receivingWaterCourse"))
+            if not water:
+                continue
+            x, y = it.get("x"), it.get("y")
+            km = None
+            if x and y:
+                km = round((((x - _CSO_HAMMERSMITH_X) ** 2 +
+                             (y - _CSO_HAMMERSMITH_Y) ** 2) ** 0.5) / 1000.0, 1)
+            status = (it.get("alertStatus") or "Unknown").strip()
+            by_reach.setdefault(_cso_reach(x), []).append({
+                "permit":      it.get("permitNumber"),
+                "name":        it.get("locationName") or it.get("permitNumber"),
+                "water":       water,
+                "status":      status,
+                "discharging": status.lower() == "discharging",
+                "offline":     status.lower() == "offline",
+                "past48":      bool(it.get("alertPast48Hours")),
+                "last_start":  _fmt_cso_ts(it.get("mostRecentDischargeAlertStart")),
+                "last_stop":   _fmt_cso_ts(it.get("mostRecentDischargeAlertStop")),
+                "km":          km,
+            })
 
-function mapsUrl(p) {
-  return `https://www.google.com/maps?q=${p.lat},${p.lon}`;
-}
+        out = []
+        for reach in _CSO_REACHES:
+            stations = by_reach.get(reach)
+            if not stations:
+                continue
+            stations.sort(key=lambda s: s["km"] if s["km"] is not None else 1e9)
+            out.append({
+                "name":        reach,
+                "groups":      [{"name": None, "stations": stations}],
+                "discharging": sum(1 for s in stations if s["discharging"]),
+                "offline":     sum(1 for s in stations if s["offline"]),
+                "total":       len(stations),
+            })
 
-POINTS.forEach(p => {
-  const colour = ZONE_COLOURS[p.zone] || "#fff";
-  countsByZone[p.zone] = (countsByZone[p.zone] || 0) + 1;
-
-  const marker = L.circleMarker([p.lat, p.lon], {
-    radius: 7,
-    fillColor: colour,
-    fillOpacity: 0.85,
-    color: "#000",
-    weight: 1,
-    opacity: 0.6,
-  });
-
-  const tunnelLine = p.tunnel_connected === true
-    ? '<div class="ptunnel">Tideway Tunnel-connected</div>'
-    : '';
-
-  marker.bindPopup(`
-    <div class="pname">${p.name}</div>
-    <div class="pzone">Zone: ${p.zone}</div>
-    <div class="ppermit">Permit: ${p.permit}</div>
-    ${tunnelLine}
-    <a href="${mapsUrl(p)}" target="_blank">Open in Google Maps &#8599;</a>
-  `);
-
-  if (!layersByZone[p.zone]) layersByZone[p.zone] = L.layerGroup();
-  marker.addTo(layersByZone[p.zone]);
-});
-
-Object.values(layersByZone).forEach(layer => layer.addTo(map));
-
-const legendRows = document.getElementById('legend-rows');
-Object.keys(ZONE_COLOURS).forEach(zone => {
-  if (!layersByZone[zone]) return;
-  const row = document.createElement('div');
-  row.className = 'row';
-  row.innerHTML = `
-    <div class="swatch" style="background:${ZONE_COLOURS[zone]}"></div>
-    <div>${zone}</div>
-    <div class="count">${countsByZone[zone] || 0}</div>
-  `;
-  row.addEventListener('click', () => {
-    if (map.hasLayer(layersByZone[zone])) {
-      map.removeLayer(layersByZone[zone]);
-      row.classList.add('off');
-    } else {
-      layersByZone[zone].addTo(map);
-      row.classList.remove('off');
-    }
-  });
-  legendRows.appendChild(row);
-});
-</script>
-
-</body>
-</html>""", points=points, zone_colours=ZONE_COLOURS, cso_up=cso_up)
+        return {
+            "zones":       out,
+            "total":       sum(z["total"] for z in out),
+            "discharging": sum(z["discharging"] for z in out),
+            "offline":     sum(z["offline"] for z in out),
+            "updated":     datetime.now(LONDON_TZ).strftime("%H:%M"),
+        }
+    return get_cached("cso_status", fetch, ttl_seconds=900)
 
 
 @app.route("/waterquality")
 def water_quality_detail():
-    cso_data, cso_up = get_cso_discharge()
-    now = datetime.now(ZoneInfo("Europe/London"))
-    week_ago = now - timedelta(days=7)
-
-    # Three geographic bands (OS National Grid eastings):
-    # Downstream beyond Putney : x > 525200
-    # Hammersmith to Putney    : 523050 < x <= 525200
-    # Upstream of Hammersmith  : x <= 523050
-    HB_X  = 523050   # Hammersmith Bridge
-    PUT_X = 525200   # Putney Bridge
-
-    zones_split = []
-    if cso_data:
-        for zone in cso_data.get("zones", []):
-            stations = zone.get("stations", [])
-            beyond_putney = sorted(
-                [s for s in stations if s.get("x") and s["x"] > PUT_X],
-                key=lambda s: -s["x"]
-            )
-            hb_to_putney = sorted(
-                [s for s in stations if s.get("x") and HB_X < s["x"] <= PUT_X],
-                key=lambda s: -s["x"]
-            )
-            upstream = sorted(
-                [s for s in stations if s.get("x") and s["x"] <= HB_X],
-                key=lambda s: -s["x"]
-            )
-            no_coord = [s for s in stations if not s.get("x")]
-            zones_split.append({
-                **zone,
-                "beyond_putney": beyond_putney,
-                "hb_to_putney":  hb_to_putney,
-                "upstream":      upstream + no_coord,
-            })
-
-    windows = cso_data.get("windows", []) if cso_data else []
-
-    def station_table(stations):
-        if not stations:
-            return ""
-        header_cols = "".join(f'<th class="r">{w["label"]}</th>' for w in windows)
-        rows = ""
-        for s in stations:
-            hbw = s.get("hours_by_window", {})
-            data_cols = ""
-            for w in windows:
-                val = hbw.get(w["key"], "0h 00m")
-                cls = "hrs-active" if val != "0h 00m" else "hrs-zero"
-                data_cols += f'<td class="r {cls}">{val}</td>'
-            # Link to this station's actual location on Google Maps if we
-            # have its coordinates; otherwise fall back to the generic
-            # Thames Water map (no per-station deep link exists there).
-            x, y = s.get("x"), s.get("y")
-            latlon = _bng_to_wgs84(x, y) if (x and y) else None
-            if latlon:
-                lat, lon = latlon
-                map_href = f"https://www.google.com/maps?q={lat},{lon}"
-            else:
-                map_href = "https://www.thameswater.co.uk/edm-map"
-            rows += f"""    <tr>
-      <td class="station-name"><a class="tw-link" href="{map_href}" target="_blank">{s["name"]}</a></td>
-      <td class="permit">{s["permit"]}</td>
-      {data_cols}
-    </tr>\n"""
-        return f"""  <table>
-    <thead><tr><th>Station</th><th>Permit</th>{header_cols}</tr></thead>
-    <tbody>
-{rows}    </tbody>
-  </table>"""
-
-    def zone_hours_summary():
-        """Render a zone's hours for every window, e.g. '0h 00m / 2h 15m / 10h 45m'"""
-        def fmt(zone):
-            hbw = zone.get("hours_by_window", {})
-            return " &nbsp;/&nbsp; ".join(hbw.get(w["key"], "0h 00m") for w in windows)
-        return fmt
-
-    zone_hours = zone_hours_summary()
+    """CSO spill status grouped by waterway, plus the FRBC/PTRC E. coli readings."""
+    cso, cso_up = get_cso_status()
+    wq, wq_up = get_water_quality()
 
     return render_template_string("""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>(DRAFT) Water Quality — FRBC</title>
+<title>Water Quality — FRBC</title>
 <style>
 * { box-sizing:border-box; margin:0; padding:0; font-family:'Courier New',monospace; }
 body { background:#000; color:#fff; padding:24px; max-width:1100px; }
 h1 { font-size:1.3em; text-transform:uppercase; color:#33FF57; margin-bottom:4px; }
-.meta { font-size:0.78em; color:#555; margin-bottom:28px; }
+.meta { font-size:0.78em; color:#555; margin-bottom:24px; line-height:1.8; }
 .meta a { color:#33FF57; text-decoration:none; }
 h2 { font-size:1em; text-transform:uppercase; letter-spacing:0.08em; color:#fff;
      border-bottom:1px solid #333; padding-bottom:6px; margin:28px 0 4px;
      display:flex; justify-content:space-between; align-items:baseline; }
-.zone-hours { font-size:0.7em; color:#888; font-weight:normal; text-transform:none; }
+.zone-sum { font-size:0.72em; color:#888; font-weight:normal; text-transform:none; }
 h3 { font-size:0.75em; text-transform:uppercase; letter-spacing:0.1em;
      color:#555; margin:14px 0 4px; border-left:2px solid #333; padding-left:6px; }
 table { width:100%; table-layout:fixed; border-collapse:collapse; font-size:0.8em; margin-bottom:4px; }
 th, td { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-th:nth-child(1), td.station-name { width:42%; }
-th:nth-child(2), td.permit { width:16%; }
-/* Remaining width split evenly across however many window columns are configured */
-th { text-align:left; color:#444; padding:3px 12px 3px 0;
-     border-bottom:1px solid #1e1e1e; white-space:nowrap; }
-th.r { text-align:right; }
+th:nth-child(1), td.name { width:42%; }
+th { text-align:left; color:#444; padding:3px 12px 3px 0; border-bottom:1px solid #1e1e1e; white-space:nowrap; }
+th.r, td.r { text-align:right; }
 td { padding:5px 12px 5px 0; border-bottom:1px solid #141414; vertical-align:top; }
-td.r { text-align:right; white-space:nowrap; }
-.hrs-active { color:#FF4B4B; font-weight:bold; }
-.hrs-zero { color:#2a2a2a; }
-.permit { color:#444; font-size:0.85em; }
-.tw-link { color:#888; text-decoration:none; }
-.tw-link:hover { color:#33FF57; }
+.st-discharging { color:#FF4B4B; font-weight:bold; }
+.st-offline { color:#888; }
+.st-ok { color:#2a2a2a; }
+.past-yes { color:#FFC233; font-weight:bold; }
+.dim { color:#666; }
 .empty { color:#2a2a2a; font-size:0.78em; font-style:italic; padding:4px 0 8px; }
 </style>
 </head>
 <body>
-<h1>(DRAFT) Water Quality — CSO Discharge Detail</h1>
+<h1>Water Quality</h1>
 <p class="meta">
-  Updated {{ cso_up }}
-  &nbsp;&middot;&nbsp; Source: <a href="https://docs.api.thameswater.co.uk/" target="_blank">Thames Water Open Data API v2</a>
-  &nbsp;&middot;&nbsp; <a href="/csomap">map view &#8599;</a>
+  CSO status updated {{ cso_up or '&mdash;' }} &nbsp;&middot;&nbsp; E. coli updated {{ wq_up or '&mdash;' }}<br>
+  Source: <a href="https://docs.api.thameswater.co.uk/" target="_blank" rel="noopener">Thames Water Open Data API v2</a>
   &nbsp;&middot;&nbsp; <a href="/">&#8592; Dashboard</a>
 </p>
 
-{% if zones_split %}{% for zone in zones_split %}
-<h2>{{ zone.name }} <span class="zone-hours">{{ zone_hours(zone) | safe }}</span></h2>
-
-{% if zone.beyond_putney %}
-<h3>&#9660; Downstream of Putney Bridge</h3>
-{{ station_table(zone.beyond_putney) | safe }}
+{% if cso and cso.zones %}
+{% for zone in cso.zones %}
+<h2>{{ zone.name }} <span class="zone-sum">{{ zone.discharging }} discharging &middot; {{ zone.offline }} offline &middot; {{ zone.total }} monitored</span></h2>
+{% for g in zone.groups %}
+{% if g.name %}<h3>{{ g.name }}</h3>{% endif %}
+<table>
+  <thead><tr><th>Outfall</th><th class="r">Status</th><th class="r">48h</th><th class="r">Last event</th><th class="r">km</th></tr></thead>
+  <tbody>
+  {% for s in g.stations %}
+  <tr>
+    <td class="name">{{ s.name }}{% if s.water %} <span class="dim">&middot; {{ s.water }}</span>{% endif %}</td>
+    <td class="r {% if s.discharging %}st-discharging{% elif s.offline %}st-offline{% else %}st-ok{% endif %}">{{ s.status }}</td>
+    <td class="r {% if s.past48 %}past-yes{% else %}dim{% endif %}">{{ 'Yes' if s.past48 else '&mdash;' }}</td>
+    <td class="r dim">{% if s.last_start %}{{ s.last_start }}{% if s.last_stop %}&ndash;{{ s.last_stop }}{% else %} (ongoing){% endif %}{% else %}&mdash;{% endif %}</td>
+    <td class="r dim">{{ s.km if s.km is not none else '&mdash;' }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endfor %}
+{% endfor %}
+{% else %}
+<p class="empty">CSO data unavailable</p>
 {% endif %}
 
-{% if zone.hb_to_putney %}
-<h3>&#9660; Hammersmith to Putney</h3>
-{{ station_table(zone.hb_to_putney) | safe }}
-{% endif %}
-
-{% if zone.upstream %}
-<h3>&#9650; Upstream of Hammersmith Bridge</h3>
-{{ station_table(zone.upstream) | safe }}
-{% endif %}
-
-{% if not zone.beyond_putney and not zone.hb_to_putney and not zone.upstream %}
-<p class="empty">No stations with known activity in this window</p>
-{% endif %}
-
-{% endfor %}{% else %}
-<p style="color:#FF4B4B;margin-top:20px;">CSO data unavailable</p>
-{% endif %}
+<h2>E. coli readings (CFU/100ml)</h2>
+<table>
+  <tr><td class="name">FRBC</td><td class="r" style="color:{{ wq.frbc.colour if wq and wq.frbc else '#555' }};">{% if wq and wq.frbc and wq.frbc.available %}{{ wq.frbc.ecoli_str }} &middot; {{ wq.frbc.date_str }} &middot; {{ wq.frbc.days_ago_str }}{% else %}&mdash; unavailable{% endif %}</td></tr>
+  <tr><td class="name">PTRC</td><td class="r" style="color:{{ wq.ptrc.colour if wq and wq.ptrc else '#555' }};">{% if wq and wq.ptrc and wq.ptrc.available %}{{ wq.ptrc.ecoli_str }} &middot; {{ wq.ptrc.date_str }} &middot; {{ wq.ptrc.days_ago_str }}{% else %}&mdash; unavailable{% endif %}</td></tr>
+</table>
 </body>
-</html>""",
-        zones_split=zones_split,
-        station_table=station_table,
-        zone_hours=zone_hours,
-        cso_up=cso_up,
-    )
+</html>""", cso=cso, cso_up=cso_up, wq=wq, wq_up=wq_up)
+
 
 @app.route("/")
 def index():

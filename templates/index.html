@@ -128,12 +128,19 @@
             100% { opacity: 1; }
         }
 
+        .pla-flag-link {
+            display: block;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+
         .pla-flag-iframe {
             width: clamp(120px, 16vw, 200px);
             height: clamp(140px, 18vw, 220px);
             border: none;
             flex-shrink: 0;
             display: block;
+            pointer-events: none;
         }
 
         .pla-flag-row {
@@ -426,10 +433,13 @@
     {% if d.pla_flag %}
         {% set fc = d.pla_flag.colour %}
         <div class="pla-flag-row">
-            <iframe class="pla-flag-iframe"
-                src="https://pla.co.uk/pla-api-integration/ebb-tide-widget-embed"
-                scrolling="no" frameborder="0"
-                title="PLA Ebb Tide Flag"></iframe>
+            <a class="pla-flag-link" href="https://pla.co.uk/ebb-tide-flag-warning"
+               target="_blank" rel="noopener" title="PLA ebb tide flag warning">
+                <iframe class="pla-flag-iframe"
+                    src="https://pla.co.uk/pla-api-integration/ebb-tide-widget-embed"
+                    scrolling="no" frameborder="0"
+                    title="PLA Ebb Tide Flag"></iframe>
+            </a>
             <div>
                 <div class="pla-flag-text">
                     <div class="pla-flag-text-inner" id="flagTextInner">
@@ -472,21 +482,6 @@
         </div>
         {% endif %}
 
-        {# ── PLA JSON crosscheck ── #}
-        <div style="font-size:clamp(13px, 1.2vw, 16px); color:#fff; margin-top:4px; line-height:1.8;">
-            {% if d.pla_json_flag %}
-                {% set jc = d.pla_json_flag.colour %}
-                {% set js = d.pla_json_flag.stale %}
-                <div>PLA JSON: <span class="c-{{ jc }}">{{ jc | capitalize }}</span>
-                    {% if js %}<span style="color:#fff;"> (stale &mdash; {{ d.pla_json_flag.last_updated }})</span>
-                    {% else %}<span style="color:#fff;"> ({{ d.pla_json_flag.last_updated }})</span>{% endif %}
-                    {% if jc != fc %} <span style="color:#FF4B4B;">&#9888; differs from displayed flag</span>{% endif %}
-                </div>
-            {% else %}
-                <div style="color:#fff;">PLA JSON: unavailable</div>
-            {% endif %}
-        </div>
-
         {# ── Consolidated warning ── #}
         {% if d.flag_warning %}
         <p class="flag-footnote">&#9888; Sources disagree &mdash; check current flag status with PLA</p>
@@ -524,39 +519,26 @@
     {% endif %}
     </div>
 
-    {# ── Water Quality (combined CSO + E. coli) ── #}
-    <h3>WATER QUALITY (DRAFT) <span class="updated">Updated {{ d.cso_updated }} &nbsp;<a href="/waterquality" style="font-size:0.95em; color:#fff; text-decoration:none;" target="_blank">detail &#8599;</a></span></h3>
+    {# ── Water Quality (CSO spill status + E. coli) ── #}
+    <h3>WATER QUALITY <span class="updated"><a href="/waterquality" style="font-size:0.95em; color:#fff; text-decoration:none;" target="_blank">detail &#8599;</a></span></h3>
     <div style="font-size:clamp(12px,1.2vw,15px); line-height:2;">
-        {% if d.cso_discharge %}
-        {# Grid columns: zone name + one column per configured window (e.g. 24h, 7d, 30d) #}
-        <div style="display:grid; grid-template-columns:auto {% for w in d.cso_discharge.windows %}1fr {% endfor %}; gap:0 1em; align-items:baseline;">
+        <div style="display:grid; grid-template-columns:auto 1fr; gap:0 1em; align-items:baseline;">
 
-            {# — CSO header row — #}
-            <span style="color:#fff;">CSO discharge</span>
-            {% for w in d.cso_discharge.windows %}
-            <span style="color:#fff; text-align:right;">{{ w.label }}</span>
-            {% endfor %}
-
-            {# — CSO rows, one per zone — #}
-            {% for z in d.cso_discharge.zones %}
-            {% set is_tunnel = z.name == 'Tideway Tunnel' %}
-            <span style="color:{% if is_tunnel %}#888{% else %}#ccc{% endif %};">
-                {% if is_tunnel %}Tideway Tunnel (not into river){% else %}{{ z.name }}{% endif %}
-            </span>
-            {% for w in d.cso_discharge.windows %}
+            {# — CSO spill status, one row per waterway — #}
+            {% if d.cso_status and d.cso_status.zones %}
+            <span style="color:#fff;">Sewage (CSO)</span>
+            <span style="color:#fff; text-align:right;">{{ d.cso_status.discharging }} discharging</span>
+            {% for z in d.cso_status.zones %}
+            <span style="color:#ccc;">{{ z.name }}</span>
             <span style="text-align:right; font-weight:bold;
-                  color:{% if is_tunnel %}#33FF57{% elif z.hours_by_window[w.key] != '0h 00m' %}#FF4B4B{% else %}#555{% endif %};">
-                {{ z.hours_by_window[w.key] }}
+                  color:{% if z.discharging %}#FF4B4B{% elif z.offline %}#888{% else %}#555{% endif %};">
+                {{ z.discharging }} discharging{% if z.offline %} &middot; {{ z.offline }} offline{% endif %}
             </span>
             {% endfor %}
-            {% endfor %}
+            {% else %}
+            <span style="color:#fff; grid-column:1/-1;">CSO data unavailable</span>
+            {% endif %}
 
-        </div>
-        {% else %}
-        <span style="color:#fff;">CSO data unavailable</span>
-        {% endif %}
-
-        <div style="display:grid; grid-template-columns:auto 1fr; gap:0 1em; align-items:baseline; margin-top:4px;">
             {# — Divider — #}
             <span style="grid-column:1/-1; border-top:1px solid #333; margin:4px 0; display:block;"></span>
 
@@ -604,7 +586,7 @@
 
 <!-- COLUMN 2 -->
 <div>
-    <h3>WEATHER</h3>
+    <h3>WEATHER {{ d.weather.day_label or 'TODAY' }}</h3>
 
     {% if d.weather.error %}
         <p class="c-red" style="font-size:var(--fs-data);">Weather forecast unavailable</p>
@@ -618,7 +600,7 @@
     {% set m = d.weather.morning if not d.weather.error else none %}
     {% set a = d.weather.afternoon if not d.weather.error else none %}
 
-    {% set morning_past = d.last_updated[:2]|int >= 12 %}
+    {% set morning_past = (d.weather.day_label != 'TOMORROW') and (d.last_updated[:2]|int >= 12) %}
     <table class="wx-table">
         <thead>
             <tr>
