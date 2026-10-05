@@ -108,18 +108,21 @@ def get_tides():
 def get_calendar_events():
     global _cal_fail_until
     now_ts = datetime.now(timezone.utc).timestamp()
+    now = datetime.now(LONDON_TZ)
+    # After 20:00 show tomorrow's diary; from midnight it reverts to today.
+    # The cache key includes the target date so the switch is immediate.
+    display_date = now + timedelta(days=1) if now.hour >= 20 else now
+    target_date  = display_date.date()
+    day_label    = "TOMORROW" if now.hour >= 20 else "TODAY"
+    cache_key    = f"calendar:{target_date.isoformat()}"
 
     if now_ts < _cal_fail_until:
-        if 'calendar' in _cache:
-            return _cache['calendar']['data'], _cache['calendar']['fetched_at']
-        return {"day_label": "TODAY", "list": []}, ''
+        if cache_key in _cache:
+            return _cache[cache_key]['data'], _cache[cache_key]['fetched_at']
+        return {"day_label": day_label, "list": []}, ''
 
     def fetch():
         global _cal_fail_until
-        now = datetime.now(LONDON_TZ)
-        display_date = now + timedelta(days=1) if now.hour >= 22 else now
-        target_date  = display_date.date()
-
         day_start = display_date.replace(hour=0,  minute=0,  second=0,  microsecond=0)
         day_end   = display_date.replace(hour=23, minute=59, second=59, microsecond=0)
 
@@ -161,12 +164,9 @@ def get_calendar_events():
                 if ev_date == target_date:
                     events_list.append({"summary": summary, "time": "All Day"})
 
-        return {
-            "day_label": "TOMORROW" if now.hour >= 22 else "TODAY",
-            "list": events_list
-        }
+        return {"day_label": day_label, "list": events_list}
 
-    return get_cached('calendar', fetch, ttl_seconds=1800)
+    return get_cached(cache_key, fetch, ttl_seconds=1800)
 
 
 def get_calendar_events_14d():
@@ -1442,6 +1442,11 @@ def build_dashboard_data():
     now_lon = datetime.now(LONDON_TZ)
     is_bst  = now_lon.dst() != timedelta(0)
 
+    # After 20:00 the dashboard looks ahead to tomorrow (calendar, weather and the
+    # calendar column's tide/sun markers); from midnight it reverts to today.
+    show_tomorrow = now_lon.hour >= 20
+    day_date      = now_lon.date() + timedelta(days=1) if show_tomorrow else now_lon.date()
+
     # Convert a UTC tide datetime to London wall-clock time. Using astimezone
     # (rather than adding a fixed BST/GMT offset based on *now*) keeps times
     # correct for events on the far side of a clock change.
@@ -1611,16 +1616,16 @@ def build_dashboard_data():
             }
         t_data["tidal_range"] = _tidal_range_info
 
-        # Today's tides for the calendar column — HH:MM only, today's date only
-        today_local = now_lon.date()
-        t_data["today_tides"] = [
+        # Displayed-day tides for the calendar column — HH:MM only. Uses today,
+        # or tomorrow once show_tomorrow is set (after 20:00).
+        t_data["day_tides"] = [
             {
                 "label":  "High" if t['EventType'] == 'HighWater' else "Low",
                 "time":   to_london(t['dt_utc']).strftime('%H:%M'),
                 "height": f"{t['Height']:.1f}m",
             }
             for t in tides
-            if to_london(t['dt_utc']).date() == today_local
+            if to_london(t['dt_utc']).date() == day_date
         ]
             
     # Calendar
@@ -1631,9 +1636,8 @@ def build_dashboard_data():
     weather = {"error": True, "updated": w_up, "day_label": "TODAY"}
 
     if w_res:
-        # After 20:00 show tomorrow's 06:00-12:00 / 12:00-20:00 windows and the
-        # heading "WEATHER TOMORROW"; from midnight it reverts to today.
-        show_tomorrow = now_lon.hour >= 20
+        # show_tomorrow (set at the top) selects tomorrow's 06:00-12:00 /
+        # 12:00-20:00 windows and the heading "WEATHER TOMORROW".
         if show_tomorrow:
             m        = w_res.get('tomorrow_morning')
             a        = w_res.get('tomorrow_afternoon')
@@ -1755,7 +1759,7 @@ def build_dashboard_data():
     # Pre-sorted marker list for the TODAY calendar column
     # Combines tides + sunrise + sunset into a single time-ordered list
     _markers = []
-    for _t in t_data.get("today_tides", []):
+    for _t in t_data.get("day_tides", []):
         _markers.append({"type": "tide", "time": _t["time"], "label": _t["label"], "height": _t["height"]})
     if weather.get("sunrise"):
         _markers.append({"type": "sunrise", "time": weather["sunrise"]})

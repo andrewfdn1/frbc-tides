@@ -27,7 +27,7 @@ The dashboard displays real-time information in a three-column layout (landscape
 - **Rain Radar & Wind Map** - Leaflet map with a RainViewer radar overlay and a 4x4 wind-arrow grid, refreshed client-side (radar every 5 minutes, wind hourly)
 
 **Column 3 - Club Diary:**
-- **Calendar Events** - Today's (or tomorrow's after 22:00) club sessions with times, interleaved with tide/sunrise/sunset markers
+- **Calendar Events** - Today's (or tomorrow's after 20:00) club sessions with times, interleaved with tide/sunrise/sunset markers (the whole column — heading and tide/sun markers — looks ahead to tomorrow after 20:00, reverting to today at midnight)
 - Live clock in the column header
 - Auto-shrinking text, then auto-scrolling, in landscape mode when events overflow
 - Past events dimmed
@@ -171,7 +171,7 @@ Air temperature + water temperature sum displayed with red warning if < 14°C.
 ### Calendar Logic
 
 - Fetches events for current day
-- After 22:00, switches to show tomorrow's events
+- After 20:00, switches to show tomorrow's events (and the column's tide/sun markers follow the same day)
 - Displays time ranges or "All Day"
 - Interleaves tide, sunrise and sunset markers among the day's events
 - Past events dimmed based on current time
