@@ -89,6 +89,15 @@
             align-items: baseline;
         }
 
+        .head-link {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .head-link:hover {
+            text-decoration: underline;
+        }
+
         .updated {
             font-size: var(--fs-updated);
             color: #fff;
@@ -371,11 +380,13 @@
 <!-- COLUMN 1 -->
 <div>
     <h3>
+        <a class="head-link" href="https://easytide.admiralty.co.uk/?PortID=0115" target="_blank" rel="noopener">
         {% if d.tides.direction %}
             {{ d.tides.direction }} UNTIL {{ d.tides.until }}{% if d.tides.current_target_height %}, {{ d.tides.current_target_height }}{% endif %}
         {% else %}
             HAMMERSMITH TIDES
         {% endif %}
+        </a>
         <span class="updated">Updated {{ d.tides.updated }}</span>
     </h3>
 
@@ -438,7 +449,7 @@
         <p class="c-dim" style="font-size:var(--fs-data);">Tide data unavailable</p>
     {% endif %}
 
-    <h3>PLA EBB FLAG <span class="updated">Updated {{ d.pla_updated }}</span></h3>
+    <h3><a class="head-link" href="https://pla.co.uk/ebb-tide-flag-warning" target="_blank" rel="noopener">PLA EBB FLAG</a> <span class="updated">Updated {{ d.pla_updated }}</span></h3>
     <div class="pla-flag">
     {% if d.pla_flag %}
         {% set fc = d.pla_flag.colour %}
@@ -530,7 +541,7 @@
     </div>
 
     {# ── Water Quality (CSO spill status + E. coli) ── #}
-    <h3>WATER QUALITY <span class="updated"><a href="/waterquality" style="font-size:0.95em; color:#fff; text-decoration:none;" target="_blank">detail &#8599;</a></span></h3>
+    <h3><a class="head-link" href="https://water-watch.co.uk/postcode?pc=W69GX&amp;r=10" target="_blank" rel="noopener">WATER QUALITY</a> <span class="updated"><a href="/waterquality" style="font-size:0.95em; color:#fff; text-decoration:none;" target="_blank">detail &#8599;</a></span></h3>
     <div style="font-size:clamp(12px,1.2vw,15px); line-height:2;">
         <div style="display:grid; grid-template-columns:auto 1fr; gap:0 1em; align-items:baseline;">
 
@@ -596,7 +607,7 @@
 
 <!-- COLUMN 2 -->
 <div>
-    <h3>WEATHER {{ d.weather.day_label or 'TODAY' }}</h3>
+    <h3><a class="head-link" href="https://weather.metoffice.gov.uk/forecast/gcpufvvhm" target="_blank" rel="noopener">WEATHER {{ d.weather.day_label or 'TODAY' }}</a></h3>
 
     {% if d.weather.error %}
         <p class="c-red" style="font-size:var(--fs-data);">Weather forecast unavailable</p>
@@ -798,9 +809,9 @@
     {% endfor %}
 
     <p class="nswws-headline {% if d.lightning.danger %}lightning-danger{% else %}c-dim{% endif %}"
-       id="lightning-line">{{ d.lightning.message }}</p>
+       id="lightning-line"><a class="head-link" id="lightning-link" href="https://maps.blitzortung.org/" target="_blank" rel="noopener">{{ d.lightning.message }}</a></p>
 
-    <h3>RADAR</h3>
+    <h3><a class="head-link" href="https://weather.metoffice.gov.uk/maps-and-charts/rainfall-radar-forecast-map" target="_blank" rel="noopener">RADAR</a></h3>
     <div class="radar-wrap">
         <div id="radar-map"></div>
         <div class="radar-legend">
@@ -1026,9 +1037,9 @@
             .then(function(r) { return r.json(); })
             .then(function(o) {
                 var el = document.getElementById('lightning-line');
-                if (!el) return;
-                el.textContent = o.message || 'Lightning data unavailable';
-                el.className = 'nswws-headline ' + (o.danger ? 'lightning-danger' : 'c-dim');
+                var link = document.getElementById('lightning-link');
+                if (el) el.className = 'nswws-headline ' + (o.danger ? 'lightning-danger' : 'c-dim');
+                if (link) link.textContent = o.message || 'Lightning data unavailable';
             })
             .catch(function() {});
     }
