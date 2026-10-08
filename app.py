@@ -12,6 +12,12 @@ from collections import defaultdict
 import os
 import json
 import xml.etree.ElementTree as ET
+import ssl
+import socket
+import base64
+import struct
+import random
+import math
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ---------------------------------------------------------------------------
@@ -1437,6 +1443,228 @@ def build_calendar_data():
     }
 
 
+# ---------------------------------------------------------------------------
+# Lightning — closest strike to Hammersmith (Blitzortung.org public websocket)
+# ---------------------------------------------------------------------------
+# Unofficial Blitzortung community data — not a weather warning, not for safety.
+# No API key needed: the public WSS stream only requires the {"a": 111} subscribe.
+# Frames are LZW/UTF-16 compressed JSON (see _lzw_decode) — stdlib only, no new
+# dependency. The feed thread starts lazily on first use so it never competes
+# with Render's port bind or the cache pre-warm.
+
+_LIGHTNING_WINDOW_S  = 30 * 60      # rolling window: last 30 minutes
+_LIGHTNING_DANGER_KM = 100.0        # footnote flashes red below this
+_LIGHTNING_HOSTS     = ["ws1", "ws3", "ws7", "ws8"]
+
+
+def _lzw_decode(text):
+    """Port of ws_client/client.py decode() — Blitzortung frame decompression."""
+    e = {}
+    d = list(text)
+    if not d:
+        return ""
+    c = d[0]
+    f = c
+    g = [c]
+    h = 256
+    o = h
+    for i in range(1, len(d)):
+        a = ord(d[i])
+        a = d[i] if h > a else e.get(a, f + c)
+        g.append(a)
+        c = a[0]
+        e[o] = f + c
+        o += 1
+        f = a
+    return "".join(g)
+
+
+def _haversine_km(lat1, lon1, lat2, lon2):
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    a = (math.sin((p2 - p1) / 2) ** 2
+         + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2)
+    return 6371.0 * 2 * math.asin(math.sqrt(a))
+
+
+class _LightningTracker:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.started = time.time()
+        self.strikes = []          # (epoch, lat, lon, dist_km)
+        self.total = 0
+        self.connected = False
+        self.error = ""
+
+    def set_connected(self, ok, err=""):
+        with self._lock:
+            self.connected = ok
+            self.error = err
+
+    def add(self, strike):
+        try:
+            t = strike["time"] / 1e9
+            lat = float(strike["lat"])
+            lon = float(strike["lon"])
+        except (KeyError, TypeError, ValueError):
+            return
+        dist = _haversine_km(LAT, LON, lat, lon)
+        now = time.time()
+        cutoff = now - _LIGHTNING_WINDOW_S
+        with self._lock:
+            self.strikes.append((t, lat, lon, dist))
+            self.total += 1
+            if len(self.strikes) > 2048 or (self.strikes and self.strikes[0][0] < cutoff):
+                self.strikes = [s for s in self.strikes if s[0] >= cutoff]
+
+    def snapshot(self):
+        now = time.time()
+        cutoff = now - _LIGHTNING_WINDOW_S
+        with self._lock:
+            window = [s for s in self.strikes if s[0] >= cutoff]
+            total = self.total
+            connected = self.connected
+        if not window:
+            msg = ("Waiting for first lightning strike..." if total == 0
+                   else "No lightning in the last 30 min")
+            return {"status": "warming" if total == 0 else "no_data",
+                    "message": msg, "distance_km": None, "time": None,
+                    "danger": False, "connected": connected, "strikes_in_window": 0}
+        t, lat, lon, dist = min(window, key=lambda s: s[3])
+        hhmm = datetime.fromtimestamp(t, timezone.utc).astimezone(LONDON_TZ).strftime("%H:%M")
+        return {
+            "status": "ok",
+            "message": f"Closest lightning {dist:.1f} km at {hhmm}",
+            "distance_km": round(dist, 1),
+            "time": hhmm,
+            "lat": lat,
+            "lon": lon,
+            "danger": dist < _LIGHTNING_DANGER_KM,
+            "connected": connected,
+            "strikes_in_window": len(window),
+        }
+
+
+_LIGHTNING = _LightningTracker()
+_lightning_feed_started = False
+_lightning_feed_lock = threading.Lock()
+
+
+class _BlitzFeed(threading.Thread):
+    daemon = True
+    _buf = b""
+
+    def _connect(self, host):
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        raw = socket.create_connection((host, 443), timeout=30)
+        sock = ctx.wrap_socket(raw, server_hostname=host)
+        key = base64.b64encode(os.urandom(16)).decode()
+        sock.sendall((
+            f"GET / HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\n"
+            f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
+            f"Sec-WebSocket-Version: 13\r\nOrigin: https://www.blitzortung.org\r\n"
+            f"User-Agent: Mozilla/5.0\r\n\r\n"
+        ).encode())
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            chunk = sock.recv(4096)
+            if not chunk:
+                raise ConnectionError("no handshake response")
+            buf += chunk
+        head, _, rest = buf.partition(b"\r\n\r\n")
+        if b"101" not in head.split(b"\r\n")[0]:
+            raise ConnectionError(head.decode("latin1", "replace"))
+        self._send(sock, 0x1, b'{"a": 111}')
+        self._buf = rest
+        return sock
+
+    @staticmethod
+    def _send(sock, opcode, payload):
+        mask = os.urandom(4)
+        n = len(payload)
+        hdr = bytes([0x80 | opcode])
+        if n < 126:
+            hdr += bytes([0x80 | n])
+        elif n < 65536:
+            hdr += bytes([0x80 | 126]) + struct.pack("!H", n)
+        else:
+            hdr += bytes([0x80 | 127]) + struct.pack("!Q", n)
+        sock.sendall(hdr + mask + bytes(payload[i] ^ mask[i % 4] for i in range(n)))
+
+    def _read_exact(self, sock, n):
+        while len(self._buf) < n:
+            chunk = sock.recv(max(4096, n - len(self._buf)))
+            if not chunk:
+                raise ConnectionError("closed")
+            self._buf += chunk
+        out, self._buf = self._buf[:n], self._buf[n:]
+        return out
+
+    def run(self):
+        backoff = 2
+        while True:
+            host = f"{random.choice(_LIGHTNING_HOSTS)}.blitzortung.org"
+            try:
+                sock = self._connect(host)
+                _LIGHTNING.set_connected(True)
+                backoff = 2
+                message = b""
+                while True:
+                    sock.settimeout(120)
+                    h2 = self._read_exact(sock, 2)
+                    fin = h2[0] & 0x80
+                    op = h2[0] & 0x0F
+                    ln = h2[1] & 0x7F
+                    if ln == 126:
+                        ln = struct.unpack("!H", self._read_exact(sock, 2))[0]
+                    elif ln == 127:
+                        ln = struct.unpack("!Q", self._read_exact(sock, 8))[0]
+                    payload = self._read_exact(sock, ln)
+                    if op == 0x9:                 # ping -> pong
+                        self._send(sock, 0xA, payload)
+                        continue
+                    if op == 0xA:
+                        continue
+                    if op == 0x8:
+                        raise ConnectionError("server closed")
+                    if op in (0x1, 0x2):
+                        message = payload
+                    elif op == 0x0:
+                        message += payload
+                    else:
+                        continue
+                    if not fin:
+                        continue
+                    try:
+                        obj = json.loads(_lzw_decode(message.decode("utf-8")))
+                    except Exception:
+                        message = b""
+                        continue
+                    message = b""
+                    if isinstance(obj, dict) and "lat" in obj:
+                        _LIGHTNING.add(obj)
+            except Exception as exc:
+                _LIGHTNING.set_connected(False, f"{type(exc).__name__}: {exc}")
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 30)
+
+
+def _start_lightning_feed():
+    """Start the background feed exactly once, lazily, on first use."""
+    global _lightning_feed_started
+    with _lightning_feed_lock:
+        if not _lightning_feed_started:
+            _BlitzFeed().start()
+            _lightning_feed_started = True
+
+
+def get_lightning():
+    """Closest lightning strike to Hammersmith in the last 30 minutes."""
+    _start_lightning_feed()
+    return _LIGHTNING.snapshot()
+
+
 def build_dashboard_data():
     now_utc = datetime.now(timezone.utc)
     now_lon = datetime.now(LONDON_TZ)
@@ -1804,6 +2032,7 @@ def build_dashboard_data():
         "nswws_status":        nswws_status,
         "nswws_count":         len(nswws_all),
         "nswws_error":         _nswws_last_error,
+        "lightning":           get_lightning(),
     }
 
 # ---------------------------------------------------------------------------
@@ -2267,6 +2496,11 @@ def wind_endpoint():
     except Exception as e:
         print(f"Wind endpoint error: {e}")
         return jsonify({"error": str(e), "points": []}), 500
+
+@app.route("/api/lightning")
+def lightning_endpoint():
+    """Closest lightning strike to Hammersmith in the last 30 minutes."""
+    return jsonify(get_lightning())
 
 @app.route("/api/overlay")
 def api_overlay():

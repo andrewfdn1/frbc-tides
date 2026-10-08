@@ -263,6 +263,16 @@
             font-weight: bold;
         }
 
+        .lightning-danger {
+            color: #ff2d2d;
+            animation: lightning-flash 0.8s steps(1, end) infinite;
+        }
+
+        @keyframes lightning-flash {
+            0%, 49% { opacity: 1; }
+            50%, 100% { opacity: 0.15; }
+        }
+
         footer {
             position: fixed;
             bottom: 0;
@@ -787,6 +797,9 @@
     </p>
     {% endfor %}
 
+    <p class="nswws-headline {% if d.lightning.danger %}lightning-danger{% else %}c-dim{% endif %}"
+       id="lightning-line">{{ d.lightning.message }}</p>
+
     <h3>RADAR</h3>
     <div class="radar-wrap">
         <div id="radar-map"></div>
@@ -1005,6 +1018,22 @@
     }
     updateClock();
     setInterval(updateClock, 1000);
+
+    // Closest lightning (Blitzortung) — keeps the footnote line fresh between
+    // the 10-minute page reloads.
+    function loadLightning() {
+        fetch('/api/lightning', {cache: 'no-store'})
+            .then(function(r) { return r.json(); })
+            .then(function(o) {
+                var el = document.getElementById('lightning-line');
+                if (!el) return;
+                el.textContent = o.message || 'Lightning data unavailable';
+                el.className = 'nswws-headline ' + (o.danger ? 'lightning-danger' : 'c-dim');
+            })
+            .catch(function() {});
+    }
+    loadLightning();
+    setInterval(loadLightning, 60000);   // refresh lightning every 1 min
 
     // Rain radar + wind arrows
     var radarMap = null;
