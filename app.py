@@ -111,26 +111,48 @@ def get_tides():
     return get_cached('tides', fetch, ttl_seconds=7200)
 
 
-def get_calendar_events():
-    global _cal_fail_until
-    now_ts = datetime.now(timezone.utc).timestamp()
-    now = datetime.now(LONDON_TZ)
-    # After 20:00 show tomorrow's diary; from midnight it reverts to today.
-    # The cache key includes the target date so the switch is immediate.
-    display_date = now + timedelta(days=1) if now.hour >= 20 else now
-    target_date  = display_date.date()
-    day_label    = "TOMORROW" if now.hour >= 20 else "TODAY"
-    cache_key    = f"calendar:{target_date.isoformat()}"
+def _end_minutes(time_str):
+    """Minutes past midnight at which a diary row ends, or None for rows with
+    no clock time (all-day events, malformed values)."""
+    if not time_str or time_str == "All Day":
+        return None
+    try:
+        h, m = str(time_str).split('-')[-1].strip().split(':')
+        return int(h) * 60 + int(m)
+    except (ValueError, AttributeError):
+        return None
 
-    if now_ts < _cal_fail_until:
-        if cache_key in _cache:
-            return _cache[cache_key]['data'], _cache[cache_key]['fetched_at']
-        return {"day_label": day_label, "list": []}, ''
+
+def _filter_recent(rows, now_min):
+    """Trim a diary/marker list to 'current and remaining' rows.
+
+    Rows that ended more than an hour ago are dropped; rows that ended within
+    the last hour are kept but flagged past=True (greyed). Rows with no clock
+    time (all-day events) are always kept.
+    """
+    out = []
+    for r in rows:
+        end = _end_minutes(r.get("time"))
+        if end is None:
+            out.append(r)
+            continue
+        if end < now_min - 60:
+            continue
+        r = dict(r)
+        r["past"] = end < now_min
+        out.append(r)
+    return out
+
+
+def _fetch_calendar_day(target_date):
+    """Club diary events for one London date, cached per date."""
+    cache_key = f"calendar:{target_date.isoformat()}"
 
     def fetch():
         global _cal_fail_until
-        day_start = display_date.replace(hour=0,  minute=0,  second=0,  microsecond=0)
-        day_end   = display_date.replace(hour=23, minute=59, second=59, microsecond=0)
+        day_start = datetime(target_date.year, target_date.month, target_date.day,
+                             0, 0, 0, tzinfo=LONDON_TZ)
+        day_end   = day_start.replace(hour=23, minute=59, second=59)
 
         url = (
             f"https://www.googleapis.com/calendar/v3/calendars/"
@@ -170,9 +192,57 @@ def get_calendar_events():
                 if ev_date == target_date:
                     events_list.append({"summary": summary, "time": "All Day"})
 
-        return {"day_label": day_label, "list": events_list}
+        return events_list
 
+    # During a known outage don't hammer Google — but always serve cached data.
+    if datetime.now(timezone.utc).timestamp() < _cal_fail_until and cache_key not in _cache:
+        return None, ''
     return get_cached(cache_key, fetch, ttl_seconds=1800)
+
+
+def _calendar_day_finished(events, now_min):
+    """True once nothing on today's diary is still to run: no sessions at all,
+    or every timed session has ended. An all-day session runs until midnight, so
+    it keeps the diary on today."""
+    if not events:
+        return True
+    if any(e.get("time") == "All Day" for e in events):
+        return False
+    ends = [m for m in (_end_minutes(e.get("time")) for e in events) if m is not None]
+    if not ends:
+        return False
+    return now_min >= max(ends)
+
+
+def get_calendar_events():
+    """Homepage Club Diary column.
+
+    Shows today's diary, switching to tomorrow's as soon as today's diary has
+    finished (no timed session still to run) — independent of the 20:00
+    weather/tide day switch.
+    """
+    now     = datetime.now(LONDON_TZ)
+    today   = now.date()
+    now_min = now.hour * 60 + now.minute
+
+    today_events, today_up = _fetch_calendar_day(today)
+
+    if today_events is not None and _calendar_day_finished(today_events, now_min):
+        target_date = today + timedelta(days=1)
+        day_label   = "TOMORROW"
+        events, events_up = _fetch_calendar_day(target_date)
+        events = events if events is not None else []
+    else:
+        # Stay on today — sessions remain, or today's diary is unknown (fetch
+        # failed) in which case guessing "tomorrow" would be wrong.
+        target_date = today
+        day_label   = "TODAY"
+        events    = today_events if today_events is not None else []
+        events_up = today_up
+
+    return {"day_label": day_label,
+            "list": events,
+            "day_date": target_date.isoformat()}, events_up
 
 
 def get_calendar_events_14d():
@@ -1670,10 +1740,10 @@ def build_dashboard_data():
     now_lon = datetime.now(LONDON_TZ)
     is_bst  = now_lon.dst() != timedelta(0)
 
-    # After 20:00 the dashboard looks ahead to tomorrow (calendar, weather and the
-    # calendar column's tide/sun markers); from midnight it reverts to today.
+    # After 20:00 the weather column looks ahead to tomorrow; from midnight it
+    # reverts to today. The Club Diary column has its own event-driven day
+    # switch (see get_calendar_events) resolved below once data has arrived.
     show_tomorrow = now_lon.hour >= 20
-    day_date      = now_lon.date() + timedelta(days=1) if show_tomorrow else now_lon.date()
 
     # Convert a UTC tide datetime to London wall-clock time. Using astimezone
     # (rather than adding a fixed BST/GMT offset based on *now*) keeps times
@@ -1704,6 +1774,18 @@ def build_dashboard_data():
     ]
     for t in threads: t.start()
     for t in threads: t.join(timeout=8)
+
+    # Club Diary column day — today, or tomorrow once today's diary has finished.
+    # Independent of show_tomorrow, so the column's tide/sun markers follow this
+    # date rather than the weather column's day.
+    cal_data, cal_up = results.get('calendar', (None, ''))
+    _cal_day_iso = (cal_data or {}).get('day_date')
+    try:
+        cal_day_date = datetime.fromisoformat(_cal_day_iso).date() if _cal_day_iso else now_lon.date()
+    except ValueError:
+        cal_day_date = now_lon.date()
+    cal_is_tomorrow = cal_day_date != now_lon.date()
+    cal_now_min = now_lon.hour * 60 + now_lon.minute
 
     # Tides
     tides, t_up = results.get('tides', (None, ''))
@@ -1844,8 +1926,8 @@ def build_dashboard_data():
             }
         t_data["tidal_range"] = _tidal_range_info
 
-        # Displayed-day tides for the calendar column — HH:MM only. Uses today,
-        # or tomorrow once show_tomorrow is set (after 20:00).
+        # Displayed-day tides for the Club Diary column — HH:MM only. Follows
+        # the diary's own day (today, or tomorrow once today's diary is done).
         t_data["day_tides"] = [
             {
                 "label":  "High" if t['EventType'] == 'HighWater' else "Low",
@@ -1853,15 +1935,19 @@ def build_dashboard_data():
                 "height": f"{t['Height']:.1f}m",
             }
             for t in tides
-            if to_london(t['dt_utc']).date() == day_date
+            if to_london(t['dt_utc']).date() == cal_day_date
         ]
             
-    # Calendar
-    cal_data, cal_up = results.get('calendar', (None, ''))
+    # Calendar (already resolved above as cal_data / cal_day_date)
 
     # Weather
     w_res, w_up = results.get('weather', (None, ''))
     weather = {"error": True, "updated": w_up, "day_label": "TODAY"}
+
+    # Sunrise/sunset for the Club Diary column's markers: follow the diary's day,
+    # which may differ from the weather column's day.
+    marker_sunrise = ''
+    marker_sunset  = ''
 
     if w_res:
         # show_tomorrow (set at the top) selects tomorrow's 06:00-12:00 /
@@ -1889,6 +1975,13 @@ def build_dashboard_data():
             "afternoon": a,
             "day_label": day_label,
         })
+
+        if cal_is_tomorrow:
+            marker_sunrise = w_res.get('tomorrow_sunrise') or w_res.get('sunrise', '')
+            marker_sunset  = w_res.get('tomorrow_sunset')  or w_res.get('sunset', '')
+        else:
+            marker_sunrise = w_res.get('sunrise', '')
+            marker_sunset  = w_res.get('sunset', '')
 
 
     # PLA Flag — from widget scrape (primary) or Richmond fallback
@@ -1932,6 +2025,12 @@ def build_dashboard_data():
         if _marker:
             _e = {**_e, "summary": f"{_marker} {_e['summary']}"}
         cal_list_marked.append(_e)
+
+    # Diary rows show only "current and remaining": drop rows finished more than
+    # an hour ago, grey those finished within the last hour. Tomorrow's rows (all
+    # in the future) are left untouched.
+    if not cal_is_tomorrow:
+        cal_list_marked = _filter_recent(cal_list_marked, cal_now_min)
 
     # Consolidated flag warning — shown when any sources disagree or are missing.
     # Compares widget scrape colour, Richmond before_flag colour, and JSON colour.
@@ -1989,11 +2088,13 @@ def build_dashboard_data():
     _markers = []
     for _t in t_data.get("day_tides", []):
         _markers.append({"type": "tide", "time": _t["time"], "label": _t["label"], "height": _t["height"]})
-    if weather.get("sunrise"):
-        _markers.append({"type": "sunrise", "time": weather["sunrise"]})
-    if weather.get("sunset"):
-        _markers.append({"type": "sunset", "time": weather["sunset"]})
+    if marker_sunrise:
+        _markers.append({"type": "sunrise", "time": marker_sunrise})
+    if marker_sunset:
+        _markers.append({"type": "sunset", "time": marker_sunset})
     _markers.sort(key=lambda x: x["time"])
+    if not cal_is_tomorrow:
+        _markers = _filter_recent(_markers, cal_now_min)
 
     return {
         "tides":               t_data,

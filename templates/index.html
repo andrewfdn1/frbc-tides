@@ -17,7 +17,6 @@
             background-color: #000;
             color: #fff;
             min-height: 100vh;
-            padding-bottom: 36px;
         }
 
         :root {
@@ -25,7 +24,6 @@
             --fs-updated: clamp(13px, 1.3vw, 17px);
             --fs-data:    clamp(15px, 1.9vw, 26px);
             --fs-metric:  clamp(20px, 2.8vw, 38px);
-            --fs-footer:  clamp(12px, 1.05vw, 15px);
         }
 
         .logo-img {
@@ -282,19 +280,6 @@
             50%, 100% { opacity: 0.15; }
         }
 
-        footer {
-            position: fixed;
-            bottom: 0;
-            width: 100%;
-            border-top: 1px solid #333;
-            padding: 6px 16px;
-            font-size: var(--fs-footer);
-            color: #fff;
-            display: flex;
-            justify-content: space-between;
-            background: #000;
-        }
-
         .c-red    { color: #FF4B4B; }
         .c-amber  { color: #FFAA00; }
         .c-yellow { color: #FFFF00; }
@@ -382,7 +367,7 @@
     <h3>
         <a class="head-link" href="https://easytide.admiralty.co.uk/?PortID=0115" target="_blank" rel="noopener">
         {% if d.tides.direction %}
-            {{ d.tides.direction }} UNTIL {{ d.tides.until }}{% if d.tides.current_target_height %}, {{ d.tides.current_target_height }}{% endif %}
+            {{ d.tides.direction }} UNTIL {{ d.tides.until }}
         {% else %}
             HAMMERSMITH TIDES
         {% endif %}
@@ -771,21 +756,6 @@
                     {% else %}<span class="c-dim">&mdash;</span>{% endif %}
                 </td>
             </tr>
-            <tr>
-                <td>Met Office Warning</td>
-                <td style="{{ 'opacity:0.35;' if morning_past else '' }}">
-                    {% if d.nswws_morning and d.nswws_morning.level == 'RED' %}<span class="c-red">Red</span>
-                    {% elif d.nswws_morning and d.nswws_morning.level == 'AMBER' %}<span class="c-yellow">Amber</span>
-                    {% elif d.nswws_morning and d.nswws_morning.level == 'YELLOW' %}<span class="c-yellow">Yellow</span>
-                    {% else %}<span class="c-dim">None</span>{% endif %}
-                </td>
-                <td>
-                    {% if d.nswws_afternoon and d.nswws_afternoon.level == 'RED' %}<span class="c-red">Red</span>
-                    {% elif d.nswws_afternoon and d.nswws_afternoon.level == 'AMBER' %}<span class="c-yellow">Amber</span>
-                    {% elif d.nswws_afternoon and d.nswws_afternoon.level == 'YELLOW' %}<span class="c-yellow">Yellow</span>
-                    {% else %}<span class="c-dim">None</span>{% endif %}
-                </td>
-            </tr>
 
         </tbody>
     </table>
@@ -836,7 +806,7 @@
 <!-- COLUMN 3 -->
 <div>
     <h3>
-        {{ d.cal.day_label }} <span id="liveclock"></span>
+        <span id="liveclock"></span> {{ d.cal.day_label }}
         <span class="updated">Updated {{ d.cal.updated }}</span>
     </h3>
     <div class="cal-list" id="calList">
@@ -867,7 +837,7 @@
                     {% for m in d.today_markers %}
                         {% if keep_going.v and loop.index0 == marker_inserted.idx %}
                             {% if m.type in ('tide', 'sunrise') and m.time <= e_start %}
-                                {% set m_is_past = m.time < d.last_updated[:5] %}
+                                {% set m_is_past = m.past %}
                                 {% if m.type == 'tide' %}
                                     <div class="cal-event" style="border-left-color:#00CED1;{{ ' opacity:0.35;' if m_is_past else '' }}">
                                         <span class="cal-time" style="color:#00CED1;">{{ m.time }}</span><br>{{ m.label }} Tide {{ m.height }}
@@ -879,7 +849,7 @@
                                 {% endif %}
                                 {% set marker_inserted.idx = marker_inserted.idx + 1 %}
                             {% elif m.type == 'sunset' and m.time <= e_end %}
-                                {% set m_is_past = m.time < d.last_updated[:5] %}
+                                {% set m_is_past = m.past %}
                                 <div class="cal-event" style="border-left-color:#FF8C00;{{ ' opacity:0.35;' if m_is_past else '' }}">
                                     <span class="cal-time" style="color:#FF8C00;">{{ m.time }}</span><br>&#9790; Sunset
                                 </div>
@@ -890,7 +860,7 @@
                         {% endif %}
                     {% endfor %}
 
-                    {% set is_past = e_end < d.last_updated[:5] %}
+                    {% set is_past = e.past %}
                     {% if e.summary.startswith('🟥') %}
                         {% set flag_border = '#FF4B4B' %}
                     {% elif e.summary.startswith('🟨') %}
@@ -907,7 +877,7 @@
             {# Append any markers not yet placed (after all calendar events) #}
             {% for m in d.today_markers %}
                 {% if loop.index0 >= marker_inserted.idx %}
-                    {% set m_is_past = m.time < d.last_updated[:5] %}
+                    {% set m_is_past = m.past %}
                     {% if m.type == 'tide' %}
                         <div class="cal-event" style="border-left-color:#00CED1;{{ ' opacity:0.35;' if m_is_past else '' }}">
                             <span class="cal-time" style="color:#00CED1;">{{ m.time }}</span><br>{{ m.label }} Tide {{ m.height }}
@@ -937,11 +907,6 @@
         <img src="/static/FRBC logo White on black.png" class="logo-img" style="width: 60%; margin: 0 auto;" alt="FRBC" onerror="this.style.display='none'">
     </a>
 </div>
-
-<footer>
-    <span>SYSTEM STATUS: CONNECTED ({{ d.tz_label }})</span>
-    <span>{{ d.last_updated }}</span>
-</footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
