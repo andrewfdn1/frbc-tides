@@ -766,7 +766,7 @@
 
     {% for line in d.nswws_headlines %}
     <p class="nswws-headline {% if line.level == 'RED' %}c-red{% elif line.level in ('AMBER', 'YELLOW') %}c-yellow{% else %}c-white{% endif %}">
-        <strong>{{ line.period }}</strong> &mdash; {{ line.headline }}
+        <a class="head-link" href="https://weather.metoffice.gov.uk/warnings-and-advice/uk-warnings" target="_blank" rel="noopener"><strong>{{ line.period }}</strong> &mdash; {{ line.headline }}</a>
     </p>
     {% endfor %}
     {% if d.nswws_status == 'ok' and not d.nswws_headlines %}
@@ -774,7 +774,7 @@
     {% endif %}
     {% for line in d.nswws_upcoming %}
     <p class="nswws-headline {% if line.level == 'RED' %}c-red{% elif line.level in ('AMBER', 'YELLOW') %}c-yellow{% else %}c-white{% endif %}">
-        <strong>Upcoming {{ line.period }}</strong> &mdash; {{ line.headline }}
+        <a class="head-link" href="https://weather.metoffice.gov.uk/warnings-and-advice/uk-warnings" target="_blank" rel="noopener"><strong>Upcoming {{ line.period }}</strong> &mdash; {{ line.headline }}</a>
     </p>
     {% endfor %}
 
