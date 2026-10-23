@@ -470,43 +470,38 @@
             </div>
         </div>
 
-        {# ── Richmond low tide data ── #}
-        {% if d.richmond_lw_before or d.richmond_lw_after %}
+        {# ── Richmond low tides + Kingston Flow ── #}
         <div style="font-size:clamp(13px, 1.2vw, 16px); color:#fff; margin-top:6px; line-height:1.8;">
-            <div>Richmond low tide data:</div>
-            <ul style="margin:2px 0 0 1.2em; padding:0; line-height:1.8;">
-                {% if d.richmond_lw_before %}
-                <li>Lowest in 12hrs before {{ d.current_slot_label }} flag: {{ d.richmond_lw_before.time[:5] }}, {{ "%.1f"|format(d.richmond_lw_before.metres) }}m &mdash; <span class="c-{{ d.richmond_lw_before.flag|lower }}">{{ d.richmond_lw_before.flag_word }}</span>{% if d.richmond_lw_before.flag|lower != fc %} <span style="color:#FF4B4B;">&#9888; differs from displayed flag</span>{% endif %}</li>
-                {% endif %}
-                {% if d.richmond_lw_after %}
-                <li>After the {{ d.current_slot_label }} flag: {{ d.richmond_lw_after.time[:5] }}, {{ "%.1f"|format(d.richmond_lw_after.metres) }}m</li>
-                {% endif %}
-                {% if d.richmond_next_flag %}
-                <li>Next flag at {{ d.richmond_next_flag.next_slot }} expected to be <span class="c-{{ d.richmond_next_flag.css_class }}">{{ d.richmond_next_flag.colour }}</span></li>
-                {% endif %}
-            </ul>
-        </div>
-        {% endif %}
-
-        {# ── Consolidated warning ── #}
-        {% if d.flag_warning %}
-        <p class="flag-footnote">&#9888; Sources disagree &mdash; check current flag status with PLA</p>
-        {% endif %}
-
-        {# ── Kingston Flow footnote ── #}
-        {% if d.kingston_flow %}
-            {% set fraw = d.kingston_flow.raw %}
-            {% if fraw > 120 %}
-                {% set fcol = '#FF4B4B' %}
-            {% elif fraw >= 80 %}
-                {% set fcol = '#FFFF00' %}
+            {% if d.richmond_readings %}
+                <div>Richmond low tide data:</div>
+                <ul style="margin:2px 0 0 1.2em; padding:0; line-height:1.8;">
+                    {% for r in d.richmond_readings %}
+                    <li><span class="{{ r.css }}">{{ r.time }} {{ d.tz_label }}{% if not r.is_today %} (previous day){% endif %}, {{ "%.1f"|format(r.metres) }}m</span></li>
+                    {% endfor %}
+                </ul>
             {% else %}
-                {% set fcol = '#fff' %}
+                <div><span class="c-red">Richmond low tide data unavailable &mdash; check data with PLA</span></div>
             {% endif %}
-            <div style="font-size:clamp(13px,1.2vw,15px); color:{{ fcol }}; margin-top:4px;">
-                Kingston Flow {{ d.kingston_flow.flow }}&thinsp;{{ d.kingston_flow.unit }} &middot; Updated {{ d.flow_updated }}
-            </div>
-        {% endif %}
+
+            {% if d.kingston_flow %}
+                {% set fraw = d.kingston_flow.raw %}
+                {% if d.kingston_flow.stale or fraw > 120 %}
+                    {% set fcol = '#FF4B4B' %}
+                {% elif fraw >= 80 %}
+                    {% set fcol = '#FFFF00' %}
+                {% else %}
+                    {% set fcol = '#fff' %}
+                {% endif %}
+                <div style="font-size:clamp(13px,1.2vw,15px); color:{{ fcol }}; margin-top:4px;">
+                    Kingston Flow {{ d.kingston_flow.flow }}&thinsp;{{ d.kingston_flow.unit }} &middot; Updated {% if d.kingston_flow.time %}{{ d.kingston_flow.time }} {{ d.tz_label }}{% else %}{{ d.flow_updated }} {{ d.tz_label }}{% endif %}
+                </div>
+                {% if d.kingston_flow.stale %}
+                <div><span class="c-red">Kingston Flow data is stale &mdash; check data with PLA</span></div>
+                {% endif %}
+            {% else %}
+                <div><span class="c-red">Kingston Flow unavailable &mdash; check data with PLA</span></div>
+            {% endif %}
+        </div>
 
         <script>
         window.addEventListener('load', function() {

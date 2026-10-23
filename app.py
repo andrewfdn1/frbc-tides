@@ -49,9 +49,6 @@ NSWWS_API_KEY     = os.environ.get("METOFFICE_NSWWS", "")
 MO_SITE_KEY       = os.environ.get("METOFFICE_SITESPECIFIC", "")
 LONDON_TZ         = ZoneInfo("Europe/London")
 
-# Pontoon warning window around a low tide, in seconds
-PONTOON_WARN_BEFORE = 1800   # switch on this far ahead of the low tide
-PONTOON_WARN_AFTER  = 5400   # stay on this long after it
 CAL_ID            = "info@fulhamreachboatclub.com"
 
 # Hammersmith, London
@@ -297,9 +294,6 @@ def get_calendar_events_14d():
 # ---------------------------------------------------------------------------
 
 _PLA_WIDGET_URL      = "https://pla.co.uk/pla-api-integration/ebb-tide-widget-embed"
-_PLA_FLAG_JSON_URL   = "https://pla.co.uk/pla-proxy/five-minute?url=tides/ebb-flag"
-
-_PLA_LETTER_MAP = {"G": "green", "Y": "yellow", "R": "red", "B": "black"}
 
 # Mapping from widget image src fragment to colour name
 _PLA_IMG_COLOUR_MAP = {
@@ -370,47 +364,6 @@ def _scrape_pla_widget():
 
     print(f"INFO [pla_widget]: scraped → {colour} | {heading} | {body}")
     return {"colour": colour, "heading": heading, "body": body}
-
-
-def _fetch_pla_json():
-    """Fetch the PLA JSON endpoint independently as a crosscheck.
-    Always returns the raw result regardless of staleness — staleness is
-    flagged in the returned dict so the caller can display it transparently.
-    Returns dict with colour, last_updated, stale — or None if fetch fails.
-    Cached for 5 minutes to avoid unnecessary outbound calls on every page load."""
-    def fetch():
-        r = requests.get(_PLA_FLAG_JSON_URL, timeout=5)
-        r.raise_for_status()
-        data = r.json()
-
-        last_updated_str = data.get("last_updated", "")
-        stale = False
-        if last_updated_str:
-            try:
-                last_updated      = datetime.fromisoformat(last_updated_str)
-                now_london        = datetime.now(LONDON_TZ)
-                current_slot_hour = 6 if 6 <= now_london.hour < 18 else 18
-                if last_updated.hour != current_slot_hour:
-                    stale = True
-                    print(f"WARN [pla_json]: last_updated {last_updated_str} does not match "
-                          f"current slot hour {current_slot_hour:02d}:00 — flagged as stale")
-            except ValueError:
-                print(f"WARN [pla_json]: could not parse last_updated '{last_updated_str}'")
-
-        letter = data.get("flag_colour", "").strip().upper()
-        colour = _PLA_LETTER_MAP.get(letter)
-        if not colour:
-            print(f"ERROR [pla_json]: unrecognised flag_colour '{letter}'")
-            return None
-
-        print(f"INFO [pla_json]: → {letter} → {colour} (stale={stale})")
-        return {
-            "colour":       colour,
-            "last_updated": last_updated_str,
-            "stale":        stale,
-        }
-
-    return get_cached("pla_json_crosscheck", fetch, ttl_seconds=300)
 
 
 def get_pla_flag():
@@ -495,13 +448,15 @@ def _lw_dict(best):
 
 
 def get_richmond_observed_low_tide():
-    """Fetch Richmond chart data and return two low tide results from a single API call:
-      - before_flag: the most recent low tide BEFORE the current flag slot time (6am or 6pm).
-                     This is what the PLA would have used when setting the current flag,
-                     and is used by the Richmond fallback in _pla_flag_from_richmond().
-      - after_flag:  the most recent low tide AFTER the current flag slot time, if any.
-                     This is new data the PLA has not acted on yet, used to predict the
-                     next flag. None if no low tide has occurred since the flag was set.
+    """Fetch Richmond chart data from the PLA proxy.
+
+    Returns two things from one API call:
+      - readings:    every observed low water from 12h before the current flag
+                     slot (06:00/18:00 London) up to now, oldest first. That
+                     window is 12-24h long and normally holds 1-3 lows. Each
+                     reading carries the PLA flag colour for its height.
+      - before_flag: the lowest low in the 12h before the slot (used by the
+                     Richmond fallback when the PLA widget cannot be scraped).
     """
     def fetch():
         r = requests.get(
@@ -512,15 +467,14 @@ def get_richmond_observed_low_tide():
         r.raise_for_status()
         data = r.json()
 
-        now_utc    = datetime.now(timezone.utc)
-        now_london = now_utc.astimezone(LONDON_TZ)
+        now_london = datetime.now(LONDON_TZ)
+        now_utc    = now_london.astimezone(timezone.utc)
 
-        # Determine the current flag slot time in London time (6am or 6pm today)
+        # Current flag slot: 06:00 or 18:00 London (before 06:00 -> yesterday 18:00)
         if 6 <= now_london.hour < 18:
             flag_slot_london = now_london.replace(hour=6,  minute=0, second=0, microsecond=0)
         else:
             flag_slot_london = now_london.replace(hour=18, minute=0, second=0, microsecond=0)
-            # If it is before 6am, the active flag slot was 6pm yesterday
             if now_london.hour < 6:
                 flag_slot_london -= timedelta(days=1)
         flag_slot_utc = flag_slot_london.astimezone(timezone.utc)
@@ -531,17 +485,16 @@ def get_richmond_observed_low_tide():
         if not isinstance(records, list):
             raise ValueError(f"Unexpected Richmond records type: {type(records).__name__}")
 
-        # PLA rule: flag is set using the LOWEST tide reading in the 12 hours
-        # preceding 6am or 6pm. So before_flag tracks lowest metres, not most recent.
+        # Display window: from 12h before the slot up to now (12-24h).
         window_start_utc = flag_slot_utc - timedelta(hours=12)
 
-        before_flag = None  # lowest low tide in the 12 hours before the flag slot
-        after_flag  = None  # most recent low tide after the flag slot
+        before_flag = None   # lowest low in the 12h before the slot
+        readings    = []
 
         for tp in records:
             if not isinstance(tp, dict):
                 continue
-            if tp.get("tidal_state") != 2:
+            if tp.get("tidal_state") != 2:      # low water only
                 continue
             observed = tp.get("observed")
             if observed is None:
@@ -550,32 +503,48 @@ def get_richmond_observed_low_tide():
             if not tstamp:
                 continue
 
-            dt_utc    = datetime.fromisoformat(tstamp[:19]).replace(tzinfo=timezone.utc)
+            try:
+                dt = datetime.fromisoformat(tstamp)
+            except ValueError:
+                continue
+            if dt.tzinfo is None:               # defensive: assume UTC if unqualified
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt_utc    = dt.astimezone(timezone.utc)
             dt_london = dt_utc.astimezone(LONDON_TZ)
 
-            # Ignore future readings (allow small buffer for near-real-time data)
+            # Never show future readings (allow a small buffer for near-real-time data)
             if dt_utc > now_utc + timedelta(minutes=30):
                 continue
 
-            candidate = {
-                "dt_utc":    dt_utc,
-                "dt_london": dt_london,
-                "metres":    float(observed),
-            }
+            metres = float(observed)
+            candidate = {"dt_utc": dt_utc, "dt_london": dt_london, "metres": metres}
 
             if dt_utc < flag_slot_utc:
-                # Within the 12-hour window before the flag slot — keep the lowest
+                # Before the slot: keep the lowest (PLA's rule)
                 if dt_utc >= window_start_utc:
-                    if before_flag is None or candidate["metres"] < before_flag["metres"]:
+                    if before_flag is None or metres < before_flag["metres"]:
                         before_flag = candidate
-            else:
-                # After current flag slot — keep the most recent
-                if after_flag is None or dt_utc > after_flag["dt_utc"]:
-                    after_flag = candidate
+
+            # Everything in the display window, oldest first (up to now)
+            if window_start_utc <= dt_utc <= now_utc:
+                flag, _word = _lw_flag_colour(metres)
+                readings.append((dt_utc, {
+                    "time":     dt_london.strftime("%H:%M"),
+                    "is_today": dt_london.date() == now_london.date(),
+                    "metres":   round(metres, 1),
+                    "flag":     flag,
+                    # PLA "black" is invisible on the black dashboard -> grey
+                    "css":      "c-dim" if flag == "BLACK" else f"c-{flag.lower()}",
+                }))
+
+        # Sort on the real timestamp (HH:MM strings misorder across midnight),
+        # then drop the datetime so the payload stays JSON-serialisable.
+        readings.sort(key=lambda x: x[0])
+        readings = [r for _, r in readings]
 
         return {
             "before_flag": _lw_dict(before_flag) if before_flag else None,
-            "after_flag":  _lw_dict(after_flag)  if after_flag  else None,
+            "readings":    readings,
         }
 
     return get_cached("richmond_observed_lw", fetch, ttl_seconds=60)
@@ -1257,6 +1226,8 @@ def get_nswws_warnings():
     return get_cached("nswws", _fetch_nswws, ttl_seconds=900)
 
 
+_KINGSTON_STALE_S = 3600   # warn if the latest reading itself is older than 1h
+
 def get_kingston_flow():
     def fetch():
         url = (
@@ -1266,12 +1237,40 @@ def get_kingston_flow():
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         items = r.json().get('items', [])
-        if items:
-            val = items[0].get('value')
-            if val is not None:
-                flow = round(float(val))
-                return {"flow": str(flow), "unit": "m\u00b3/s", "raw": flow}
-        return None
+        if not items:
+            return None
+        item = items[0]
+        val = item.get('value')
+        if val is None:
+            return None
+
+        flow = round(float(val))
+
+        # Age of the measurement itself (not when we fetched it) — the EA feed
+        # keeps serving the last value when a gauge goes offline, so the fetch
+        # timestamp alone would look "fresh" forever.
+        now = datetime.now(timezone.utc)
+        stale = True
+        label = ""
+        try:
+            dt = datetime.fromisoformat(str(item.get('dateTime', '')).replace('Z', '+00:00'))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt_london = dt.astimezone(LONDON_TZ)
+            label = dt_london.strftime('%H:%M')
+            if dt_london.date() != datetime.now(LONDON_TZ).date():
+                label += ' (previous day)'
+            stale = (now - dt).total_seconds() > _KINGSTON_STALE_S
+        except (TypeError, ValueError):
+            stale = True   # no usable timestamp -> cannot verify freshness
+
+        return {
+            "flow":  str(flow),
+            "unit":  "m\u00b3/s",
+            "raw":   flow,
+            "time":  label,
+            "stale": stale,
+        }
     return get_cached('kingston_flow', fetch, ttl_seconds=900)
 
 _thames_temp_fail_until = 0
@@ -1326,11 +1325,9 @@ def get_thames_temperature():
 # ---------------------------------------------------------------------------
 
 def _flag_slot_boundaries(now_lon):
-    """Return (current_start, current_end, next_end) — the three 6am/18:00
-    boundaries bracketing `now_lon` and the one after, as aware London
-    datetimes. [current_start, current_end) is the window the live flag
-    applies to; [current_end, next_end) is the window a predicted flag
-    (if any) applies to."""
+    """Return (current_start, current_end) — the 6am/18:00 boundaries
+    bracketing `now_lon`, as aware London datetimes. This is the window the
+    live PLA flag applies to."""
     d = now_lon.date()
     candidates = sorted(
         datetime(day.year, day.month, day.day, hour, 0, tzinfo=LONDON_TZ)
@@ -1338,7 +1335,7 @@ def _flag_slot_boundaries(now_lon):
         for day, hour in [(d + timedelta(days=delta), 6), (d + timedelta(days=delta), 18)]
     )
     idx = max(i for i, c in enumerate(candidates) if c <= now_lon)
-    return candidates[idx], candidates[idx + 1], candidates[idx + 2]
+    return candidates[idx], candidates[idx + 1]
 
 
 def _ebb_intervals_from_tides(tides, range_start, range_end):
@@ -1358,20 +1355,18 @@ def _ebb_intervals_from_tides(tides, range_start, range_end):
     return intervals
 
 
-def _build_flag_context(pla_flag, richmond_next_flag, tides, now_lon):
-    """Bundle the (<=2) known flag windows and the ebb intervals inside them
-    into the small structure _event_flag_marker() checks events against.
-    Colours are compared using the lowercase widget vocabulary
-    ("red"/"yellow"/"green"/"black") already used by get_pla_flag()."""
-    cur_start, cur_end, next_end = _flag_slot_boundaries(now_lon)
+def _build_flag_context(pla_flag, tides, now_lon):
+    """Bundle the current flag window and the ebb intervals inside it into the
+    small structure _event_flag_marker() checks events against. Only the
+    current, known flag colour is used — the old next-flag prediction is gone.
+    Colours use the lowercase widget vocabulary ("red"/"yellow"/"green"/"black")."""
+    cur_start, cur_end = _flag_slot_boundaries(now_lon)
     windows = []
     if pla_flag and pla_flag.get("colour"):
         windows.append({"start": cur_start, "end": cur_end, "colour": pla_flag["colour"]})
-    if richmond_next_flag and richmond_next_flag.get("css_class"):
-        windows.append({"start": cur_end, "end": next_end, "colour": richmond_next_flag["css_class"]})
     return {
         "windows": windows,
-        "ebb_intervals": _ebb_intervals_from_tides(tides, cur_start, next_end),
+        "ebb_intervals": _ebb_intervals_from_tides(tides, cur_start, cur_end),
     }
 
 
@@ -1442,25 +1437,15 @@ def build_calendar_data():
         club_events_by_date, cal_updated = None, ''
     club_events_by_date = club_events_by_date or {}
 
-    # Flag context for hazard markers — reuses the same cached fetches the
-    # homepage dashboard uses (get_pla_flag / get_richmond_observed_low_tide
-    # are both TTL-cached already, so this is a cache hit in the common case
-    # where the dashboard has been loaded recently, not a fresh fetch).
+    # Flag context for hazard markers — current flag window only. get_pla_flag
+    # is TTL-cached and usually a cache hit from the homepage dashboard.
     try:
         pla_flag_data, _ = get_pla_flag()
     except Exception as e:
         print(f"Thread error pla_flag: {e}")
         pla_flag_data = None
 
-    try:
-        richmond_lw_raw, _ = get_richmond_observed_low_tide()
-    except Exception as e:
-        print(f"Thread error richmond_lw: {e}")
-        richmond_lw_raw = None
-    lw_after = richmond_lw_raw.get("after_flag") if richmond_lw_raw else None
-    richmond_next_flag = {"css_class": lw_after["flag"].lower()} if lw_after else None
-
-    flag_ctx = _build_flag_context(pla_flag_data, richmond_next_flag, tides, now_lon)
+    flag_ctx = _build_flag_context(pla_flag_data, tides, now_lon)
 
     tides_by_date = defaultdict(list)
     for t in tides:
@@ -1763,7 +1748,6 @@ def build_dashboard_data():
         threading.Thread(target=run, args=('tides',         get_tides)),
         threading.Thread(target=run, args=('calendar',      get_calendar_events)),
         threading.Thread(target=run, args=('pla_flag',      get_pla_flag)),
-        threading.Thread(target=run, args=('pla_json',       _fetch_pla_json)),
         threading.Thread(target=run, args=('weather',       get_weather)),
         threading.Thread(target=run, args=('kingston_flow', get_kingston_flow)),
         threading.Thread(target=run, args=('richmond_lw',   get_richmond_observed_low_tide)),
@@ -1789,7 +1773,7 @@ def build_dashboard_data():
 
     # Tides
     tides, t_up = results.get('tides', (None, ''))
-    t_data = {"upcoming": [], "direction": "", "until": "", "launch_warning": "", "updated": t_up, "last_tide": None, "next_tide": None}
+    t_data = {"upcoming": [], "direction": "", "until": "", "updated": t_up, "last_tide": None, "next_tide": None}
 
     if tides:
         fut = [t for t in tides if t['dt_utc'] > now_utc]
@@ -1797,8 +1781,6 @@ def build_dashboard_data():
         if fut:
             t_data["direction"] = "FLOOD TIDE" if fut[0]['EventType'] == "HighWater" else "EBB TIDE"
             t_data["until"] = to_london(fut[0]['dt_utc']).strftime('%H:%M')
-            # Extract the height string for the current imminent tide target
-            t_data["current_target_height"] = f"{fut[0]['Height']:.1f}m"
             for t in fut[:5]:
                 t_data["upcoming"].append({
                     "label":  "HI" if t['EventType'] == 'HighWater' else "LO",
@@ -1987,38 +1969,15 @@ def build_dashboard_data():
     # PLA Flag — from widget scrape (primary) or Richmond fallback
     pla_f, pla_u = results.get('pla_flag', (None, ''))
 
-    # PLA JSON — independent crosscheck, always shown even if stale
-    pla_json_raw  = results.get('pla_json', None)
-    pla_json_flag = pla_json_raw[0] if isinstance(pla_json_raw, tuple) else pla_json_raw
-
     # Richmond observed low tide
-    # get_richmond_observed_low_tide() returns a dict with two keys:
-    #   before_flag — most recent low tide before the current flag slot (6am or 6pm)
-    #   after_flag  — most recent low tide after the current flag slot, or None
-    lw_raw, lw_up = results.get('richmond_lw', (None, ''))
-    lw_before = lw_raw.get("before_flag") if lw_raw else None
-    lw_after  = lw_raw.get("after_flag")  if lw_raw else None
+    # Low-water readings shown beneath the flag: 12h before the current flag
+    # slot up to now.
+    lw_raw, _ = results.get('richmond_lw', (None, ''))
+    lw_readings = lw_raw.get("readings", []) if lw_raw else []
 
-    # Current flag slot label and next slot label
-    now_h = now_lon.hour
-    current_slot_label = "6am" if 6 <= now_h < 18 else "6pm"
-    next_slot_label    = "6pm" if 6 <= now_h < 18 else "6am"
-
-    # Next-flag prediction: if a low tide was recorded after the current flag was set,
-    # it is new data the PLA has not acted on yet and predicts the next flag.
-    # If lw_after is None, no low tide has occurred since the flag was set — no prediction.
-    richmond_next_flag = None
-    if lw_after:
-        richmond_next_flag = {
-            "colour":    lw_after["flag_word"],
-            "css_class": lw_after["flag"].lower(),
-            "next_slot": next_slot_label,
-        }
-
-    # Flag hazard markers (🟥/🟨) for today's/tomorrow's diary events — see
-    # _build_flag_context / _event_flag_marker. Reuses pla_f, richmond_next_flag
-    # and tides, already fetched above, so this adds no new network calls.
-    flag_ctx = _build_flag_context(pla_f, richmond_next_flag, tides or [], now_lon)
+    # Flag hazard markers (🟥/🟨) for the diary window. Only the current, known
+    # flag colour is used — the old next-flag prediction has been removed.
+    flag_ctx = _build_flag_context(pla_f, tides or [], now_lon)
     cal_list_marked = []
     for _e in (cal_data or {}).get("list", []):
         _marker = _event_marker_from_iso(_e, flag_ctx)
@@ -2031,25 +1990,6 @@ def build_dashboard_data():
     # in the future) are left untouched.
     if not cal_is_tomorrow:
         cal_list_marked = _filter_recent(cal_list_marked, cal_now_min)
-
-    # Consolidated flag warning — shown when any sources disagree or are missing.
-    # Compares widget scrape colour, Richmond before_flag colour, and JSON colour.
-    # If any two disagree, or the widget scrape failed, warn the user to check PLA.
-    _flag_colours = set()
-    _widget_colour    = pla_f.get("colour")    if pla_f           else None
-    _richmond_colour  = lw_before.get("flag").lower() if lw_before else None
-    _json_colour      = pla_json_flag.get("colour")   if pla_json_flag and not pla_json_flag.get("stale") else None
-
-    if _widget_colour:   _flag_colours.add(_widget_colour)
-    if _richmond_colour: _flag_colours.add(_richmond_colour)
-    if _json_colour:     _flag_colours.add(_json_colour)
-
-    # Warn if: widget failed, or any sources that are present disagree
-    flag_warning = (
-        pla_f is None                                    # no flag data at all
-        or (pla_f and pla_f.get("source") == "richmond") # widget scrape failed
-        or len(_flag_colours) > 1                        # sources disagree
-    )
 
     # Kingston Flow
     flow_data, flow_up = results.get('kingston_flow', (None, ''))
@@ -2100,14 +2040,7 @@ def build_dashboard_data():
         "tides":               t_data,
         "pla_flag":            pla_f,
         "pla_updated":         pla_u,
-        "pla_json_flag":       pla_json_flag,
-        "flag_warning":        flag_warning,
-        "richmond_lw_before":  lw_before,
-        "richmond_lw_after":   lw_after,
-        "richmond_lw_updated": lw_up,
-        "current_slot_label":  current_slot_label,
-        "next_slot_label":     next_slot_label,
-        "richmond_next_flag":  richmond_next_flag,
+        "richmond_readings":   lw_readings,
         "weather":             weather,
         "cal": {
             **(cal_data or {"day_label": "TODAY", "list": []}),
@@ -2649,24 +2582,10 @@ def api_overlay():
         # hw_iso initialisation for days while the overlay showed no tide text.
         print(f"ERROR [overlay/next-tide]: {e!r}")
 
-    # Pontoon warning — from PONTOON_WARN_BEFORE before a low tide until
-    # PONTOON_WARN_AFTER after it
-    pontoon_warning = False
-    try:
-        tides, _ = get_tides()
-        low_times = [e['dt_utc'] for e in tides if "Low" in e['EventType']]
-        if low_times:
-            nearest = min(low_times, key=lambda dt: abs((dt - now).total_seconds()))
-            delta_s = (nearest - now).total_seconds()
-            pontoon_warning = -PONTOON_WARN_BEFORE <= delta_s <= PONTOON_WARN_AFTER
-    except Exception as e:
-        print(f"ERROR [overlay/pontoon]: {e!r}")
-
     return jsonify({
         "flag":            flag_colour,
         "next_tide_label": next_tide_label,
         "next_tide_time":  next_tide_time,
-        "pontoon_warning": pontoon_warning,
     })
 
 
