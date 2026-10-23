@@ -424,11 +424,8 @@
         {% endfor %}
         </tbody>
     </table>
-    {% if d.tides.tidal_range %}
-    {% set tr = d.tides.tidal_range %}
-    <p style="font-size:var(--fs-updated); color:#fff; margin-top:6px;">
-        Tidal range {{ tr.range }}m, High {{ tr.hw }}m &ndash; Low {{ tr.lw }}m{% if tr.trend %} &mdash; Moving to {{ tr.trend }} tides{% endif %}
-    </p>
+    {% if d.tides.tidal_range and d.tides.tidal_range.note %}
+    <p style="font-size:var(--fs-updated); color:#fff; margin-top:6px;">{{ d.tides.tidal_range.note }}</p>
     {% endif %}
     {% else %}
         <p class="c-dim" style="font-size:var(--fs-data);">Tide data unavailable</p>

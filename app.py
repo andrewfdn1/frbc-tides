@@ -1720,6 +1720,31 @@ def get_lightning():
     return _LIGHTNING.snapshot()
 
 
+def _tidal_note(cur_range, tide_type, trend, range_vals):
+    """Short spring/neap label for the note under the tide table.
+
+    Close to a peak (within 0.2m of the window's max/min) is reported as
+    "Spring tide"/"Neap tide"; otherwise the direction of travel is used.
+    """
+    peak = None
+    if len(range_vals) >= 2:
+        if cur_range >= max(range_vals) - 0.2:
+            peak = "Spring"
+        elif cur_range <= min(range_vals) + 0.2:
+            peak = "Neap"
+    if peak:
+        return f"{peak} tide"
+    if trend == "Spring":
+        return "Moving to spring tides"
+    if trend == "Neap":
+        return "Moving to neap tides"
+    if tide_type == "Spring":
+        return "Spring tide"
+    if tide_type == "Neap":
+        return "Neap tide"
+    return "Moving to spring tides" if cur_range >= 4.75 else "Moving to neap tides"
+
+
 def build_dashboard_data():
     now_utc = datetime.now(timezone.utc)
     now_lon = datetime.now(LONDON_TZ)
@@ -1888,6 +1913,7 @@ def build_dashboard_data():
             _window = sorted(set(_window))
 
             _trend = None
+            _range_vals = []
             if len(_window) >= 2:
                 _range_vals = [_daily_ranges[_d] for _d in _window]
                 # Count increasing vs decreasing steps
@@ -1899,12 +1925,15 @@ def build_dashboard_data():
                     _trend = "Neap"
                 # tie → _trend stays None (transitioning / at peak)
 
+            _note = _tidal_note(_cur_range, _tide_type, _trend, _range_vals)
+
             _tidal_range_info = {
                 "range":     _cur_range,
                 "hw":        round(_next_hw_h, 1),
                 "lw":        round(_next_lw_h, 1),
                 "tide_type": _tide_type,
                 "trend":     _trend,   # "Spring", "Neap", or None
+                "note":      _note,
             }
         t_data["tidal_range"] = _tidal_range_info
 
