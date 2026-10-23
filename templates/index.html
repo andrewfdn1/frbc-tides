@@ -721,19 +721,6 @@
                 </td>
             </tr>
             <tr>
-                <td>Storm</td>
-                <td style="{{ 'opacity:0.35;' if morning_past else '' }}">
-                    {% if d.nswws_morning and 'thunderstorm' in (d.nswws_morning.weather_types or '')|lower %}<span class="c-{{ d.nswws_morning.level|lower }}">{{ d.nswws_morning.level }} Storm</span>
-                    {% elif m and m.storm %}<span class="c-red">Forecast</span>
-                    {% else %}<span class="c-dim">None</span>{% endif %}
-                </td>
-                <td>
-                    {% if d.nswws_afternoon and 'thunderstorm' in (d.nswws_afternoon.weather_types or '')|lower %}<span class="c-{{ d.nswws_afternoon.level|lower }}">{{ d.nswws_afternoon.level }} Storm</span>
-                    {% elif a and a.storm %}<span class="c-red">Forecast</span>
-                    {% else %}<span class="c-dim">None</span>{% endif %}
-                </td>
-            </tr>
-            <tr>
                 <td>Air+Water Temp</td>
                 <td style="{{ 'opacity:0.35;' if morning_past else '' }}">
                     {% if m and m.temp_min is not none and d.thames_temp %}
