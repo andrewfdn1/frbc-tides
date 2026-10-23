@@ -2458,6 +2458,8 @@ td { padding:5px 12px 5px 0; border-bottom:1px solid #141414; vertical-align:top
 .st-ok { color:#2a2a2a; }
 .past-yes { color:#FFC233; font-weight:bold; }
 .dim { color:#666; }
+.outlet-link { color:#fff; text-decoration:none; border-bottom:1px dotted #555; }
+.outlet-link:hover { color:#33FF57; border-bottom-color:#33FF57; }
 .empty { color:#2a2a2a; font-size:0.78em; font-style:italic; padding:4px 0 8px; }
 </style>
 </head>
@@ -2479,7 +2481,7 @@ td { padding:5px 12px 5px 0; border-bottom:1px solid #141414; vertical-align:top
   <tbody>
   {% for s in g.stations %}
   <tr>
-    <td class="name">{{ s.name }}{% if s.water %} <span class="dim">&middot; {{ s.water }}</span>{% endif %}</td>
+    <td class="name">{% if s.permit %}<a class="outlet-link" href="https://water-watch.co.uk/site/{{ s.permit }}" target="_blank" rel="noopener">{{ s.name }}</a>{% else %}{{ s.name }}{% endif %}{% if s.water %} <span class="dim">&middot; {{ s.water }}</span>{% endif %}</td>
     <td class="r {% if s.secs_48h > 0 %}st-discharging{% else %}st-ok{% endif %}">{{ s.hours_48h }}</td>
     <td class="r dim">{% if s.last_start %}{{ s.last_start }}{% if s.last_stop %}&ndash;{{ s.last_stop }}{% else %} (ongoing){% endif %}{% else %}&mdash;{% endif %}</td>
     <td class="r dim">{{ s.km if s.km is not none else '&mdash;' }}</td>
