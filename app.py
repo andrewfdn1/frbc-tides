@@ -1774,6 +1774,7 @@ def build_dashboard_data():
         threading.Thread(target=run, args=('calendar',      get_calendar_events)),
         threading.Thread(target=run, args=('pla_flag',      get_pla_flag)),
         threading.Thread(target=run, args=('weather',       get_weather)),
+        threading.Thread(target=run, args=('daily_weather', get_daily_weather_14d)),
         threading.Thread(target=run, args=('kingston_flow', get_kingston_flow)),
         threading.Thread(target=run, args=('richmond_lw',   get_richmond_observed_low_tide)),
         threading.Thread(target=run, args=('thames_temp', get_thames_temperature)),
@@ -2065,8 +2066,47 @@ def build_dashboard_data():
     if not cal_is_tomorrow:
         _markers = _filter_recent(_markers, cal_now_min)
 
+    # Compact 7-day wind bars under the radar. get_daily_weather_14d() reports
+    # mph, so km/h is mph x 1.609344. Gusts are a marker on the same bar.
+    daily_w, _daily_w_up = results.get('daily_weather', (None, ''))
+    daily_w = daily_w or {}
+    wind_week = []
+    for i in range(7):
+        _d = now_lon.date() + timedelta(days=i)
+        _w = daily_w.get(_d.isoformat()) or {}
+        _wind_mph = _w.get('wind')
+        _gust_mph = _w.get('gusts')
+        _wind_kmh = round(_wind_mph * 1.609344) if _wind_mph is not None else None
+        _gust_kmh = round(_gust_mph * 1.609344) if _gust_mph is not None else None
+        if _wind_kmh is None:
+            _band = ""
+        elif _wind_kmh < 15:
+            _band = "green"
+        elif _wind_kmh < 30:
+            _band = "yellow"
+        elif _wind_kmh < 45:
+            _band = "orange"
+        else:
+            _band = "red"
+        wind_week.append({
+            "day":      _d.strftime('%a'),
+            "date":     _d.strftime('%-d %b'),
+            "wind_mph": _wind_mph,
+            "wind_kmh": _wind_kmh,
+            "gust_mph": _gust_mph,
+            "gust_kmh": _gust_kmh,
+            "band":     _band,
+        })
+
+    _wind_vals = [v for w in wind_week for v in (w['wind_kmh'], w['gust_kmh']) if v is not None]
+    _wind_scale = max(20, int(math.ceil(max(_wind_vals or [20]) / 10.0) * 10))
+    for _w in wind_week:
+        _w['wind_pct'] = round(100 * _w['wind_kmh'] / _wind_scale) if _w['wind_kmh'] is not None else 0
+        _w['gust_pct'] = round(100 * _w['gust_kmh'] / _wind_scale) if _w['gust_kmh'] is not None else 0
+
     return {
         "tides":               t_data,
+        "wind_week":           wind_week,
         "pla_flag":            pla_f,
         "pla_updated":         pla_u,
         "richmond_readings":   lw_readings,

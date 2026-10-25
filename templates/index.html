@@ -142,8 +142,8 @@
         }
 
         .pla-flag-iframe {
-            width: clamp(120px, 16vw, 200px);
-            height: clamp(140px, 18vw, 220px);
+            width: clamp(108px, 14.4vw, 180px);
+            height: clamp(126px, 16.2vw, 198px);
             border: none;
             flex-shrink: 0;
             display: block;
@@ -230,6 +230,13 @@
             vertical-align: top;
         }
 
+        .weather-table td,
+        .weather-table th {
+            line-height: 1.1;
+            padding-top: 1px;
+            padding-bottom: 1px;
+        }
+
         .cal-event {
             margin-bottom: clamp(3px, 0.4vw, 6px);
             font-size: var(--fs-data);
@@ -304,12 +311,12 @@
         #radar-map {
             width: 100%;
             border: 1px solid #333;
-            height: clamp(160px, 18vw, 280px);
+            height: clamp(130px, 13vw, 200px);
         }
 
         @media (orientation: portrait) {
             #radar-map {
-                height: 40vw;
+                height: clamp(120px, 32vw, 190px);
             }
         }
 
@@ -355,6 +362,106 @@
             display: flex;
             align-items: center;
             gap: 3px;
+        }
+
+        /* Compact 7-day wind bars under the radar */
+        .wind-week {
+            border-top: 1px solid #222;
+            padding-top: 5px;
+            margin: 0 0 5px;
+        }
+
+        .wind-week-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 8px;
+            flex-wrap: wrap;
+            font-size: var(--fs-header);
+            font-weight: bold;
+            text-transform: uppercase;
+            color: #fff;
+            margin-bottom: 3px;
+        }
+
+        .wind-week-units {
+            font-size: var(--fs-updated);
+            font-weight: normal;
+            color: #666;
+            letter-spacing: 0.04em;
+        }
+
+        .wind-week-bars {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+        }
+
+        .wind-day {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 0;
+        }
+
+        .wind-vals {
+            font-size: clamp(8px, 0.7vw, 10px);
+            line-height: 1.2;
+            text-align: center;
+            white-space: nowrap;
+            margin-bottom: 2px;
+        }
+
+        .wind-kmh {
+            display: block;
+            color: #fff;
+        }
+
+        .wind-mph {
+            display: block;
+            color: #999;
+        }
+
+        .wind-vals small {
+            font-size: 0.82em;
+            color: #777;
+            font-weight: normal;
+        }
+
+        .wind-track {
+            position: relative;
+            width: 100%;
+            height: 52px;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            border-bottom: 1px solid #333;
+        }
+
+        .wind-bar {
+            width: 62%;
+            min-height: 2px;
+            border-radius: 2px 2px 0 0;
+        }
+
+        .wind-bar.green  { background: #22c55e; }
+        .wind-bar.yellow { background: #eab308; }
+        .wind-bar.orange { background: #f97316; }
+        .wind-bar.red    { background: #ef4444; }
+
+        .wind-gust {
+            position: absolute;
+            left: 14%;
+            right: 14%;
+            height: 0;
+            border-top: 1px dashed rgba(255,255,255,0.7);
+        }
+
+        .wind-day-label {
+            font-size: clamp(8px, 0.7vw, 10px);
+            color: #888;
+            text-transform: uppercase;
+            margin-top: 2px;
         }
     </style>
 </head>
@@ -599,7 +706,7 @@
     {% set a = d.weather.afternoon if not d.weather.error else none %}
 
     {% set morning_past = (d.weather.day_label != 'TOMORROW') and (d.last_updated[:2]|int >= 12) %}
-    <table class="wx-table">
+    <table class="wx-table weather-table">
         <thead>
             <tr>
                 <th></th>
@@ -779,6 +886,37 @@
             </div>
         </div>
     </div>
+
+    <div class="wind-week">
+        <div class="wind-week-head">
+            <span>Wind &mdash; 7 days</span>
+            <span class="wind-week-units">km/h / mph &middot; gust marker</span>
+        </div>
+        <div class="wind-week-bars">
+            {% for w in d.wind_week %}
+            <div class="wind-day"{% if w.gust_kmh is not none %} title="{{ w.date }}: wind {{ w.wind_kmh }} km/h ({{ w.wind_mph }} mph), gust {{ w.gust_kmh }} km/h ({{ w.gust_mph }} mph)"{% endif %}>
+                <div class="wind-vals">
+                    {% if w.wind_kmh is not none %}
+                    <span class="wind-kmh">{{ w.wind_kmh }} <small>km/h</small></span>
+                    <span class="wind-mph">{{ w.wind_mph }} <small>mph</small></span>
+                    {% else %}
+                    <span class="wind-mph">&mdash;</span>
+                    {% endif %}
+                </div>
+                <div class="wind-track">
+                    {% if w.wind_kmh is not none %}
+                    <div class="wind-bar {{ w.band }}" style="height: {{ w.wind_pct }}%;"></div>
+                    {% if w.gust_kmh is not none %}
+                    <div class="wind-gust" style="bottom: {{ w.gust_pct }}%;"></div>
+                    {% endif %}
+                    {% endif %}
+                </div>
+                <div class="wind-day-label">{{ w.day }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
     <p class="wx-source" id="radar-updated">Loading radar...</p>
 </div>
 
