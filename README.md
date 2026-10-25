@@ -1,6 +1,17 @@
 # ROWING SAFETY DASHBOARD
 
-A real-time weather and tide monitoring dashboard for Fulham Reach Boat Club, displaying critical river conditions, weather forecasts, water quality, and club events. Dashboard data (tides, weather, flags, calendar, water quality) is fetched server-side and rendered as HTML. The rain radar and wind-arrow map overlay are the exception — those are fetched client-side (Leaflet + RainViewer + `/api/wind`) so the map can refresh independently of the page.
+A real-time weather and tide monitoring dashboard for Fulham Reach Boat Club, displaying critical river conditions, weather forecasts, water quality, and club events. Dashboard data (tides, weather, flags, calendar, water quality) is fetched server-side and rendered as HTML. Two things refresh independently client-side: the rain radar / wind-arrow map (Leaflet + RainViewer + `/api/wind`), and the closest-lightning line (`/api/lightning`), which is fed by a background Blitzortung websocket thread.
+
+## Current State (2026-10-25)
+
+Recently shipped:
+- **Closest lightning** line (`/api/lightning`) from the public Blitzortung websocket — 30-minute rolling window, flashes red below 100 km.
+- **Club Diary rework** — clock-first heading, events ended >1 h ago removed, event-driven switch to Tomorrow, current-window-only 🟥/🟨 markers.
+- **Richmond / Kingston rework** — 12–24 h low-water readings, measurement-time freshness, BST/GMT labels; next-flag prediction and the PLA-JSON crosscheck removed.
+- **Weather table** — Storm and "Met Office Warning" rows removed; section headings link to their source pages; NSWWS warning lines link to the Met Office warnings page.
+- **Water quality** — each CSO outfall links to its Water Watch site page; spring/neap note shortened.
+
+Open work is tracked in `PLAN.md` (local working note, not committed).
 
 ## Dashboard Overview
 
@@ -9,11 +20,11 @@ The dashboard displays real-time information in a three-column layout (landscape
 **Column 1 - River Conditions:**
 - **Hammersmith Tides** - Current tide direction (FLOOD/EBB), time until next tide, upcoming tide schedule with heights
 - **Bridge Tides** - Predicted times at Putney, Hammersmith, Chiswick and Richmond, derived as fixed minute offsets from the Hammersmith prediction
-- **Spring/Neap Trend** - "Moving to Spring/Neap tides" indicator computed from the tidal range trend over the last 7 days
-- **PLA Ebb Flag** - Port of London Authority flag status with associated safety text, plus a Richmond low tide crosscheck line. The flag image links to the PLA ebb tide flag warning page. A "sources disagree" warning is shown if the widget scrape, Richmond fallback and PLA JSON crosscheck don't all agree
-- **Richmond Low Tide** - Lowest observed tide in the 12 hours before the current flag slot, colour-coded by PLA thresholds; with a next-flag prediction if a low tide has been recorded since the current flag was set
-- **Kingston Flow** - River flow rate at Kingston with threshold-based colour coding
-- **Water Quality** - Live CSO/sewage-spill status for the local waterways (Thames Water Open Data API) plus E. coli readings, with a grouped detail page at `/waterquality`
+- **Spring/Neap** - short note under the tide table: `Moving to spring tides` / `Moving to neap tides`, or `Spring tide` / `Neap tide` when within 0.2 m of the window peak
+- **PLA Ebb Flag** - Port of London Authority flag status with associated safety text. The flag image links to the PLA ebb tide flag warning page. Falls back to the Richmond-derived colour if the widget cannot be scraped
+- **Richmond Low Tide** - every observed low water from 12 h before the current flag slot up to now (12–24 h window, 1–3 readings), colour-coded by PLA thresholds
+- **Kingston Flow** - River flow at Kingston with threshold colouring and a freshness check on the measurement itself (stale if > 1 h old)
+- **Water Quality** - Live CSO/sewage-spill status for the local waterways (Thames Water Open Data API) plus E. coli readings, with a grouped detail page at `/waterquality`; each outfall there links to its Water Watch site page
 
 **Column 2 - Weather & Hazards:**
 - **Weather Forecast** - Morning (0600-1200) and afternoon (1200-2000) windows. The heading is "WEATHER TODAY" by default and switches to "WEATHER TOMORROW" after 20:00 (showing tomorrow's same two windows, with tomorrow's sunrise/sunset), reverting at midnight. Showing:
@@ -21,19 +32,19 @@ The dashboard displays real-time information in a three-column layout (landscape
   - Wind speed and gusts with direction
   - Rain probability
   - UV index
-  - Fog and storm indicators
+  - Fog indicator
   - Air + Water temperature sum (cold water risk)
-- **Met Office Warnings** - NSWWS severe weather warnings by time period, plus a 7-day-lookahead list of warnings not yet active today
+- **Met Office Warnings** - NSWWS severe weather warnings by time period, plus a 7-day-lookahead list of warnings not yet active today. Each current/upcoming warning line links to the Met Office warnings page
+- **Closest Lightning** - closest Blitzortung strike to Hammersmith in the last 30 min (e.g. `Closest lightning 1331.4 km at 11:57`); flashes red under 100 km. Links to maps.blitzortung.org
 - **Rain Radar & Wind Map** - Leaflet map with a RainViewer radar overlay and a 4x4 wind-arrow grid, refreshed client-side (radar every 5 minutes, wind hourly)
 
 **Column 3 - Club Diary:**
-- **Calendar Events** - Today's (or tomorrow's after 20:00) club sessions with times, interleaved with tide/sunrise/sunset markers (the whole column — heading and tide/sun markers — looks ahead to tomorrow after 20:00, reverting to today at midnight)
-- Live clock in the column header
+- **Club Diary** - today's club sessions, switching to tomorrow as soon as today's diary has finished (no timed session still to run; an all-day session keeps it on today). Heading shows the live clock first, then `TODAY`/`TOMORROW`
+- Events that ended more than an hour ago are removed; those that ended within the last hour stay greyed, so the column shows current + remaining only
+- Tide, sunrise and sunset markers follow the diary's day and expire the same way
 - Auto-shrinking text, then auto-scrolling, in landscape mode when events overflow
-- Past events dimmed
 
-**Footer:**
-- System status, timezone (BST/GMT), and last update timestamp
+Section headings (Tide, PLA, Water Quality, Weather, Radar) link to their source pages; the Club Diary heading does not.
 
 ## Data Sources and APIs
 
@@ -58,8 +69,9 @@ The dashboard displays real-time information in a three-column layout (landscape
 
 | API | Purpose |
 |-----|---------|
-| **Port of London Authority** | Ebb tide flag (widget scrape + JSON endpoint crosscheck), Richmond observed low tide chart |
+| **Port of London Authority** | Ebb tide flag (widget scrape; Richmond fallback), Richmond observed low tide chart |
 | **Environment Agency** | Kingston river flow, Thames water temperature |
+| **Blitzortung.org (public WSS)** | Global lightning strikes feeding the closest-lightning line (server-side websocket, no key) |
 | **Thames Water Open Data API v2** | Live CSO/EDM discharge status (`discharge/status?limit=1000`, one call) — open, no key |
 | **Google Sheets (CSV export)** | E. coli water-quality readings for FRBC and PTRC monitoring sites |
 | **RainViewer** | Rain radar tile overlay (fetched client-side) |
@@ -79,9 +91,9 @@ All API responses are cached in memory with per-source TTL (time-to-live):
 | Calendar (today) | 30 minutes | Events change infrequently |
 | Calendar (14-day agenda) | 30 minutes | Events change infrequently |
 | PLA Flag | 15-minute window | Re-scrapes at most once per 15-minute slot, all day |
-| PLA JSON (crosscheck) | 5 minutes | Independent check against the widget/Richmond-derived colour |
-| Richmond Observed Low Tide | 1 minute | Needs to catch a new low tide reading quickly for next-flag prediction |
-| Kingston Flow | 15 minutes | River conditions change moderately |
+| Richmond Observed Low Tide | 1 minute | Needs to pick up a new low-water reading quickly |
+| Kingston Flow | 15 minutes | River conditions change moderately; staleness is judged on the reading's own timestamp |
+| Lightning | live (rolling 30 min) | Background Blitzortung websocket thread; the dashboard reads an in-memory snapshot |
 | Thames Temp | 15 minutes | Water temperature changes slowly |
 | NSWWS Warnings | 15 minutes | Warnings updated regularly |
 | CSO discharge hours | 15 minutes | Source updates ~every 30 min; status + 48h alerts pull |
@@ -90,8 +102,8 @@ All API responses are cached in memory with per-source TTL (time-to-live):
 
 ### Parallel Fetching
 
-All data sources are fetched concurrently using threads to minimise page load time. The `build_dashboard_data()` function spawns 11 threads for:
-- Tides, Calendar, PLA Flag, PLA JSON (crosscheck), Weather, Kingston Flow, Richmond LW, Thames Temp, NSWWS, Water Quality, CSO Status
+All data sources are fetched concurrently using threads to minimise page load time. The `build_dashboard_data()` function spawns 10 threads for:
+- Tides, Calendar, PLA Flag, Weather, Kingston Flow, Richmond LW, Thames Temp, NSWWS, Water Quality, CSO Status
 
 ### Weather Fallback Chain
 
@@ -114,22 +126,18 @@ The `/calendar` page's 14-day daily summary is built from the Met Office site-sp
 The flag colour is determined by a fallback chain, attempted when the 15-minute cache slot expires:
 
 1. **PLA widget scrape** (primary) — the app scrapes the PLA's own ebb-tide-flag widget embed page for the current flag colour. The heading/body text is preferred over the image filename when they disagree.
-2. **Richmond gauge fallback** — if the widget scrape fails, the colour is derived from the Richmond observed low tide that applies to the current flag slot time (06:00 or 18:00). This replicates what the PLA would have seen when setting the flag. A "double check with PLA" warning is shown when this source is used.
+2. **Richmond gauge fallback** — if the widget scrape fails, the colour is derived from the lowest Richmond observed low tide in the 12 hours before the current flag slot (06:00 or 18:00). This replicates what the PLA would have seen when setting the flag.
 3. **Error state** — if both sources fail and there is no stale cache, a warning message is shown in place of the flag.
 
-The PLA JSON endpoint (`pla.co.uk/pla-proxy/five-minute?url=tides/ebb-flag`) is **not** part of this fallback chain — it's fetched independently as a crosscheck and compared against the widget/Richmond-derived colour. If the sources disagree, a blinking "sources disagree" warning is shown.
+There is **no** separate crosscheck and no "sources disagree" banner (removed Oct 2026). The only flag/feed warnings are the blocked/blank ones described below.
 
-One crosscheck line is displayed beneath the flag:
-- **Richmond low tide prior to flag** — the time and height of the observed low tide the PLA used when setting the current flag
+### Richmond Low Tide Display
 
-(The PLA JSON endpoint still feeds the backend "sources disagree" check, but is no longer shown as a display row.)
+A single API call to `pla.co.uk/pla-proxy/one-minute?url=tides/chart/14541` returns all Richmond observed tidal records.
 
-### Richmond Low Tide Display and Next-Flag Prediction
+The dashboard lists **every observed low water** from 12 hours before the current flag slot time (06:00 or 18:00) up to now. That window is therefore 12–24 hours long and normally contains 1–3 readings, oldest first. Each reading is coloured with the thresholds below (PLA "black" is rendered grey so it is visible on the black background). Timestamps carry a BST/GMT label, and a reading from the previous day is marked as such.
 
-A single API call to `pla.co.uk/pla-proxy/one-minute?url=tides/chart/14541` returns all Richmond observed tidal records. These are split into two buckets relative to the current flag slot time (06:00 or 18:00):
-
-- **before_flag** — the **lowest** low tide reading in the 12 hours before the flag slot (the PLA sets the flag from the lowest reading in that window, not simply the most recent one). Displayed in the Richmond Low Tide section as what the PLA saw, and used by the Richmond fallback if the widget scrape fails.
-- **after_flag** — the most recent low tide after the flag slot, if any. This is new data the PLA has not yet acted on and is used to predict the next flag colour and slot time (6am or 6pm). If no low tide has occurred since the flag was set, no prediction is shown.
+If the feed is blocked or returns no readings, the row shows **"Richmond low tide data unavailable — check data with PLA"**. There are no discrepancy warnings.
 
 ### Richmond Flag Colour Thresholds
 
@@ -140,12 +148,16 @@ A single API call to `pla.co.uk/pla-proxy/one-minute?url=tides/chart/14541` retu
 | ≥ 0m | Green |
 | < 0m | Black |
 
-### Kingston Flow Thresholds
+### Kingston Flow
 
-River flow colour coding:
-- **Red**: > 120 m³/s (dangerous)
+Source: Environment Agency measure `3400TH-flow-water-i-15_min-m3_s` (`?_sorted&_limit=1`), rounded to whole m³/s. The dashboard shows the **measurement time** (BST/GMT), not the fetch time, and marks the reading stale if it is more than an hour old (or has no usable timestamp) — the EA feed keeps serving the last value when a gauge goes offline.
+
+Colour coding:
+- **Red**: > 120 m³/s (dangerous), or stale
 - **Yellow**: ≥ 80 m³/s (caution)
 - **White**: < 80 m³/s (normal)
+
+If the feed is blocked or blank, the row shows **"Kingston Flow unavailable — check data with PLA"**.
 
 ### NSWWS Warning Processing
 
@@ -168,13 +180,13 @@ Air temperature + water temperature sum displayed with red warning if < 14°C.
 - **E. coli readings** — `get_water_quality()` reads FRBC and PTRC monitoring-site CSV exports from Google Sheets and derives a risk colour per reading. Shown in the dashboard's Water Quality tile and on `/waterquality`.
 - The homepage Water Quality tile shows each reach's **total discharge hours in the last 48h** (e.g. "1h 30m") beside the E. coli readings; `/waterquality` shows the full grouped tables with per-outfall 48h hours.
 
-### Calendar Logic
+### Club Diary Logic
 
-- Fetches events for current day
-- After 20:00, switches to show tomorrow's events (and the column's tide/sun markers follow the same day)
-- Displays time ranges or "All Day"
-- Interleaves tide, sunrise and sunset markers among the day's events
-- Past events dimmed based on current time
+- Fetches today's events, and tomorrow's once today's diary has finished — i.e. no timed event is still to run. Any all-day event keeps it on today; a day with no events at all moves to tomorrow.
+- Heading shows the live clock first, then `TODAY`/`TOMORROW`.
+- Events that ended more than an hour ago are dropped; events that ended within the last hour stay greyed. Running and upcoming events are normal.
+- Tide, sunrise and sunset markers follow the diary's day and expire the same way.
+- Hazard markers (🟥/🟨) use only the current flag window.
 
 ## File Structure
 
@@ -196,6 +208,10 @@ frbc-tides/
     ├── site.webmanifest
     └── web-app-manifest-192x192.png / web-app-manifest-512x512.png
 ```
+
+Working notes kept beside the code but **excluded from git** (`.git/info/exclude`), so they do not travel with a clone:
+- `AGENTS.md` — agent/contributor workflow, approval rule, auth, deploy notes
+- `PLAN.md` — open items
 
 ## Environment Variables
 
@@ -255,7 +271,8 @@ This service is **dashboard-managed** on Render (there is no `render.yaml`):
 - `GET /distances` - FRBC rowing distances
 - `GET /api/nswws-status` - Diagnostic endpoint for NSWWS connectivity
 - `GET /api/wind` - JSON wind-grid data for the radar map's wind-arrow overlay
-- `GET /api/overlay` - Compact JSON summary (PLA flag colour, next tide label/time, pontoon warning) for external/embedded consumers
+- `GET /api/lightning` - Closest lightning strike to Hammersmith in the last 30 min (JSON: message, distance, time, danger flag)
+- `GET /api/overlay` - Compact JSON summary (PLA flag colour, next tide label/time) for external/embedded consumers
 - `GET /waterquality` - CSO spill status grouped by reach (Upstream of Teddington / Tideway to Putney / Downstream) plus FRBC/PTRC E. coli readings
 
 ## Key Features
@@ -267,5 +284,6 @@ This service is **dashboard-managed** on Render (there is no `render.yaml`):
 - **Threaded fetching** - 10 parallel API calls for fast page loads
 - **Opt-in cache pre-warming** - off by default; enable with `ENABLE_PREWARM=1`
 - **Weather chain** - Met Office DataHub → WeatherAPI (no Open-Meteo)
-- **Water quality** - live CSO spill status for the local waterways (single Thames Water API call, no key) plus FRBC/PTRC E. coli readings
-- **Source-disagreement warnings** - flags when the PLA widget scrape, Richmond fallback, and PLA JSON crosscheck don't agree on the current flag colour
+- **Water quality** - live CSO spill status for the local waterways (single Thames Water API call, no key) plus FRBC/PTRC E. coli readings; outfalls link to Water Watch
+- **Closest lightning** - Blitzortung websocket, rolling 30-min window, red below 100 km
+- **Linked sources** - section headings, NSWWS warning lines and CSO outfalls link to their source pages
